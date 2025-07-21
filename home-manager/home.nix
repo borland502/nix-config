@@ -109,6 +109,18 @@
     usbutils # lsusb
   ];
 
+  programs.eza = {
+    enableZshIntegration = true;
+    colors = "always";
+    git = true;
+    icons = "always";
+  };
+
+  programs.fzf = {
+    enable = true;
+    enableZshIntegration = true; # enable zsh integration
+  };
+
   programs.git = {
     enable = true;
     userName = "Jeremy Hettenhouser";
