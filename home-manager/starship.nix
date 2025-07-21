@@ -5,7 +5,7 @@
         add_newline = true;
         command_timeout = 500;
         continuation_prompt = "[∙](bright-black) ";
-        format = "$os$username$hostname$directory$localip$shlvl$singularity$kubernetes$directory$vcsh$fossil_branch$fossil_metrics$git_commit$git_state$git_metrics$git_status$hg_branch$pijul_channel$docker_context$git_branch$package$c$cmake$cobol$daml$dart$deno$dotnet$elixir$elm$erlang$fennel$gleam$golang$guix_shell$haskell$haxe$helm$java$julia$kotlin$gradle$lua$nim$nodejs$ocaml$opa$perl$php$pulumi$purescript$python$quarto$raku$rlang$red$ruby$rust$scala$solidity$swift$terraform$typst$vlang$vagrant$zig$buf$nix_shell$conda$meson$spack$memory_usage$aws$gcloud$openstack$azure$nats$direnv$env_var$crystal$custom$sudo$cmd_duration$line_break$jobs$battery$time$status$container$shell$character";
+        format = "$os$username$hostname$directory$localip$shlvl$singularity$kubernetes$vcsh$fossil_branch$fossil_metrics$git_commit$git_state$git_metrics$git_status$hg_branch$pijul_channel$docker_context$git_branch$package$c$cmake$cobol$daml$dart$deno$dotnet$elixir$elm$erlang$fennel$gleam$golang$guix_shell$haskell$haxe$helm$java$julia$kotlin$gradle$lua$nim$nodejs$ocaml$opa$perl$php$pulumi$purescript$python$quarto$raku$rlang$red$ruby$rust$scala$solidity$swift$terraform$typst$vlang$vagrant$zig$buf$nix_shell$conda$meson$spack$memory_usage$aws$gcloud$openstack$azure$nats$direnv$env_var$crystal$custom$sudo$cmd_duration$line_break$jobs$battery$time$status$container$character";
         right_format = "";
         scan_timeout = 30;
         
@@ -29,8 +29,8 @@
         character = {
           format = "$symbol ";
           disabled = false;
-          success_symbol = "[](bold green) ";
-          error_symbol = "[]](bold red) ";
+          success_symbol = "[](#a9dc76) ";
+          error_symbol = "[](#ff6188)";
         };
         cmake = {
           format = "[$symbol($version )]($style)";
@@ -257,7 +257,7 @@
         git_branch = {
           format = "[$symbol$branch(:$remote_branch)]($style) ";
           symbol = " ";
-          style = "bold purple bg:0xFCA17D";
+          style = "fg:#ab9df2";
           truncation_length = 9223372036854775807;
           truncation_symbol = "…";
           only_attached = false;
@@ -265,10 +265,24 @@
           ignore_branches = [];
           disabled = false;
         };
+        git_status = {
+          format = "[$all_statuses]($style) ";
+          style = "fg:#fc618d";
+          disabled = false;
+          all_statuses = "[$conflicted$modified$staged$untracked$renamed$deleted$copied$ignored]($style)";
+          conflicted = "[✗](bold red)";
+          modified = "[✚](bold yellow)";
+          staged = "[✓](bold green)";
+          untracked = "[?](bold bright-black)";
+          renamed = "[➜](bold cyan)";
+          deleted = "[🗑️ ](bold red)";
+          copied = "[📋](bold blue)";
+          ignored = "[](dimmed bold black)";
+        };
         git_commit = {
           commit_hash_length = 7;
           format = "[($hash$tag)]($style) ";
-          style = "green bold";
+          style = "fg:#78dce8";
           only_detached = true;
           disabled = false;
           tag_symbol = " 🏷  ";
@@ -291,24 +305,7 @@
           merge = "MERGING";
           rebase = "REBASING";
           revert = "REVERTING";
-          style = "bold yellow";
-        };
-        git_status = {
-          ahead = "🏎💨$count";
-          behind = "😰$count";
-          conflicted = "🏳";
-          deleted = "🗑";
-          disabled = false;
-          diverged = "😵";
-          format = "([\[$all_status$ahead_behind\]]($style) )";
-          ignore_submodules = false;
-          modified = "📝";
-          renamed = "👅";
-          staged = "[++($count)](green)";
-          stashed = "📦";
-          style = "fg:#fc618d";
-          untracked = "🤷";
-          up_to_date = "✓";
+          style = "fg:#ffd866";
         };
         golang = {
           format = "[$symbol($version )]($style)";
@@ -443,12 +440,12 @@
         line_break = {
           disabled = false;
         };
-        localip = {
-          disabled = false;
-          format = "[@$localipv4]($style) ";
-          ssh_only = false;
-          style = "yellow bold";
-        };
+        # localip = {
+        #   disabled = false;
+        #   format = "[@$localipv4]($style) ";
+        #   ssh_only = false;
+        #   style = "yellow bold";
+        # };
         lua = {
           format = "[$symbol($version )]($style)";
           version_format = "v$raw";

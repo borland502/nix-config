@@ -118,18 +118,7 @@
   # starship - an customizable prompt for any shell
   programs.starship = import ./starship.nix;
 
-  programs.zsh = {
-    enable = true;
-    enableCompletion = true;
-    autosuggestion.enable = true;
-    syntaxHighlighting.enable = true;
-
-    shellAliases = {
-      ll = "ls -l";
-      update = "sudo nixos-rebuild switch";
-    };
-    history.size = 10000;
-  };
+  programs.zsh = import ./zsh.nix;
 
   programs.vscode = {
    enable = true;
