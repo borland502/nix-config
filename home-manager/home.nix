@@ -52,6 +52,7 @@
     p7zip
 
     # utils
+    bat
     ripgrep # recursively searches directories for a regex pattern
     fd
     jq # A lightweight and flexible command-line JSON processor
@@ -112,6 +113,8 @@
     pciutils # lspci
     usbutils # lsusb
   ];
+
+  programs.bat = { enable = true; };
 
   programs.eza = {
     enableZshIntegration = true;
