@@ -21,11 +21,11 @@
 
   xdg = {
     portal = {
-     enable = true;
-     extraPortals = with pkgs; [
-      xdg-desktop-portal-wlr
-      xdg-desktop-portal-gtk
-     ];
+      enable = true;
+      extraPortals = with pkgs; [
+        xdg-desktop-portal-wlr
+        xdg-desktop-portal-gtk
+      ];
     };
   };
 
@@ -64,12 +64,16 @@
     # networking tools
     mtr # A network diagnostic tool
     iperf3
-    dnsutils  # `dig` + `nslookup`
+    dnsutils # `dig` + `nslookup`
     ldns # replacement of `dig`, it provide the command `drill`
     aria2 # A lightweight multi-protocol & multi-source command-line download utility
     socat # replacement of openbsd-netcat
     nmap # A utility for network discovery and security auditing
-    ipcalc  # it is a calculator for the IPv4/v6 addresses
+    ipcalc # it is a calculator for the IPv4/v6 addresses
+
+    # formatters
+    nixfmt # A formatter for Nix code
+    shfmt # A shell script formatter
 
     # misc
     cowsay
@@ -92,7 +96,7 @@
     hugo # static site generator
     glow # markdown previewer in terminal
 
-    btop  # replacement of htop/nmon
+    btop # replacement of htop/nmon
     iotop # io monitoring
     iftop # network monitoring
 
@@ -116,6 +120,12 @@
     icons = "always";
   };
 
+  programs.kitty = {
+    enable = true; # enable kitty terminal
+    enableGitIntegration = true; # enable git integration
+    shellIntegration.enableZshIntegration = true; # enable zsh integration
+  };
+
   programs.fzf = {
     enable = true;
     enableZshIntegration = true; # enable zsh integration
@@ -127,17 +137,29 @@
     userEmail = "jhettenh@gmail.com";
   };
 
+  programs.rclone = { enable = true; };
+
   # starship - an customizable prompt for any shell
   programs.starship = import ./starship.nix;
+
+  programs.tealdeer = {
+    enable = true; # enable tealdeer
+    enableAutoUpdates = true; # enable auto updates
+  };
 
   programs.zsh = import ./zsh.nix;
 
   programs.vscode = {
-   enable = true;
-   extensions = with pkgs.vscode-extensions; [
-     yzhang.markdown-all-in-one	
-   ];
+    enable = true;
+    extensions = with pkgs.vscode-extensions; [ yzhang.markdown-all-in-one ];
   };
+
+  services.kdeconnect = {
+    enable = true;
+    indicator = true; # show the indicator in the system tray
+  };
+
+  services.unison = { enable = true; };
 
   # This value determines the home Manager release that your
   # configuration is compatible with. This helps avoid breakage

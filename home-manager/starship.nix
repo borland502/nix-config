@@ -265,20 +265,20 @@
           ignore_branches = [];
           disabled = false;
         };
-        git_status = {
-          format = "[$all_statuses]($style) ";
-          style = "fg:#fc618d";
-          disabled = false;
-          all_statuses = "[$conflicted$modified$staged$untracked$renamed$deleted$copied$ignored]($style)";
-          conflicted = "[✗](bold red)";
-          modified = "[✚](bold yellow)";
-          staged = "[✓](bold green)";
-          untracked = "[?](bold bright-black)";
-          renamed = "[➜](bold cyan)";
-          deleted = "[🗑️ ](bold red)";
-          copied = "[📋](bold blue)";
-          ignored = "[](dimmed bold black)";
-        };
+        # git_status = {
+        #   format = "[$all_statuses]($style) ";
+        #   style = "fg:#fc618d";
+        #   disabled = false;
+        #   all_statuses = "[$conflicted$modified$staged$untracked$renamed$deleted$copied$ignored]($style)";
+        #   conflicted = "[✗](bold red)";
+        #   modified = "[✚](bold yellow)";
+        #   staged = "[✓](bold green)";
+        #   untracked = "[?](bold bright-black)";
+        #   renamed = "[➜](bold cyan)";
+        #   deleted = "[🗑️ ](bold red)";
+        #   copied = "[📋](bold blue)";
+        #   ignored = "[](dimmed bold black)";
+        # };
         git_commit = {
           commit_hash_length = 7;
           format = "[($hash$tag)]($style) ";
