@@ -1,1 +1,0 @@
-hosts/krile/hardware-configuration.nix
