@@ -12,9 +12,14 @@
       # to avoid problems caused by different versions of nixpkgs.
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    plasma-manager = {
+      url = "github:nix-community/plasma-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
   };
 
-  outputs = inputs@{ nixpkgs, home-manager, ... }: {
+  outputs = inputs@{ nixpkgs, home-manager, plasma-manager, ... }: {
     nixosConfigurations = {
       krile = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
@@ -27,6 +32,10 @@
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
+            home-manager.sharedModules = [
+              # Import the plasma-manager module
+              plasma-manager.homeManagerModules.plasma-manager
+            ];
 
             home-manager.users.jhettenh = import ./home-manager/home.nix;
 

@@ -145,6 +145,21 @@
     userEmail = "jhettenh@gmail.com";
   };
 
+  programs.plasma = {
+    enable = true;
+    workspace = {
+      lookAndFeel =
+        "org.kde.breezedark.desktop"; # use breeze as the look and feel
+    };
+
+    fonts = {
+      general = {
+        family = "Fira Code Nerd Font Mono";
+        pointSize = 12; # default font size
+      };
+    };
+  };
+
   programs.rclone = { enable = true; };
 
   # starship - an customizable prompt for any shell
