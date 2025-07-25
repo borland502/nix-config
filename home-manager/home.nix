@@ -38,6 +38,7 @@
     age
 
     # GUI
+    discord
     slack
     vivaldi
     keepassxc
@@ -50,6 +51,10 @@
     xz
     unzip
     p7zip
+
+    # virtualization
+    qemu # QEMU is a generic and open source machine emulator and virtualizer
+    virt-manager # Virtual Machine Manager is a desktop user interface for managing virtual machines through libvirt
 
     # utils
     bat

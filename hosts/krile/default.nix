@@ -5,10 +5,9 @@
 { config, pkgs, ... }:
 
 {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
-    ];
+  imports = [ # Include the results of the hardware scan.
+    ./hardware-configuration.nix
+  ];
 
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
@@ -93,9 +92,9 @@
     enable = true;
 
     defaultFonts = {
-      monospace = ["Fira Code Nerd Font Mono"];
-      sansSerif = ["Fira Sans Nerd Font"];
-      serif = ["Fira Serif Nerd Font"];
+      monospace = [ "Fira Code Nerd Font Mono" ];
+      sansSerif = [ "Fira Sans Nerd Font" ];
+      serif = [ "Fira Serif Nerd Font" ];
     };
   };
 
@@ -105,11 +104,19 @@
     description = "Jeremy Hettenhouser";
     extraGroups = [ "networkmanager" "wheel" ];
     shell = pkgs.zsh;
-    packages = with pkgs; [
-      kdePackages.kate
-    #  thunderbird
-    ];
+    packages = with pkgs;
+      [
+        kdePackages.kate
+        #  thunderbird
+      ];
   };
+
+  programs.virt-manager.enable = true;
+
+  users.groups.libvirtd.members = [ "jhettenh" ];
+  virtualisation.libvirtd.enable = true; # enable libvirt daemon
+  virtualisation.spiceUSBRedirection.enable =
+    true; # enable spice USB redirection
 
   security.sudo.wheelNeedsPassword = false;
 
@@ -119,15 +126,13 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  environment.systemPackages = with pkgs; [
-    vim 
-    wget
-  ];
+  environment.systemPackages = with pkgs; [ vim wget ];
 
-  environment.shells = with pkgs; [
-    # Add your preferred shell here
-    zsh
-  ];
+  environment.shells = with pkgs;
+    [
+      # Add your preferred shell here
+      zsh
+    ];
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
