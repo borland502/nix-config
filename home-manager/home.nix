@@ -170,6 +170,11 @@
     enableAutoUpdates = true; # enable auto updates
   };
 
+  programs.zoxide = {
+    enable = true; # enable zoxide
+    enableZshIntegration = true; # enable zsh integration
+  };
+
   programs.zsh = import ./zsh.nix;
 
   programs.vscode = {
@@ -183,6 +188,10 @@
   };
 
   services.unison = { enable = true; };
+
+  stylix.enable = true; # enable stylix
+  stylix.base16Scheme =
+    ./config/colors/monokai.base16.yaml; # use monokai base16 color scheme
 
   # This value determines the home Manager release that your
   # configuration is compatible with. This helps avoid breakage

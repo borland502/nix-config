@@ -17,9 +17,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
     };
+    stylix = {
+      url = "github:danth/stylix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = inputs@{ nixpkgs, home-manager, plasma-manager, ... }: {
+  outputs = inputs@{ nixpkgs, home-manager, plasma-manager, stylix, ... }: {
     nixosConfigurations = {
       krile = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
@@ -33,6 +37,7 @@
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.sharedModules = [
+              stylix.homeManagerModules.stylix
               # Import the plasma-manager module
               plasma-manager.homeManagerModules.plasma-manager
             ];
