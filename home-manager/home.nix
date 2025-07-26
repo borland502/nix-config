@@ -150,13 +150,6 @@
       lookAndFeel =
         "org.kde.breezedark.desktop"; # use breeze as the look and feel
     };
-
-    fonts = {
-      general = {
-        family = "Fira Code Nerd Font Mono";
-        pointSize = 12; # default font size
-      };
-    };
   };
 
   programs.rclone = { enable = true; };
@@ -188,10 +181,27 @@
 
   services.unison = { enable = true; };
 
-  stylix.enable = true; # enable stylix
-  stylix.base16Scheme =
-    ./config/colors/monokai.base24.yaml; # use monokai base16 color scheme
+  stylix = {
+    enable = true; # enable stylix
+    base16Scheme =
+      ./config/colors/monokai.base24.yaml; # use monokai base16 color scheme
+    targets = {
+      vscode.enable = false;
+      kitty.enable = true; # enable kitty terminal
+      starship.enable = true; # enable starship prompt
+    };
 
+    fonts = {
+      sansSerif = {
+        package = pkgs.nerd-fonts.fira-code;
+        name = "Fira Code Nerd Font";
+      };
+      monospace = {
+        package = pkgs.nerd-fonts.fira-mono;
+        name = "Fira Mono Nerd Font";
+      };
+    };
+  };
   # This value determines the home Manager release that your
   # configuration is compatible with. This helps avoid breakage
   # when a new home Manager release introduces backwards

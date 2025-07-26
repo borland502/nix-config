@@ -77,6 +77,7 @@
     export red="#fc618d"
     export yellow="#fcd566"
     export EDITOR="vim"
+    export TERM="kitty"
     export XDG_BIN_HOME="$HOME/.local/bin"
     export XDG_CACHE_HOME="$HOME/.cache"
     export XDG_CONFIG_HOME="$HOME/.config"
