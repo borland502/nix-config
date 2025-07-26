@@ -3,7 +3,6 @@
 {
   home.username = "jhettenh";
   home.homeDirectory = "/home/jhettenh";
-
   # link the configuration file in current directory to the specified location in home directory
   # home.file.".config/i3/wallpaper.jpg".source = ./wallpaper.jpg;
 
@@ -191,7 +190,7 @@
 
   stylix.enable = true; # enable stylix
   stylix.base16Scheme =
-    ./config/colors/monokai.base16.yaml; # use monokai base16 color scheme
+    ./config/colors/monokai.base24.yaml; # use monokai base16 color scheme
 
   # This value determines the home Manager release that your
   # configuration is compatible with. This helps avoid breakage
