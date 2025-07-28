@@ -42,9 +42,6 @@
     vivaldi
     keepassxc
 
-    neofetch
-    nnn # terminal file manager
-
     # archives
     zip
     xz
@@ -100,6 +97,7 @@
     # productivity
     hugo # static site generator
     glow # markdown previewer in terminal
+    gum
 
     btop # replacement of htop/nmon
     iotop # io monitoring
@@ -127,11 +125,11 @@
     icons = "always";
   };
 
-  programs.kitty = {
-    enable = true; # enable kitty terminal
-    enableGitIntegration = true; # enable git integration
-    shellIntegration.enableZshIntegration = true; # enable zsh integration
-  };
+  # programs.kitty = {
+  #   enable = true; # enable kitty terminal
+  #   enableGitIntegration = true; # enable git integration
+  #   shellIntegration.enableZshIntegration = true; # enable zsh integration
+  # };
 
   programs.fzf = {
     enable = true;

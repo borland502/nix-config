@@ -38,7 +38,7 @@
             home-manager.useUserPackages = true;
             home-manager.backupFileExtension = ".bak3";
             home-manager.sharedModules = [
-              stylix.homeManagerModules.stylix
+              stylix.homeModules.stylix
               # Import the plasma-manager module
               plasma-manager.homeManagerModules.plasma-manager
             ];
