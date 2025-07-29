@@ -217,9 +217,9 @@
       vscode.enable = false;
       kitty.enable = true; # enable kitty terminal
       starship.enable = true; # enable starship prompt
-      gtk.enable = true;
+      gtk.enable = false;
       kde.enable = false;
-      qt.enable = true;
+      qt.enable = false;
     };
 
     fonts = {
