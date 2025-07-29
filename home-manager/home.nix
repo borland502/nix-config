@@ -116,7 +116,26 @@
     usbutils # lsusb
   ];
 
+  fonts.fontconfig = {
+    enable = true;
+
+    defaultFonts = {
+      monospace = [ "Fira Code Nerd Font Mono" ];
+      sansSerif = [ "Fira Sans Nerd Font" ];
+    };
+  };
+
   programs.bat = { enable = true; };
+
+  programs.bun = {
+    enable = true;
+    enableGitIntegration = true;
+  };
+
+  programs.dircolors = {
+    enable = true;
+    enableZshIntegration = true;
+  };
 
   programs.eza = {
     enableZshIntegration = true;
@@ -125,11 +144,9 @@
     icons = "always";
   };
 
-  # programs.kitty = {
-  #   enable = true; # enable kitty terminal
-  #   enableGitIntegration = true; # enable git integration
-  #   shellIntegration.enableZshIntegration = true; # enable zsh integration
-  # };
+  programs.fd = {
+    enable = true;
+  };
 
   programs.fzf = {
     enable = true;
@@ -141,6 +158,25 @@
     userName = "Jeremy Hettenhouser";
     userEmail = "jhettenh@gmail.com";
   };
+
+  programs.jq = {
+    enable = true;
+  };
+
+  programs.keepassxc = {
+    enable = true;
+    settings = {
+      Browser.Enabled = true;
+
+      GUI = {
+        AdvancedSettings = true;
+        ApplicationTheme = "dark";
+      };
+
+      SSHAgent.Enabled = true;
+    };
+  };
+
 
   programs.plasma = import ./plasma.nix;
 
@@ -173,27 +209,31 @@
 
   services.unison = { enable = true; };
 
-  # stylix = {
-  #   enable = true; # enable stylix
-  #   base16Scheme =
-  #     ./config/colors/monokai.base24.yaml; # use monokai base24 color scheme
-  #   targets = {
-  #     vscode.enable = false;
-  #     kitty.enable = true; # enable kitty terminal
-  #     starship.enable = true; # enable starship prompt
-  #   };
+  stylix = {
+    enable = true; # enable stylix
+    base16Scheme =
+      ./config/colors/monokai.base24.yaml; # use monokai base24 color scheme
+    targets = {
+      vscode.enable = false;
+      kitty.enable = true; # enable kitty terminal
+      starship.enable = true; # enable starship prompt
+      gtk.enable = true;
+      kde.enable = false;
+      qt.enable = true;
+    };
 
-  #   fonts = {
-  #     sansSerif = {
-  #       package = pkgs.nerd-fonts.fira-code;
-  #       name = "Fira Code Nerd Font";
-  #     };
-  #     monospace = {
-  #       package = pkgs.nerd-fonts.fira-mono;
-  #       name = "Fira Mono Nerd Font";
-  #     };
-  #   };
-  # };
+    fonts = {
+      sansSerif = {
+        package = pkgs.nerd-fonts.fira-code;
+        name = "Fira Code Nerd Font";
+      };
+      monospace = {
+        package = pkgs.nerd-fonts.fira-mono;
+        name = "Fira Mono Nerd Font";
+      };
+    };
+  };
+
   # This value determines the home Manager release that your
   # configuration is compatible with. This helps avoid breakage
   # when a new home Manager release introduces backwards
