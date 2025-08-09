@@ -41,7 +41,7 @@
     llm = "eza --all --header --long --sort=modified $eza_params";
     la = "eza -lbhHigUmuSa --git --color-scale --icons"; # all list
     lx = "eza -lbhHigUmuSa@ --git --color-scale --icons"; # all + extended list
-    update = "sudo nixos-rebuild switch";
+    update = "sudo nixos-rebuild switch --upgrade";
   };
 
   envExtra = ''

@@ -35,11 +35,11 @@
 
     # Encryption
     age
+    cacert
 
     # GUI
     discord
     slack
-    vivaldi
     keepassxc
 
     # archives
@@ -148,6 +148,10 @@
     enable = true;
   };
 
+  programs.firefox = {
+    enable = true;
+  };
+
   programs.fzf = {
     enable = true;
     enableZshIntegration = true; # enable zsh integration
@@ -217,9 +221,12 @@
       vscode.enable = false;
       kitty.enable = true; # enable kitty terminal
       starship.enable = true; # enable starship prompt
-      gtk.enable = false;
-      kde.enable = false;
+      bat.enable = true;
+      gtk.enable = true;
+      kde.enable = true;
+      nixcord.enable = true;
       qt.enable = false;
+      vim.enable = true;
     };
 
     fonts = {
