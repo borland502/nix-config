@@ -18,15 +18,14 @@
   #     xxx
   # '';
 
-  xdg = {
-    portal = {
-      enable = true;
-      extraPortals = with pkgs; [
-        xdg-desktop-portal-wlr
-        xdg-desktop-portal-gtk
-      ];
-    };
-  };
+  # xdg = {
+  #   portal = {
+  #     enable = true;
+  #     extraPortals = with pkgs; [
+  #       xdg-desktop-portal-wlr
+  #     ];
+  #   };
+  # };
 
   # Packages that should be installed to the user profile.
   home.packages = with pkgs; [
@@ -74,7 +73,7 @@
     ipcalc # it is a calculator for the IPv4/v6 addresses
 
     # formatters
-    nixfmt # A formatter for Nix code
+    nixfmt-classic # A formatter for Nix code
     shfmt # A shell script formatter
 
     # misc
@@ -150,6 +149,18 @@
 
   programs.firefox = {
     enable = true;
+
+    profiles = {
+      default = {
+        settings = {
+          browser.startupPage = "about:blank"; # Set the startup page to about:blank
+          browser.startupHomePage = "about:blank"; # Set the home page to about:blank
+          browser.shell.checkDefaultBrowser = false; # Disable the default browser check
+          browser.tabs.warnOnClose = false; # Disable the warning when closing multiple tabs
+          browser.tabs.warnOnOpen = false; # Disable the warning when opening multiple tabs
+        };
+      };
+    };
   };
 
   programs.fzf = {
@@ -203,7 +214,7 @@
 
   programs.vscode = {
     enable = true;
-    extensions = with pkgs.vscode-extensions; [ yzhang.markdown-all-in-one ];
+    profiles.default.extensions = with pkgs.vscode-extensions; [ yzhang.markdown-all-in-one ];
   };
 
   services.kdeconnect = {
@@ -227,6 +238,7 @@
       nixcord.enable = true;
       qt.enable = false;
       vim.enable = true;
+      firefox.profileNames = ["default"];
     };
 
     fonts = {
