@@ -3,7 +3,6 @@
 {
   home.username = "jhettenh";
   home.homeDirectory = "/home/jhettenh";
-
   # link the configuration file in current directory to the specified location in home directory
   # home.file.".config/i3/wallpaper.jpg".source = ./wallpaper.jpg;
 
@@ -36,15 +35,12 @@
 
     # Encryption
     age
+    cacert
 
     # GUI
     discord
     slack
-    vivaldi
     keepassxc
-
-    neofetch
-    nnn # terminal file manager
 
     # archives
     zip
@@ -101,6 +97,7 @@
     # productivity
     hugo # static site generator
     glow # markdown previewer in terminal
+    gum
 
     btop # replacement of htop/nmon
     iotop # io monitoring
@@ -119,7 +116,26 @@
     usbutils # lsusb
   ];
 
+  fonts.fontconfig = {
+    enable = true;
+
+    defaultFonts = {
+      monospace = [ "Fira Code Nerd Font Mono" ];
+      sansSerif = [ "Fira Sans Nerd Font" ];
+    };
+  };
+
   programs.bat = { enable = true; };
+
+  programs.bun = {
+    enable = true;
+    enableGitIntegration = true;
+  };
+
+  programs.dircolors = {
+    enable = true;
+    enableZshIntegration = true;
+  };
 
   programs.eza = {
     enableZshIntegration = true;
@@ -128,10 +144,12 @@
     icons = "always";
   };
 
-  programs.kitty = {
-    enable = true; # enable kitty terminal
-    enableGitIntegration = true; # enable git integration
-    shellIntegration.enableZshIntegration = true; # enable zsh integration
+  programs.fd = {
+    enable = true;
+  };
+
+  programs.firefox = {
+    enable = true;
   };
 
   programs.fzf = {
@@ -145,20 +163,26 @@
     userEmail = "jhettenh@gmail.com";
   };
 
-  programs.plasma = {
+  programs.jq = {
     enable = true;
-    workspace = {
-      lookAndFeel =
-        "org.kde.breezedark.desktop"; # use breeze as the look and feel
-    };
+  };
 
-    fonts = {
-      general = {
-        family = "Fira Code Nerd Font Mono";
-        pointSize = 12; # default font size
+  programs.keepassxc = {
+    enable = true;
+    settings = {
+      Browser.Enabled = true;
+
+      GUI = {
+        AdvancedSettings = true;
+        ApplicationTheme = "dark";
       };
+
+      SSHAgent.Enabled = true;
     };
   };
+
+
+  programs.plasma = import ./plasma.nix;
 
   programs.rclone = { enable = true; };
 
@@ -168,6 +192,11 @@
   programs.tealdeer = {
     enable = true; # enable tealdeer
     enableAutoUpdates = true; # enable auto updates
+  };
+
+  programs.zoxide = {
+    enable = true; # enable zoxide
+    enableZshIntegration = true; # enable zsh integration
   };
 
   programs.zsh = import ./zsh.nix;
@@ -183,6 +212,34 @@
   };
 
   services.unison = { enable = true; };
+
+  stylix = {
+    enable = true; # enable stylix
+    base16Scheme =
+      ./config/colors/monokai.base24.yaml; # use monokai base24 color scheme
+    targets = {
+      vscode.enable = false;
+      kitty.enable = true; # enable kitty terminal
+      starship.enable = true; # enable starship prompt
+      bat.enable = true;
+      gtk.enable = true;
+      kde.enable = true;
+      nixcord.enable = true;
+      qt.enable = false;
+      vim.enable = true;
+    };
+
+    fonts = {
+      sansSerif = {
+        package = pkgs.nerd-fonts.fira-code;
+        name = "Fira Code Nerd Font";
+      };
+      monospace = {
+        package = pkgs.nerd-fonts.fira-mono;
+        name = "Fira Mono Nerd Font";
+      };
+    };
+  };
 
   # This value determines the home Manager release that your
   # configuration is compatible with. This helps avoid breakage

@@ -41,19 +41,34 @@
     llm = "eza --all --header --long --sort=modified $eza_params";
     la = "eza -lbhHigUmuSa --git --color-scale --icons"; # all list
     lx = "eza -lbhHigUmuSa@ --git --color-scale --icons"; # all + extended list
-    update = "sudo nixos-rebuild switch";
+    update = "sudo nixos-rebuild switch --upgrade";
   };
 
   envExtra = ''
-    export base0="#131313"
-    export base1="#191919"
-    export base2="#222222"
-    export base3="#363537"
-    export base4="#525053"
-    export base5="#69676c"
-    export base6="#8b888f"
-    export base7="#bab6c0"
-    export base8="#f7f1ff"
+    export base00="#222222"
+    export base01="#363537"
+    export base02="#525053"
+    export base03="#69676c"
+    export base04="#8b888f"
+    export base05="#bab6c0"
+    export base07="#f7f1ff"
+    export base06="#fbf8ff"
+    export base08="#FC618D"
+    export base09="#fd9353"
+    export base0a="#FCE566"
+    export base0b="#7BD88F"
+    export base0c="#5AD4E6"
+    export base0d="#948ae3"
+    export base0e="#fc618d"
+    export base0f="#fef20a"
+    export base10="#191919"
+    export base11="#222222"
+    export base12="#FC618D"
+    export base13="#FCE566"
+    export base14="#7BD88F"
+    export base15="#5AD4E6"
+    export base16="#948AE3"
+    export base17="#FD9353"
     export base8x0c="#2b2b2b"
     export blue="#5ad4e6"
     export green="#7bd88f"
@@ -62,6 +77,7 @@
     export red="#fc618d"
     export yellow="#fcd566"
     export EDITOR="vim"
+    export TERM="kitty"
     export XDG_BIN_HOME="$HOME/.local/bin"
     export XDG_CACHE_HOME="$HOME/.cache"
     export XDG_CONFIG_HOME="$HOME/.config"
