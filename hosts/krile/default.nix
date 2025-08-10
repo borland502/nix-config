@@ -23,6 +23,8 @@
   # Enable networking
   networking.networkmanager.enable = true;
 
+  programs.dconf.enable = true; # Enable dconf for GNOME settings management
+
   # Set your time zone.
   time.timeZone = "America/New_York";
 
@@ -59,13 +61,13 @@
   services.printing.enable = true;
 
   # Enable sound with pipewire.
-  services.pulseaudio.enable = false;
+  services.pulseaudio.enable = false; # Disable PulseAudio if using PipeWire
   security.rtkit.enable = true;
   services.pipewire = {
     enable = true;
     alsa.enable = true;
-    alsa.support32Bit = true;
-    pulse.enable = true;
+    alsa.support32Bit = true; # Enable 32-bit support for ALSA
+    pulse.enable = true; # Enable PulseAudio support
     systemWide = true;
   };
 
