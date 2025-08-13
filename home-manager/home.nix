@@ -86,6 +86,7 @@
     gawk
     zstd
     gnupg
+    go-task
 
     # nix related
     #

@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: '3'
+
+tasks:
+  build:
+    desc: Builds the NixOS configuration.
+    cmd: nixos-rebuild build --flake .
+
+  edit:
+    desc: Opens the NixOS configuration file in the default editor.
+    cmd: | 
+        cd ~/.config/nix && \
+        code .
+
+  switch:
+    desc: Builds and switches to the NixOS configuration.
+    cmd: sudo nixos-rebuild switch --flake .
+
+  boot:
+    desc: Builds and boots the NixOS configuration (for testing).
+    cmd: sudo nixos-rebuild boot --flake .
+
+  test:
+    desc: Tests the NixOS configuration.
+    cmd: nixos-rebuild test --flake .
+
+  dry-build:
+    desc: Performs a dry build to check for errors without applying changes.
+    cmd: nixos-rebuild dry-build --flake .
+
+  update:
+    desc: Updates the Nix flake inputs.
+    cmd: nix flake update
+
+  gc:
+    desc: Performs garbage collection to remove old Nix store paths.
+    cmd: nix-collect-garbage --delete-older-than 7d
+
+  optimize:
+    desc: Optimizes the Nix store.
+    cmd: nix-store --optimise
+
+  # Example task to apply home-manager configuration (if you use it)
+  home-switch:
+    desc: Builds and applies the home-manager configuration.
+    cmd: home-manager switch --flake .
+
+  # Example task to upgrade packages
+  upgrade:
+    desc: Updates nixpkgs and rebuilds the system.
+    cmd: |
+      nix flake update
+      sudo nixos-rebuild switch --flake . --upgrade

@@ -1,6 +1,6 @@
 # Edit this configuration file to define what should be installed on
 # your system.  Help is available in the configuration.nix(5) man page
-# and in the NixOS manual (accessible by running ‘nixos-help’).
+# and in the NixOS manual (accessible by running 'nixos-help').
 
 { config, pkgs, ... }:
 
@@ -22,8 +22,6 @@
 
   # Enable networking
   networking.networkmanager.enable = true;
-
-  programs.dconf.enable = true; # Enable dconf for GNOME settings management
 
   # Set your time zone.
   time.timeZone = "America/New_York";
@@ -61,10 +59,10 @@
   services.printing.enable = true;
 
   # Enable sound with pipewire.
-  services.pulseaudio.enable = false; # Disable PulseAudio if using PipeWire
+  services.pulseaudio.enable = true; # Disable PulseAudio if using PipeWire
   security.rtkit.enable = true;
   services.pipewire = {
-    enable = true;
+    enable = false;
     alsa.enable = true;
     alsa.support32Bit = true; # Enable 32-bit support for ALSA
     pulse.enable = true; # Enable PulseAudio support
@@ -112,8 +110,35 @@
 
   users.groups.libvirtd.members = [ "jhettenh" ];
   virtualisation.libvirtd.enable = true; # enable libvirt daemon
-  virtualisation.spiceUSBRedirection.enable =
-    true; # enable spice USB redirection
+  virtualisation.spiceUSBRedirection.enable = true; # enable spice USB redirection
+
+  # Enable FUSE for rclone mounting
+  programs.fuse.userAllowOther = true;
+
+  # RClone mount service for Google Drive
+  # systemd.services.rclone-gdrive = {
+  #   description = "RClone mount for Google Drive";
+  #   after = [ "network-online.target" ];
+  #   wants = [ "network-online.target" ];
+  #   wantedBy = [ "multi-user.target" ];
+  #   serviceConfig = {
+  #     Type = "simple";
+  #     User = "jhettenh";
+  #     Group = "users";
+  #     ExecStartPre = [
+  #       "${pkgs.coreutils}/bin/mkdir -p /home/jhettenh/.local/state/remotes/gdrive"
+  #     ];
+  #     ExecStart = "${pkgs.rclone}/bin/rclone mount gdrive: /home/jhettenh/.local/state/remotes/gdrive --vfs-cache-mode writes --allow-other --daemon";
+  #     ExecStop = "/run/wrappers/bin/fusermount3 -u /home/jhettenh/.local/state/remotes/gdrive";
+  #     Restart = "on-failure";
+  #     RestartSec = "10s";
+  #     Environment = [ "PATH=${pkgs.fuse3}/bin:$PATH" ];
+  #     # Additional permissions for FUSE mounting
+  #     PrivateDevices = false;
+  #     DeviceAllow = [ "/dev/fuse rw" ];
+  #     NoNewPrivileges = false;
+  #   };
+  # };
 
   security.sudo.wheelNeedsPassword = false;
 
@@ -124,7 +149,7 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  environment.systemPackages = with pkgs; [ vim wget ];
+  environment.systemPackages = with pkgs; [ vim wget rclone ];
 
   environment.shells = with pkgs;
     [
