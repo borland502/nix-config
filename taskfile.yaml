@@ -1,53 +1,93 @@
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: '3'
 
-tasks:
-  build:
-    desc: Builds the NixOS configuration.
-    cmd: nixos-rebuild build --flake .
+vars:
+  HOST: '{{.HOST | default "krile"}}'
 
-  edit:
-    desc: Opens the NixOS configuration file in the default editor.
-    cmd: | 
-        cd ~/.config/nix && \
-        code .
+tasks:
+  # System management
+  build:
+    desc: Build the NixOS configuration
+    cmd: nixos-rebuild build --flake .#{{.HOST}}
 
   switch:
-    desc: Builds and switches to the NixOS configuration.
-    cmd: sudo nixos-rebuild switch --flake .
+    desc: Build and switch to the NixOS configuration
+    cmd: sudo nixos-rebuild switch --flake .#{{.HOST}}
 
   boot:
-    desc: Builds and boots the NixOS configuration (for testing).
-    cmd: sudo nixos-rebuild boot --flake .
+    desc: Build and boot the NixOS configuration (for testing)
+    cmd: sudo nixos-rebuild boot --flake .#{{.HOST}}
 
   test:
-    desc: Tests the NixOS configuration.
-    cmd: nixos-rebuild test --flake .
+    desc: Test the NixOS configuration
+    cmd: nixos-rebuild test --flake .#{{.HOST}}
 
   dry-build:
-    desc: Performs a dry build to check for errors without applying changes.
-    cmd: nixos-rebuild dry-build --flake .
+    desc: Perform a dry build to check for errors without applying changes
+    cmd: nixos-rebuild dry-build --flake .#{{.HOST}}
 
+  # Home Manager
+  home-build:
+    desc: Build home-manager configuration
+    cmd: home-manager build --flake .#jhettenh@{{.HOST}}
+
+  home-switch:
+    desc: Switch home-manager configuration
+    cmd: home-manager switch --flake .#jhettenh@{{.HOST}}
+
+  # Maintenance
   update:
-    desc: Updates the Nix flake inputs.
+    desc: Update flake inputs
     cmd: nix flake update
 
   gc:
-    desc: Performs garbage collection to remove old Nix store paths.
-    cmd: nix-collect-garbage --delete-older-than 7d
+    desc: Garbage collect old generations
+    cmd: |
+      nix-collect-garbage -d
+      sudo nix-collect-garbage -d
 
   optimize:
-    desc: Optimizes the Nix store.
+    desc: Optimize nix store
     cmd: nix-store --optimise
 
-  # Example task to apply home-manager configuration (if you use it)
-  home-switch:
-    desc: Builds and applies the home-manager configuration.
-    cmd: home-manager switch --flake .
+  # Development
+  check:
+    desc: Check flake for errors
+    cmd: nix flake check
 
-  # Example task to upgrade packages
+  fmt:
+    desc: Format nix files
+    cmd: nixpkgs-fmt .
+
+  repl:
+    desc: Start nix repl with flake
+    cmd: nix repl --expr 'builtins.getFlake "."'
+
+  # Host-specific tasks
+  krile:
+    desc: Switch to krile configuration
+    cmd: task switch HOST=krile
+
+  nixos:
+    desc: Switch to nixos configuration
+    cmd: task switch HOST=nixos
+
+  # Service management
+  service-status:
+    desc: Check status of rclone services
+    cmd: systemctl --user status rclone-*
+
+  logs:
+    desc: Show logs for a specific service
+    cmd: journalctl -u {{.SERVICE}} -f
+
+  # Quick actions
+  edit:
+    desc: Open the NixOS configuration in VS Code
+    cmd: code ~/.config/nix
+
   upgrade:
-    desc: Updates nixpkgs and rebuilds the system.
+    desc: Update nixpkgs and rebuild the system
     cmd: |
       nix flake update
-      sudo nixos-rebuild switch --flake . --upgrade
+      sudo nixos-rebuild switch --flake .#{{.HOST}}

@@ -1,266 +1,138 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 {
+  imports = [
+    ./profiles/development.nix
+    ./profiles/desktop.nix
+  ];
+
   home.username = "jhettenh";
-  home.homeDirectory = "/home/jhettenh";
-  # link the configuration file in current directory to the specified location in home directory
-  # home.file.".config/i3/wallpaper.jpg".source = ./wallpaper.jpg;
+  home.homeDirectory = lib.mkForce "/home/jhettenh";
 
-  # link all files in `./scripts` to `~/.config/i3/scripts`
-  # home.file.".config/i3/scripts" = {
-  #   source = ./scripts;
-  #   recursive = true;   # link recursively
-  #   executable = true;  # make all files executable
-  # };
-
-  # encode the file content in nix configuration file directly
-  # home.file.".xxx".text = ''
-  #     xxx
-  # '';
-
-  # xdg = {
-  #   portal = {
-  #     enable = true;
-  #     extraPortals = with pkgs; [
-  #       xdg-desktop-portal-wlr
-  #     ];
-  #   };
-  # };
-
-  # Packages that should be installed to the user profile.
+  # Core packages not covered by profiles
   home.packages = with pkgs; [
-    # here is some command line tools I use frequently
-    # feel free to add your own or remove some of them
+    # System monitoring and utilities
+    btop
+    iotop
+    iftop
+    strace
+    ltrace
+    lsof
+    sysstat
+    lm_sensors
+    ethtool
+    pciutils
+    usbutils
 
-    # Encryption
-    age
-    cacert
+    # Productivity and content
+    hugo
+    glow
+    gum
+    nix-output-monitor
+    tealdeer
 
-    # GUI
-    discord
-    slack
-    keepassxc
-
-    # archives
-    zip
-    xz
-    unzip
-    p7zip
-
-    # virtualization
-    qemu # QEMU is a generic and open source machine emulator and virtualizer
-    virt-manager # Virtual Machine Manager is a desktop user interface for managing virtual machines through libvirt
-
-    # utils
-    bat
-    ripgrep # recursively searches directories for a regex pattern
-    fd
-    jq # A lightweight and flexible command-line JSON processor
-    yq-go # yaml processor https://github.com/mikefarah/yq
-    eza # A modern replacement for ‘ls’
-    fzf # A command-line fuzzy finder
-    direnv
-    rclone
-
-    # networking tools
-    mtr # A network diagnostic tool
-    iperf3
-    dnsutils # `dig` + `nslookup`
-    ldns # replacement of `dig`, it provide the command `drill`
-    aria2 # A lightweight multi-protocol & multi-source command-line download utility
-    socat # replacement of openbsd-netcat
-    nmap # A utility for network discovery and security auditing
-    ipcalc # it is a calculator for the IPv4/v6 addresses
-
-    # formatters
-    nixfmt-classic # A formatter for Nix code
-    shfmt # A shell script formatter
-
-    # misc
+    # Basic utilities
     cowsay
     file
     which
     tree
-    gnused
-    gnutar
-    gawk
-    zstd
-    gnupg
-    go-task
-
-    # nix related
-    #
-    # it provides the command `nom` works just like `nix`
-    # with more details log output
-    nix-output-monitor
-
-    # productivity
-    hugo # static site generator
-    glow # markdown previewer in terminal
-    gum
-
-    btop # replacement of htop/nmon
-    iotop # io monitoring
-    iftop # network monitoring
-
-    # system call monitoring
-    strace # system call monitoring
-    ltrace # library call monitoring
-    lsof # list open files
-
-    # system tools
-    sysstat
-    lm_sensors # for `sensors` command
-    ethtool
-    pciutils # lspci
-    usbutils # lsusb
   ];
 
+  # Font configuration
   fonts.fontconfig = {
     enable = true;
-
     defaultFonts = {
       monospace = [ "Fira Code Nerd Font Mono" ];
       sansSerif = [ "Fira Sans Nerd Font" ];
     };
   };
 
-  programs.bat = { enable = true; };
-
-  programs.bun = {
-    enable = true;
-    enableGitIntegration = true;
-  };
-
+  # Basic program configurations
+  programs.bat.enable = true;
   programs.dircolors = {
     enable = true;
     enableZshIntegration = true;
   };
 
   programs.eza = {
+    enable = true;
     enableZshIntegration = true;
     colors = "always";
     git = true;
     icons = "always";
   };
 
-  programs.fd = {
-    enable = true;
-  };
-
-  programs.firefox = {
-    enable = true;
-
-    profiles = {
-      default = {
-        settings = {
-          browser.startupPage = "about:blank"; # Set the startup page to about:blank
-          browser.startupHomePage = "about:blank"; # Set the home page to about:blank
-          browser.shell.checkDefaultBrowser = false; # Disable the default browser check
-          browser.tabs.warnOnClose = false; # Disable the warning when closing multiple tabs
-          browser.tabs.warnOnOpen = false; # Disable the warning when opening multiple tabs
-        };
-      };
-    };
-  };
-
+  programs.fd.enable = true;
   programs.fzf = {
     enable = true;
-    enableZshIntegration = true; # enable zsh integration
+    enableZshIntegration = true;
   };
 
-  programs.git = {
+  programs.jq.enable = true;
+  programs.rclone.enable = true;
+
+  programs.zoxide = {
     enable = true;
-    userName = "Jeremy Hettenhouser";
-    userEmail = "jhettenh@gmail.com";
+    enableZshIntegration = true;
   };
 
-  programs.jq = {
+  # Zsh configuration
+  programs.zsh = {
     enable = true;
-  };
-
-  programs.keepassxc = {
-    enable = true;
-    settings = {
-      Browser.Enabled = true;
-
-      GUI = {
-        AdvancedSettings = true;
-        ApplicationTheme = "dark";
-      };
-
-      SSHAgent.Enabled = true;
+    enableCompletion = true;
+    autosuggestion.enable = true;
+    syntaxHighlighting.enable = true;
+    
+    shellAliases = {
+      ll = "ls -l";
+      la = "ls -la";
+      grep = "grep --color=auto";
     };
   };
 
-
-  programs.plasma = import ./plasma.nix;
-
-  programs.rclone = { enable = true; };
-
-  # starship - an customizable prompt for any shell
-  programs.starship = import ./starship.nix;
-
-  programs.tealdeer = {
-    enable = true; # enable tealdeer
-    enableAutoUpdates = true; # enable auto updates
-  };
-
-  programs.zoxide = {
-    enable = true; # enable zoxide
-    enableZshIntegration = true; # enable zsh integration
-  };
-
-  programs.zsh = import ./zsh.nix;
-
-  programs.vscode = {
+  # Starship prompt
+  programs.starship = {
     enable = true;
-    profiles.default.extensions = with pkgs.vscode-extensions; [ yzhang.markdown-all-in-one ];
+    enableZshIntegration = true;
   };
 
+  # Plasma configuration
+  programs.plasma = {
+    enable = true;
+    workspace = {
+      lookAndFeel = "org.kde.breezedark.desktop"; 
+      colorScheme = "BreezeDark"; 
+      theme = "breeze-dark";
+    };
+  };
+
+  # Services
   services.kdeconnect = {
     enable = true;
-    indicator = true; # show the indicator in the system tray
+    indicator = true;
   };
 
-  services.unison = { enable = true; };
-
+  # Styling with Stylix
   stylix = {
-    enable = true; # enable stylix
-    base16Scheme =
-      ./config/colors/monokai.base24.yaml; # use monokai base24 color scheme
+    enable = true;
+    base16Scheme = ./config/colors/monokai.base24.yaml;
     targets = {
-      vscode.enable = false;
-      kitty.enable = true; # enable kitty terminal
-      starship.enable = true; # enable starship prompt
+      kitty.enable = true;
+      starship.enable = true;
       bat.enable = true;
       gtk.enable = true;
       kde.enable = true;
-      nixcord.enable = true;
       qt.enable = false;
       vim.enable = true;
       firefox.profileNames = ["default"];
     };
-
-    fonts = {
-      sansSerif = {
-        package = pkgs.nerd-fonts.fira-code;
-        name = "Fira Code Nerd Font";
-      };
-      monospace = {
-        package = pkgs.nerd-fonts.fira-mono;
-        name = "Fira Mono Nerd Font";
-      };
-    };
+    polarity = "dark";
   };
 
   # This value determines the home Manager release that your
-  # configuration is compatible with. This helps avoid breakage
-  # when a new home Manager release introduces backwards
-  # incompatible changes.
-  #
-  # You can update home Manager without changing this value. See
-  # the home Manager release notes for a list of state version
-  # changes in each release.
+  # configuration is compatible with.
   home.stateVersion = "25.05";
+
+  # Let home Manager install and manage itself.
+  programs.home-manager.enable = true;
 }

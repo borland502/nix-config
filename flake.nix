@@ -41,8 +41,8 @@
             home-manager.backupFileExtension = ".bak0728-1956";
             home-manager.sharedModules = [
               # Import the plasma-manager module
-              plasma-manager.nixosModules.plasma-manager
-              stylix.nixosModules.stylix
+              plasma-manager.homeManagerModules.plasma-manager
+              stylix.homeModules.stylix
             ];
 
             home-manager.users.jhettenh = import ./home-manager/home.nix;
