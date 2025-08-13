@@ -142,7 +142,7 @@
 
   security.sudo.wheelNeedsPassword = false;
 
-  # Allow unfree packages
+  # Allow unfree packages (needed for VS Code and other unfree packages in home-manager)
   nixpkgs.config.allowUnfree = true;
   nixpkgs.config.allowUnfreePredicate = (_: true);
 
