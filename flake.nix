@@ -25,32 +25,6 @@
 
   outputs = inputs@{ nixpkgs, home-manager, plasma-manager, stylix, ... }: {
     nixosConfigurations = {
-      nixos = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          ./hosts/nixos
-
-          stylix.nixosModules.stylix
-
-          # make home-manager as a module of nixos
-          # so that home-manager configuration will be deployed automatically when executing `nixos-rebuild switch`
-          home-manager.nixosModules.home-manager
-          {
-            home-manager.useGlobalPkgs = true;
-            home-manager.useUserPackages = true;
-            home-manager.backupFileExtension = ".bak0728-1956";
-            home-manager.sharedModules = [
-              # Import the plasma-manager module
-              plasma-manager.homeManagerModules.plasma-manager
-              stylix.homeModules.stylix
-            ];
-
-            home-manager.users.jhettenh = import ./home-manager/home.nix;
-
-            # Optionally, use home-manager.extraSpecialArgs to pass arguments to home.nix
-          }
-        ];
-      };
       krile = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         modules = [

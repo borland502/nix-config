@@ -56,22 +56,24 @@
   # VS Code configuration
   programs.vscode = {
     enable = true;
-    extensions = with pkgs.vscode-extensions; [
-      # Language support
+    profiles.default.extensions = with pkgs.vscode-extensions; [
+      # Python development
       ms-python.python
+      
+      # Rust development  
       rust-lang.rust-analyzer
-      bradlc.vscode-tailwindcss
       
       # Git integration
       eamodio.gitlens
       
-      # Theme and UI
+      # Themes and appearance
       dracula-theme.theme-dracula
       pkief.material-icon-theme
       
-      # Utilities
-      ms-vscode.live-server
+      # Web development
+      bradlc.vscode-tailwindcss
       esbenp.prettier-vscode
+      ms-vscode.live-server
     ];
   };
 }
