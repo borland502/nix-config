@@ -40,6 +40,10 @@
     tree
     ncdu
     rsync
+    direnv
+    
+    # Screenshot tools
+    flameshot
   ];
 
   # Font configuration
@@ -88,12 +92,29 @@
       colorScheme = "BreezeDark"; 
       theme = "breeze-dark";
     };
+    shortcuts = {
+      "flameshot" = {
+        "Capture" = "Ctrl+Shift+S";
+      };
+    };
   };
 
   # Services
   services.kdeconnect = {
     enable = true;
     indicator = true;
+  };
+  
+  services.flameshot = {
+    enable = true;
+    settings = {
+      General = {
+        disabledTrayIcon = false;
+        showStartupLaunchMessage = false;
+        savePath = "/home/jhettenh/Pictures/Screenshots";
+        savePathFixed = true;
+      };
+    };
   };
 
   # Styling with Stylix
