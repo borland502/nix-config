@@ -22,13 +22,12 @@
     # Build tools
     gnumake
     cmake
+    go-task
     
     # Languages and runtimes
     nodejs
     python3
     go
-    rustc
-    cargo
     
     # Containers and virtualization
     docker
@@ -37,7 +36,6 @@
     
     # Cloud tools
     kubectl
-    terraform
     awscli2
   ];
 

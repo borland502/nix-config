@@ -10,14 +10,14 @@
   networking.hostName = "krile";
 
   # Enable rclone mounts using the custom module
-  services.rclone-mounts = {
-    enable = true;
-    mounts.gdrive = {
-      remote = "gdrive:";
-      mountPoint = "/home/jhettenh/.state/remotes/gdrive";
-      user = "jhettenh";
-    };
-  };
+  # services.rclone-mounts = {
+  #   enable = true;
+  #   mounts.gdrive = {
+  #     remote = "gdrive:";
+  #     mountPoint = "/home/jhettenh/.state/remotes/gdrive";
+  #     user = "jhettenh";
+  #   };
+  # };
 
   # Host-specific packages
   environment.systemPackages = with pkgs; [
