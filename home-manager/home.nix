@@ -5,6 +5,7 @@
     ./profiles/development.nix
     ./profiles/desktop.nix
     ./zsh.nix
+    ./starship.nix
   ];
 
   home.username = "jhettenh";
@@ -75,12 +76,6 @@
   programs.rclone.enable = true;
 
   programs.zoxide = {
-    enable = true;
-    enableZshIntegration = true;
-  };
-
-  # Starship prompt
-  programs.starship = {
     enable = true;
     enableZshIntegration = true;
   };
