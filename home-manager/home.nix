@@ -4,6 +4,7 @@
   imports = [
     ./profiles/development.nix
     ./profiles/desktop.nix
+    ./zsh.nix
   ];
 
   home.username = "jhettenh";
@@ -36,6 +37,8 @@
     file
     which
     tree
+    ncdu
+    rsync
   ];
 
   # Font configuration
@@ -74,20 +77,6 @@
   programs.zoxide = {
     enable = true;
     enableZshIntegration = true;
-  };
-
-  # Zsh configuration
-  programs.zsh = {
-    enable = true;
-    enableCompletion = true;
-    autosuggestion.enable = true;
-    syntaxHighlighting.enable = true;
-    
-    shellAliases = {
-      ll = "ls -l";
-      la = "ls -la";
-      grep = "grep --color=auto";
-    };
   };
 
   # Starship prompt
