@@ -26,9 +26,9 @@
     inkscape
     
     # Utilities
-    filelight
-    spectacle
-    ark
+    kdePackages.filelight
+    kdePackages.spectacle
+    kdePackages.ark
     
     # System monitoring
     htop

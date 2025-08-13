@@ -14,7 +14,7 @@
     
     # Development utilities
     jq
-    yq
+    yq-go
     ripgrep
     fd
     bat
@@ -27,7 +27,8 @@
     nodejs
     python3
     go
-    rust
+    rustc
+    cargo
     
     # Containers and virtualization
     docker
