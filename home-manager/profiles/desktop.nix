@@ -27,13 +27,18 @@
     
     # Utilities
     kdePackages.filelight
-    kdePackages.spectacle
     kdePackages.ark
     
     # System monitoring
     htop
     btop
     iotop
+
+    # gui tools
+    flameshot
+    slack
+    discord
+    keepassxc    
   ];
 
   # Firefox configuration

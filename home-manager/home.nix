@@ -41,9 +41,6 @@
     ncdu
     rsync
     direnv
-    
-    # Screenshot tools
-    flameshot
   ];
 
   # Font configuration
