@@ -7,7 +7,7 @@
     settings = {
       add_newline = true;
       command_timeout = 500;
-      continuation_prompt = "[∙](bright-black) ";
+      continuation_prompt = "[∙](#bab6c0) "; # base05 (light gray) for visibility
       format = "$os$username$hostname$directory$git_branch$git_status$package$nix_shell$nodejs$python$rust$golang$docker_context$kubernetes$aws$cmd_duration$line_break$character";
       right_format = "";
       scan_timeout = 30;
@@ -26,8 +26,8 @@
       character = {
         format = "$symbol ";
         disabled = false;
-        success_symbol = "[](#7BD88F) "; # base0B (green)
-        error_symbol = "[](#FC618D)"; # base08 (red)
+        success_symbol = "[❯](#7BD88F) "; # base0B (green) with visible arrow
+        error_symbol = "[❯](#FC618D)"; # base08 (red) with visible arrow
       };
 
       # Command Duration
