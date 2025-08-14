@@ -88,6 +88,7 @@
     isNormalUser = true;
     description = "Jeremy Hettenhouser";
     extraGroups = [ "networkmanager" "wheel" ];
+    linger = true;
     shell = pkgs.zsh;
     packages = with pkgs;
       [

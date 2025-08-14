@@ -48,7 +48,7 @@
       name = "Default";
       isDefault = true;
       settings = {
-        "browser.startup.homepage" = "https://start.duckduckgo.com";
+        "browser.startup.homepage" = "https://dashy.technohouser.com";
         "privacy.trackingprotection.enabled" = true;
         "dom.security.https_only_mode" = true;
       };
