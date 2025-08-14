@@ -42,6 +42,7 @@
       
       # Theme development tools
       vim.enable = true;
+      vscode.enable = true;
       
       # Theme other CLI tools
       btop.enable = true;
@@ -155,11 +156,19 @@
     enableZshIntegration = true;
   };
 
+  # VSCode configuration with Stylix theming
+  programs.vscode = {
+    enable = true;
+    # Extensions and other VSCode config can be added here
+    # Stylix will automatically handle theming
+  };
+
   # Kitty terminal configuration
   xdg.configFile."kitty/kitty.conf".source = ./config/kitty/kitty.conf;
 
-  # VSCode configuration for font consistency
-  xdg.configFile."Code/User/settings.json".source = ./config/vscode/settings.json;
+  # Note: VSCode settings are now managed by programs.vscode and Stylix
+  # Commenting out manual settings file to avoid conflicts
+  # xdg.configFile."Code/User/settings.json".source = ./config/vscode/settings.json;
 
   # This value determines the home Manager release that your
   # configuration is compatible with. This helps avoid breakage
