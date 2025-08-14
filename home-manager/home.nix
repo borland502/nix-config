@@ -97,11 +97,6 @@
   };
 
   # Services
-  services.kdeconnect = {
-    enable = true;
-    indicator = true;
-  };
-  
   services.flameshot = {
     enable = true;
     settings = {
