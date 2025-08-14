@@ -72,6 +72,15 @@
   programs.zsh = {
     enable = true;
     enableCompletion = true;
+    initContent = ''
+      # Ensure home-manager packages are in PATH
+      export PATH="$HOME/.local/state/nix/profiles/home-manager/home-path/bin:$PATH"
+      
+      # Disable loading of old zsh configurations that might conflict
+      # This prevents zmodule errors from old Zim framework
+      unset ZIM_HOME
+      unset ZIM_CONFIG_FILE
+    '';
   };
 
   # Direnv for automatic environment loading
