@@ -10,6 +10,44 @@
   home.username = "jhettenh";
   home.homeDirectory = lib.mkForce "/Users/jhettenh";
 
+  # Stylix configuration for user-level theming
+  stylix = {
+    enable = true;
+    
+    # Use your custom monokai color scheme
+    base16Scheme = ./config/colors/monokai.base24.yaml;
+    
+    # Override fonts to match your current setup
+    fonts = {
+      monospace = {
+        package = pkgs.nerd-fonts.fira-code;
+        name = "FiraCode Nerd Font Mono";
+      };
+      sansSerif = {
+        package = pkgs.inter;
+        name = "Inter";
+      };
+      serif = {
+        package = pkgs.liberation_ttf;
+        name = "Liberation Serif";
+      };
+    };
+
+    # Configure targets for home-manager applications
+    targets = {
+      # Theme terminal applications
+      bat.enable = true;
+      fzf.enable = true;
+      kitty.enable = true;
+      
+      # Theme development tools
+      vim.enable = true;
+      
+      # Theme other CLI tools
+      btop.enable = true;
+    };
+  };
+
   # Core packages not covered by profiles
   home.packages = with pkgs; [
     # System monitoring and utilities (macOS compatible)

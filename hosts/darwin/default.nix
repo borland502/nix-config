@@ -15,6 +15,7 @@
     wget
     htop
     tree
+    base16-schemes  # Required for Stylix theming
   ];
 
   # Ensure Homebrew is in PATH for all shells and applications
@@ -99,6 +100,37 @@ auth       sufficient     pam_tid.so
     inter
     liberation_ttf
   ];
+
+  # Stylix configuration for system-wide theming
+  stylix = {
+    enable = true;
+    
+    # Use your existing monokai color scheme
+    base16Scheme = "${pkgs.base16-schemes}/share/themes/monokai.yaml";
+    
+    # Set default fonts
+    fonts = {
+      monospace = {
+        package = pkgs.nerd-fonts.fira-code;
+        name = "FiraCode Nerd Font Mono";
+      };
+      sansSerif = {
+        package = pkgs.inter;
+        name = "Inter";
+      };
+      serif = {
+        package = pkgs.liberation_ttf;
+        name = "Liberation Serif";
+      };
+    };
+
+    # Configure what gets themed
+    targets = {
+      # Theme console/terminal applications
+      console.enable = true;
+      # For macOS, we'll let home-manager handle app-specific theming
+    };
+  };
 
   # Homebrew configuration
   homebrew = {
