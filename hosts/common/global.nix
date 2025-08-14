@@ -39,7 +39,7 @@
   nixpkgs.config.allowUnfreePredicate = (_: true);
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
-  # Essential system packages
+  # Essential system packages (core system tools only)
   environment.systemPackages = with pkgs; [
     vim
     wget
@@ -49,12 +49,27 @@
     tree
     unzip
     rclone
-    go-task
+    # Shell integration tools moved to home-manager configurations
+    # - bat, eza, fzf, fd, ripgrep, sd, jq, zoxide
   ];
 
   environment.shells = with pkgs; [
     zsh
     bash
+  ];
+
+  # System-wide font configuration
+  fonts.packages = with pkgs; [
+    # Fira Code Nerd Font variants
+    nerd-fonts.fira-code
+    nerd-fonts.fira-mono
+    
+    # Additional programming fonts
+    nerd-fonts.jetbrains-mono
+    nerd-fonts.source-code-pro
+    
+    # System fonts
+    liberation_ttf
   ];
 
   # Common services

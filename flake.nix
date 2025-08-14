@@ -66,12 +66,17 @@
         modules = [
           ./hosts/darwin
 
+          stylix.darwinModules.stylix
+
           # Enable home-manager for nix-darwin
           home-manager.darwinModules.home-manager
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.backupFileExtension = ".bak0809-1320";
+            home-manager.sharedModules = [
+              stylix.homeModules.stylix
+            ];
             
             home-manager.users.jhettenh = import ./home-manager/home-darwin.nix;
           }

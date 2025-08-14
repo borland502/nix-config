@@ -15,10 +15,21 @@
     wget
     htop
     tree
+    base16-schemes  # Required for Stylix theming
   ];
+
+  # Ensure Homebrew is in PATH for all shells and applications
+  environment.shellInit = ''
+    export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+  '';
 
   # Create /etc/zshrc that loads the nix-darwin environment.
   programs.zsh.enable = true;
+
+  # Ensure Homebrew is in system PATH for all applications
+  environment.variables = {
+    PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:$PATH";
+  };
 
   # Set Git commit hash for darwin-version.
   system.configurationRevision = null;
@@ -78,9 +89,20 @@ auth       sufficient     pam_tid.so
 
   # Enable fonts
   fonts.packages = with pkgs; [
+        # Programming fonts
     nerd-fonts.fira-code
+    nerd-fonts.fira-mono
     nerd-fonts.jetbrains-mono
+    nerd-fonts.sauce-code-pro
+    nerd-fonts.hack
+    
+    # System fonts
+    inter
+    liberation_ttf
   ];
+
+  # Note: Stylix system configuration disabled to avoid conflicts
+  # Theming is handled at the home-manager level
 
   # Homebrew configuration
   homebrew = {
@@ -96,14 +118,26 @@ auth       sufficient     pam_tid.so
     # Taps (third-party repositories)
     taps = [
       "homebrew/services"
+      "oven-sh/bun"
     ];
 
     # CLI tools and libraries
     brews = [
       # Command-line tools not available in nixpkgs or newer versions
+      "awslogs"
+      "bun"
+      "checkov"
+      "colima"
+      "dasel"
+      "docker"
+      "docker-buildx"
+      "docker-compose"
       "direnv"
       "git"
       "go-task"
+      "jq"
+      "kion-cli"
+      "yq"
       "mas"  # Mac App Store command line interface
       "node"
       "npm"
@@ -114,6 +148,7 @@ auth       sufficient     pam_tid.so
     # GUI applications
     casks = [
       # GUI applications that work better via Homebrew
+      "chromium"        # Chromium Browser
       "dbeaver-community" # Database management tool
       "discord"          # Discord
       "firefox"          # Firefox Browser
@@ -124,6 +159,7 @@ auth       sufficient     pam_tid.so
       "obsidian"         # Note-taking app
       "rectangle"        # Window management
       "raycast"          # Spotlight replacement
+      "session-manager-plugin"
       "slack"            # Team communication
       "visual-studio-code" # VS Code
       "vivaldi"          # Vivaldi Browser

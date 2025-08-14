@@ -2,79 +2,42 @@
 
 {
   imports = [
-    # ./profiles/development.nix  # Temporarily disabled to avoid VSCode unfree issue
-    ./zsh.nix
-    ./starship.nix
+    ./common.nix           # Import common configuration
+    # Note: development profile disabled to avoid VSCode unfree issue
   ];
 
   home.username = "jhettenh";
   home.homeDirectory = lib.mkForce "/Users/jhettenh";
 
-  # Core packages not covered by profiles
+  # Darwin-specific packages
   home.packages = with pkgs; [
-    # System monitoring and utilities (macOS compatible)
-    btop
-    # Note: iotop removed as it's Linux-only
-    lsof
-
-    # Development tools
-    git
-    gh
-    curl
-    wget
-    jq
-    yq
-
-    # Productivity and content
-    hugo
-    glow
-    gum
-    nix-output-monitor
-    tealdeer
-
-    # Basic utilities
-    cowsay
-    file
-    which
-    tree
-    ncdu
-    rsync
-    direnv
-
     # macOS-specific GUI applications
     firefox
     # Note: Many GUI apps on macOS are better installed via Homebrew or App Store
   ];
 
-  # Font configuration
-  fonts.fontconfig = {
-    enable = true;
-    defaultFonts = {
-      monospace = [ "Fira Code Nerd Font Mono" ];
-      sansSerif = [ "Inter" ];
-      serif = [ "Liberation Serif" ];
-    };
+  # Darwin-specific Stylix targets (extending common.nix)
+  stylix.targets = {
+    kitty.enable = true;
+    vscode.enable = true;
   };
 
-  # Git configuration
-  programs.git = {
-    enable = true;
-    userName = "jhettenh";
-    userEmail = "jhettenh@example.com";
-    extraConfig = {
-      init.defaultBranch = "main";
-      core.editor = "vim";  # Changed from code to vim to avoid VSCode dependency
-      pull.rebase = false;
-    };
+  # Darwin-specific font fallbacks
+  fonts.fontconfig.defaultFonts = {
+    sansSerif = lib.mkAfter [ "Helvetica" "Arial" ];
+    serif = lib.mkAfter [ "Times New Roman" "Times" ];
   };
 
-  # Shell configuration
+  # Darwin-specific shell configuration
   programs.zsh = {
     enable = true;
     enableCompletion = true;
     initContent = ''
       # Ensure home-manager packages are in PATH
       export PATH="$HOME/.local/state/nix/profiles/home-manager/home-path/bin:$PATH"
+      
+      # Ensure Homebrew is in PATH (critical for GUI terminals like kitty)
+      export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
       
       # Disable loading of old zsh configurations that might conflict
       # This prevents zmodule errors from old Zim framework
@@ -83,16 +46,13 @@
     '';
   };
 
-  # Direnv for automatic environment loading
-  programs.direnv = {
+  # VSCode configuration with Stylix theming
+  programs.vscode = {
     enable = true;
-    enableZshIntegration = true;
+    # Extensions and other VSCode config can be added here
+    # Stylix will automatically handle theming
   };
 
-  # This value determines the home Manager release that your
-  # configuration is compatible with.
-  home.stateVersion = "25.05";
-
-  # Let home Manager install and manage itself.
-  programs.home-manager.enable = true;
+  # Kitty terminal configuration
+  xdg.configFile."kitty/kitty.conf".source = ./config/kitty/kitty.conf;
 }

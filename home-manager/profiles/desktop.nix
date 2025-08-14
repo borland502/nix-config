@@ -29,17 +29,14 @@
     kdePackages.filelight
     kdePackages.ark
     
-    # System monitoring
-    htop
-    btop
-    iotop
-
-    # gui tools
+    # GUI tools
     flameshot
     slack
-    discord
     keepassxc    
   ];
+
+  # Note: System monitoring tools (htop, btop, iotop) moved to platform-specific configs
+  # Note: Removed duplicated discord entry
 
   # Firefox configuration
   programs.firefox = {
