@@ -2,7 +2,7 @@
   description = "NixOS configuration";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-25.05-darwin";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
     # nix-darwin for macOS system management
     nix-darwin = {
       url = "github:LnL7/nix-darwin/nix-darwin-25.05";

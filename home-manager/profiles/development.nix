@@ -29,16 +29,14 @@
 
   # Note: Git configuration moved to common.nix to avoid duplication
   # Note: Common dev tools (jq, yq, ripgrep, fd, bat) moved to common.nix
-    };
-  };
 
   # VS Code configuration
   programs.vscode = {
     enable = true;
-    profiles.default.extensions = with pkgs.vscode-extensions; [
+    extensions = with pkgs.vscode-extensions; [
       # Python development
       ms-python.python
-           
+      
       # Git integration
       eamodio.gitlens
       
@@ -48,7 +46,7 @@
       # Web development
       bradlc.vscode-tailwindcss
       esbenp.prettier-vscode
-      ms-vscode.live-server
+      ritwickdey.liveserver
     ];
   };
 }
