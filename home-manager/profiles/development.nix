@@ -8,21 +8,9 @@
     vscode
     neovim
     
-    # Version control
-    git
-    gh
-    
-    # Development utilities
-    jq
-    yq-go
-    ripgrep
-    fd
-    bat
-    
     # Build tools
     gnumake
     cmake
-    go-task
     
     # Languages and runtimes
     nodejs
@@ -39,15 +27,8 @@
     awscli2
   ];
 
-  # Git configuration
-  programs.git = {
-    enable = true;
-    userName = "Jeremy Hettenhouser";
-    userEmail = "jhettenh@gmail.com";
-    extraConfig = {
-      init.defaultBranch = "main";
-      pull.rebase = true;
-      push.autoSetupRemote = true;
+  # Note: Git configuration moved to common.nix to avoid duplication
+  # Note: Common dev tools (jq, yq, ripgrep, fd, bat) moved to common.nix
     };
   };
 

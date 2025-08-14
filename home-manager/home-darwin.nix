@@ -2,137 +2,33 @@
 
 {
   imports = [
-    # ./profiles/development.nix  # Temporarily disabled to avoid VSCode unfree issue
-    ./zsh.nix
-    ./starship.nix
+    ./common.nix           # Import common configuration
+    # Note: development profile disabled to avoid VSCode unfree issue
   ];
 
   home.username = "jhettenh";
   home.homeDirectory = lib.mkForce "/Users/jhettenh";
 
-  # Stylix configuration for user-level theming
-  stylix = {
-    enable = true;
-    
-    # Use your custom monokai color scheme
-    base16Scheme = ./config/colors/monokai.base24.yaml;
-    
-    # Set fonts to match your current setup
-    fonts = {
-      monospace = {
-        package = pkgs.nerd-fonts.fira-code;
-        name = "FiraCode Nerd Font Mono";
-      };
-      sansSerif = {
-        package = pkgs.inter;
-        name = "Inter";
-      };
-      serif = {
-        package = pkgs.liberation_ttf;
-        name = "Liberation Serif";
-      };
-    };
-
-    # Configure targets for home-manager applications
-    targets = {
-      # Theme terminal applications
-      bat.enable = true;
-      fzf.enable = true;
-      kitty.enable = true;
-      
-      # Theme development tools
-      vim.enable = true;
-      vscode.enable = true;
-      
-      # Theme other CLI tools
-      btop.enable = true;
-    };
-  };
-
-  # Core packages not covered by profiles
+  # Darwin-specific packages
   home.packages = with pkgs; [
-    # System monitoring and utilities (macOS compatible)
-    btop
-    # Note: iotop removed as it's Linux-only
-    lsof
-
-    # Development tools
-    git
-    gh
-    curl
-    wget
-    go-task
-
-    # Shell integration tools (moved from global)
-    bat        # Better cat with syntax highlighting
-    eza        # Modern ls replacement
-    fzf        # Fuzzy finder
-    fd         # Better find
-    ripgrep    # Fast text search
-    sd         # Better sed
-    jq         # JSON processor
-    yq         # YAML processor
-    zoxide     # Smart cd replacement
-
-    # Productivity and content
-    hugo
-    glow
-    gum
-    nix-output-monitor
-    tealdeer
-
-    # Basic utilities
-    cowsay
-    file
-    which
-    tree
-    ncdu
-    rsync
-    direnv
-
     # macOS-specific GUI applications
     firefox
     # Note: Many GUI apps on macOS are better installed via Homebrew or App Store
   ];
 
-  # Font configuration
-  fonts.fontconfig = {
-    enable = true;
-    defaultFonts = {
-      monospace = [ 
-        "FiraCode Nerd Font Mono"
-        "FiraCode Nerd Font" 
-        "Fira Code"
-        "JetBrainsMono Nerd Font"
-        "Source Code Pro"
-      ];
-      sansSerif = [ 
-        "FiraCode Nerd Font Propo"
-        "Inter" 
-        "Helvetica"
-        "Arial"
-      ];
-      serif = [ 
-        "Liberation Serif" 
-        "Times New Roman"
-        "Times"
-      ];
-    };
+  # Darwin-specific Stylix targets (extending common.nix)
+  stylix.targets = {
+    kitty.enable = true;
+    vscode.enable = true;
   };
 
-  # Git configuration
-  programs.git = {
-    enable = true;
-    userName = "jhettenh";
-    userEmail = "jhettenh@example.com";
-    extraConfig = {
-      init.defaultBranch = "main";
-      core.editor = "vim";  # Changed from code to vim to avoid VSCode dependency
-      pull.rebase = false;
-    };
+  # Darwin-specific font fallbacks
+  fonts.fontconfig.defaultFonts = {
+    sansSerif = lib.mkAfter [ "Helvetica" "Arial" ];
+    serif = lib.mkAfter [ "Times New Roman" "Times" ];
   };
 
-  # Shell configuration
+  # Darwin-specific shell configuration
   programs.zsh = {
     enable = true;
     enableCompletion = true;
@@ -150,12 +46,6 @@
     '';
   };
 
-    # Direnv for automatic environment loading
-  programs.direnv = {
-    enable = true;
-    enableZshIntegration = true;
-  };
-
   # VSCode configuration with Stylix theming
   programs.vscode = {
     enable = true;
@@ -165,18 +55,4 @@
 
   # Kitty terminal configuration
   xdg.configFile."kitty/kitty.conf".source = ./config/kitty/kitty.conf;
-
-  # Note: VSCode settings are now managed by programs.vscode and Stylix
-  # Commenting out manual settings file to avoid conflicts
-  # xdg.configFile."Code/User/settings.json".source = ./config/vscode/settings.json;
-
-  # This value determines the home Manager release that your
-  # configuration is compatible with. This helps avoid breakage
-
-  # This value determines the home Manager release that your
-  # configuration is compatible with.
-  home.stateVersion = "25.05";
-
-  # Let home Manager install and manage itself.
-  programs.home-manager.enable = true;
 }

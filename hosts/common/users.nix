@@ -15,19 +15,6 @@
     ];
   };
 
-  # Common fonts configuration
-  fonts.packages = with pkgs; [
-    nerd-fonts.fira-code
-    nerd-fonts.fira-mono
-    nerd-fonts.symbols-only
-  ];
-
-  fonts.fontconfig = {
-    enable = true;
-    defaultFonts = {
-      monospace = [ "Fira Code Nerd Font Mono" ];
-      sansSerif = [ "Fira Sans Nerd Font" ];
-      serif = [ "Fira Serif Nerd Font" ];
-    };
-  };
+  # Note: Font configuration moved to home-manager common.nix
+  # This avoids duplication between system and user-level configs
 }
