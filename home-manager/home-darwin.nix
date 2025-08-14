@@ -17,7 +17,7 @@
     # Use your custom monokai color scheme
     base16Scheme = ./config/colors/monokai.base24.yaml;
     
-    # Override fonts to match your current setup
+    # Set fonts to match your current setup
     fonts = {
       monospace = {
         package = pkgs.nerd-fonts.fira-code;
