@@ -96,24 +96,38 @@ auth       sufficient     pam_tid.so
     # Taps (third-party repositories)
     taps = [
       "homebrew/services"
+      "oven-sh/bun"
     ];
 
     # CLI tools and libraries
     brews = [
       # Command-line tools not available in nixpkgs or newer versions
+      "awslogs"
+      "bun"
+      "checkov"
+      "colima"
+      "dasel"
+      "docker"
+      "docker-buildx"
+      "docker-compose"
       "direnv"
       "git"
       "go-task"
+      "jq"
+      "kion-cli"
+      "yq"
       "mas"  # Mac App Store command line interface
       "node"
       "npm"
       "starship"
+      "zoxide"
       "zsh"
     ];
 
     # GUI applications
     casks = [
       # GUI applications that work better via Homebrew
+      "chromium"        # Chromium Browser
       "dbeaver-community" # Database management tool
       "discord"          # Discord
       "firefox"          # Firefox Browser
@@ -124,6 +138,7 @@ auth       sufficient     pam_tid.so
       "obsidian"         # Note-taking app
       "rectangle"        # Window management
       "raycast"          # Spotlight replacement
+      "session-manager-plugin"
       "slack"            # Team communication
       "visual-studio-code" # VS Code
       "vivaldi"          # Vivaldi Browser
