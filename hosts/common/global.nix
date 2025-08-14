@@ -49,6 +49,7 @@
     tree
     unzip
     rclone
+    go-task
   ];
 
   environment.shells = with pkgs; [

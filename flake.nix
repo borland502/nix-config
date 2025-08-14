@@ -61,7 +61,7 @@
 
     # nix-darwin configurations for macOS
     darwinConfigurations = {
-      ICFC9DWH494TM = nix-darwin.lib.darwinSystem {
+      ICFC9DWH494TM-2 = nix-darwin.lib.darwinSystem {
         system = "aarch64-darwin";
         modules = [
           ./hosts/darwin

@@ -81,4 +81,58 @@ auth       sufficient     pam_tid.so
     nerd-fonts.fira-code
     nerd-fonts.jetbrains-mono
   ];
+
+  # Homebrew configuration
+  homebrew = {
+    enable = true;
+    
+    # Homebrew package management
+    onActivation = {
+      autoUpdate = true;
+      upgrade = true;
+      cleanup = "zap"; # Uninstall packages not listed in configuration
+    };
+
+    # Taps (third-party repositories)
+    taps = [
+      "homebrew/services"
+    ];
+
+    # CLI tools and libraries
+    brews = [
+      # Command-line tools not available in nixpkgs or newer versions
+      "direnv"
+      "git"
+      "go-task"
+      "mas"  # Mac App Store command line interface
+      "node"
+      "npm"
+      "starship"
+      "zsh"
+    ];
+
+    # GUI applications
+    casks = [
+      # GUI applications that work better via Homebrew
+      "dbeaver-community" # Database management tool
+      "discord"          # Discord
+      "firefox"          # Firefox Browser
+      "google-chrome"    # Google Chrome
+      "iterm2"           # iTerm2 terminal
+      "keepassxc"
+      "kitty"            # Kitty terminal
+      "obsidian"         # Note-taking app
+      "rectangle"        # Window management
+      "raycast"          # Spotlight replacement
+      "slack"            # Team communication
+      "visual-studio-code" # VS Code
+      "vivaldi"          # Vivaldi Browser
+    ];
+
+    # Mac App Store applications
+    masApps = {
+      # Mac App Store applications (find IDs with: mas search "app name")
+      "Xcode" = 497799835;
+    };
+  };
 }
