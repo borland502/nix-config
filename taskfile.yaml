@@ -2,29 +2,93 @@
 version: '3'
 
 vars:
-  HOST: '{{.HOST | default "krile"}}'
+  # Auto-detect host based on hostname or allow override
+  DETECTED_HOST:
+    sh: |
+      hostname=$(hostname)
+      case "$hostname" in
+        "krile") echo "krile" ;;
+        "nixos") echo "nixos" ;;
+        "ICFC9DWH494TM") echo "ICFC9DWH494TM" ;;  
+        *) echo "nixos" ;;  # Default to nixos for unknown hosts
+      esac
+  HOST: '{{.HOST | default .DETECTED_HOST}}'
+  # Detect if we're on macOS or Linux
+  IS_DARWIN:
+    sh: '[[ "$(uname)" == "Darwin" ]] && echo "true" || echo "false"'
 
 tasks:
-  # System management
+  # System management - Auto-detect platform
   build:
-    desc: Build the NixOS configuration
-    cmd: nixos-rebuild build --flake .#{{.HOST}}
+    desc: Build the system configuration
+    cmd: |
+      {{if eq .IS_DARWIN "true"}}
+        darwin-rebuild build --flake .#{{.HOST}}
+      {{else}}
+        nixos-rebuild build --flake .#{{.HOST}}
+      {{end}}
 
   switch:
+    desc: Build and switch to the system configuration
+    cmd: |
+      {{if eq .IS_DARWIN "true"}}
+        darwin-rebuild switch --flake .#{{.HOST}}
+      {{else}}
+        sudo nixos-rebuild switch --flake .#{{.HOST}}
+      {{end}}
+
+  # Darwin-specific tasks
+  darwin-build:
+    desc: Build the nix-darwin configuration
+    cmd: darwin-rebuild build --flake .#{{.HOST}}
+    preconditions:
+      - sh: '[[ "$(uname)" == "Darwin" ]]'
+        msg: 'This task can only be run on macOS'
+
+  darwin-switch:
+    desc: Build and switch to the nix-darwin configuration
+    cmd: darwin-rebuild switch --flake .#{{.HOST}}
+    preconditions:
+      - sh: '[[ "$(uname)" == "Darwin" ]]'
+        msg: 'This task can only be run on macOS'
+
+  # NixOS-specific tasks (kept for Linux systems)
+  nixos-build:
+    desc: Build the NixOS configuration
+    cmd: nixos-rebuild build --flake .#{{.HOST}}
+    preconditions:
+      - sh: '[[ "$(uname)" == "Linux" ]]'
+        msg: 'This task can only be run on Linux'
+
+  nixos-switch:
     desc: Build and switch to the NixOS configuration
     cmd: sudo nixos-rebuild switch --flake .#{{.HOST}}
+    preconditions:
+      - sh: '[[ "$(uname)" == "Linux" ]]'
+        msg: 'This task can only be run on Linux'
 
   boot:
     desc: Build and boot the NixOS configuration (for testing)
     cmd: sudo nixos-rebuild boot --flake .#{{.HOST}}
+    preconditions:
+      - sh: '[[ "$(uname)" == "Linux" ]]'
+        msg: 'This task can only be run on Linux'
 
   test:
     desc: Test the NixOS configuration
     cmd: nixos-rebuild test --flake .#{{.HOST}}
+    preconditions:
+      - sh: '[[ "$(uname)" == "Linux" ]]'
+        msg: 'This task can only be run on Linux'
 
   dry-build:
     desc: Perform a dry build to check for errors without applying changes
-    cmd: nixos-rebuild dry-build --flake .#{{.HOST}}
+    cmd: |
+      {{if eq .IS_DARWIN "true"}}
+        darwin-rebuild build --dry-run --flake .#{{.HOST}}
+      {{else}}
+        nixos-rebuild dry-build --flake .#{{.HOST}}
+      {{end}}
 
   # Home Manager
   home-build:

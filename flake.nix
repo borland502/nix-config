@@ -2,7 +2,12 @@
   description = "NixOS configuration";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-25.05-darwin";
+    # nix-darwin for macOS system management
+    nix-darwin = {
+      url = "github:LnL7/nix-darwin/nix-darwin-25.05";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # home-manager, used for managing user configuration
     home-manager = {
       url = "github:nix-community/home-manager/release-25.05";
@@ -23,7 +28,8 @@
     };    
   };
 
-  outputs = inputs@{ nixpkgs, home-manager, plasma-manager, stylix, ... }: {
+  outputs = inputs@{ nixpkgs, nix-darwin, home-manager, plasma-manager, stylix, ... }: {
+    # NixOS configurations
     nixosConfigurations = {
       krile = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
@@ -48,6 +54,26 @@
             home-manager.users.jhettenh = import ./home-manager/home.nix;
 
             # Optionally, use home-manager.extraSpecialArgs to pass arguments to home.nix
+          }
+        ];
+      };
+    };
+
+    # nix-darwin configurations for macOS
+    darwinConfigurations = {
+      ICFC9DWH494TM = nix-darwin.lib.darwinSystem {
+        system = "aarch64-darwin";
+        modules = [
+          ./hosts/darwin
+
+          # Enable home-manager for nix-darwin
+          home-manager.darwinModules.home-manager
+          {
+            home-manager.useGlobalPkgs = true;
+            home-manager.useUserPackages = true;
+            home-manager.backupFileExtension = ".bak0809-1320";
+            
+            home-manager.users.jhettenh = import ./home-manager/home-darwin.nix;
           }
         ];
       };

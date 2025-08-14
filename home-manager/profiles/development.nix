@@ -43,7 +43,7 @@
   programs.git = {
     enable = true;
     userName = "Jeremy Hettenhouser";
-    userEmail = "jeremy@example.com"; # Update with your email
+    userEmail = "jhettenh@gmail.com";
     extraConfig = {
       init.defaultBranch = "main";
       pull.rebase = true;
@@ -57,15 +57,11 @@
     profiles.default.extensions = with pkgs.vscode-extensions; [
       # Python development
       ms-python.python
-      
-      # Rust development  
-      rust-lang.rust-analyzer
-      
+           
       # Git integration
       eamodio.gitlens
       
       # Themes and appearance
-      dracula-theme.theme-dracula
       pkief.material-icon-theme
       
       # Web development
