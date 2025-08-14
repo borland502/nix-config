@@ -32,7 +32,7 @@ tasks:
     desc: Build and switch to the system configuration
     cmd: |
       {{if eq .IS_DARWIN "true"}}
-        darwin-rebuild switch --flake .#{{.HOST}}
+        sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else}}
         sudo nixos-rebuild switch --flake .#{{.HOST}}
       {{end}}
@@ -47,7 +47,7 @@ tasks:
 
   darwin-switch:
     desc: Build and switch to the nix-darwin configuration
-    cmd: darwin-rebuild switch --flake .#{{.HOST}}
+    cmd: sudo darwin-rebuild switch --flake .#{{.HOST}}
     preconditions:
       - sh: '[[ "$(uname)" == "Darwin" ]]'
         msg: 'This task can only be run on macOS'
