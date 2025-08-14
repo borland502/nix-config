@@ -7,6 +7,7 @@
 {
   imports = [ # Include the results of the hardware scan.
     ./hardware-configuration.nix
+    ../../modules/audio/pulseaudio.nix
   ];
 
   # Bootloader.
@@ -58,17 +59,6 @@
   # Enable CUPS to print documents.
   services.printing.enable = true;
 
-  # Enable sound with pipewire.
-  services.pulseaudio.enable = true; # Disable PulseAudio if using PipeWire
-  security.rtkit.enable = true;
-  services.pipewire = {
-    enable = false;
-    alsa.enable = true;
-    alsa.support32Bit = true; # Enable 32-bit support for ALSA
-    pulse.enable = true; # Enable PulseAudio support
-    systemWide = true;
-  };
-
   # Enable touchpad support (enabled default in most desktopManager).
   # services.xserver.libinput.enable = true;
 
@@ -111,34 +101,6 @@
   users.groups.libvirtd.members = [ "jhettenh" ];
   virtualisation.libvirtd.enable = true; # enable libvirt daemon
   virtualisation.spiceUSBRedirection.enable = true; # enable spice USB redirection
-
-  # Enable FUSE for rclone mounting
-  programs.fuse.userAllowOther = true;
-
-  # RClone mount service for Google Drive
-  # systemd.services.rclone-gdrive = {
-  #   description = "RClone mount for Google Drive";
-  #   after = [ "network-online.target" ];
-  #   wants = [ "network-online.target" ];
-  #   wantedBy = [ "multi-user.target" ];
-  #   serviceConfig = {
-  #     Type = "simple";
-  #     User = "jhettenh";
-  #     Group = "users";
-  #     ExecStartPre = [
-  #       "${pkgs.coreutils}/bin/mkdir -p /home/jhettenh/.local/state/remotes/gdrive"
-  #     ];
-  #     ExecStart = "${pkgs.rclone}/bin/rclone mount gdrive: /home/jhettenh/.local/state/remotes/gdrive --vfs-cache-mode writes --allow-other --daemon";
-  #     ExecStop = "/run/wrappers/bin/fusermount3 -u /home/jhettenh/.local/state/remotes/gdrive";
-  #     Restart = "on-failure";
-  #     RestartSec = "10s";
-  #     Environment = [ "PATH=${pkgs.fuse3}/bin:$PATH" ];
-  #     # Additional permissions for FUSE mounting
-  #     PrivateDevices = false;
-  #     DeviceAllow = [ "/dev/fuse rw" ];
-  #     NoNewPrivileges = false;
-  #   };
-  # };
 
   security.sudo.wheelNeedsPassword = false;
 

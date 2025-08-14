@@ -2,16 +2,16 @@
 { config, lib, pkgs, ... }:
 
 {
-  # Enable sound with PulseAudio
-  services.pulseaudio.enable = true;
+  services.pulseaudio.enable = false;
   security.rtkit.enable = true;
   
-  # PipeWire configuration (currently disabled in favor of PulseAudio)
+  # PipeWire configuration 
   services.pipewire = {
-    enable = false;
+    enable = true;
     alsa.enable = true;
     alsa.support32Bit = true;
     pulse.enable = true;
-    systemWide = true;
+    wireplumber.enable = true;
+    systemWide = false;
   };
 }
