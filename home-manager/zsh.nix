@@ -90,7 +90,6 @@
       export XDG_CONFIG_HOME="$HOME/.config"
       export XDG_DATA_HOME="$HOME/.local/share"
       export XDG_LIB_HOME="$HOME/.local/lib"
-      export XDG_RUNTIME_DIR="$HOME/.run"
       export XDG_STATE_HOME="$HOME/.local/state"
       export CAN_USE_SUDO=1
       export DOCKER_BUILDKIT=1
