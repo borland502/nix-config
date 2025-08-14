@@ -17,8 +17,18 @@
     tree
   ];
 
+  # Ensure Homebrew is in PATH for all shells and applications
+  environment.shellInit = ''
+    export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+  '';
+
   # Create /etc/zshrc that loads the nix-darwin environment.
   programs.zsh.enable = true;
+
+  # Ensure Homebrew is in system PATH for all applications
+  environment.variables = {
+    PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:$PATH";
+  };
 
   # Set Git commit hash for darwin-version.
   system.configurationRevision = null;
@@ -78,8 +88,16 @@ auth       sufficient     pam_tid.so
 
   # Enable fonts
   fonts.packages = with pkgs; [
+        # Programming fonts
     nerd-fonts.fira-code
+    nerd-fonts.fira-mono
     nerd-fonts.jetbrains-mono
+    nerd-fonts.sauce-code-pro
+    nerd-fonts.hack
+    
+    # System fonts
+    inter
+    liberation_ttf
   ];
 
   # Homebrew configuration
@@ -120,7 +138,6 @@ auth       sufficient     pam_tid.so
       "node"
       "npm"
       "starship"
-      "zoxide"
       "zsh"
     ];
 

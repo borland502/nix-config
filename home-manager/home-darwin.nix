@@ -22,8 +22,18 @@
     gh
     curl
     wget
-    jq
-    yq
+    go-task
+
+    # Shell integration tools (moved from global)
+    bat        # Better cat with syntax highlighting
+    eza        # Modern ls replacement
+    fzf        # Fuzzy finder
+    fd         # Better find
+    ripgrep    # Fast text search
+    sd         # Better sed
+    jq         # JSON processor
+    yq         # YAML processor
+    zoxide     # Smart cd replacement
 
     # Productivity and content
     hugo
@@ -50,9 +60,24 @@
   fonts.fontconfig = {
     enable = true;
     defaultFonts = {
-      monospace = [ "Fira Code Nerd Font Mono" ];
-      sansSerif = [ "Inter" ];
-      serif = [ "Liberation Serif" ];
+      monospace = [ 
+        "FiraCode Nerd Font Mono"
+        "FiraCode Nerd Font" 
+        "Fira Code"
+        "JetBrainsMono Nerd Font"
+        "Source Code Pro"
+      ];
+      sansSerif = [ 
+        "FiraCode Nerd Font Propo"
+        "Inter" 
+        "Helvetica"
+        "Arial"
+      ];
+      serif = [ 
+        "Liberation Serif" 
+        "Times New Roman"
+        "Times"
+      ];
     };
   };
 
@@ -76,6 +101,9 @@
       # Ensure home-manager packages are in PATH
       export PATH="$HOME/.local/state/nix/profiles/home-manager/home-path/bin:$PATH"
       
+      # Ensure Homebrew is in PATH (critical for GUI terminals like kitty)
+      export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+      
       # Disable loading of old zsh configurations that might conflict
       # This prevents zmodule errors from old Zim framework
       unset ZIM_HOME
@@ -83,11 +111,20 @@
     '';
   };
 
-  # Direnv for automatic environment loading
+    # Direnv for automatic environment loading
   programs.direnv = {
     enable = true;
     enableZshIntegration = true;
   };
+
+  # Kitty terminal configuration
+  xdg.configFile."kitty/kitty.conf".source = ./config/kitty/kitty.conf;
+
+  # VSCode configuration for font consistency
+  xdg.configFile."Code/User/settings.json".source = ./config/vscode/settings.json;
+
+  # This value determines the home Manager release that your
+  # configuration is compatible with. This helps avoid breakage
 
   # This value determines the home Manager release that your
   # configuration is compatible with.

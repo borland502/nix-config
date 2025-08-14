@@ -26,6 +26,20 @@
     pciutils
     usbutils
 
+    # Development tools
+    go-task
+
+    # Shell integration tools (moved from global)
+    bat        # Better cat with syntax highlighting
+    eza        # Modern ls replacement
+    fzf        # Fuzzy finder
+    fd         # Better find
+    ripgrep    # Fast text search
+    sd         # Better sed
+    jq         # JSON processor
+    yq         # YAML processor
+    zoxide     # Smart cd replacement
+    
     # Productivity and content
     hugo
     glow
@@ -47,8 +61,24 @@
   fonts.fontconfig = {
     enable = true;
     defaultFonts = {
-      monospace = [ "Fira Code Nerd Font Mono" ];
-      sansSerif = [ "Fira Sans Nerd Font" ];
+      monospace = [ 
+        "FiraCode Nerd Font Mono"
+        "FiraCode Nerd Font" 
+        "Fira Code"
+        "JetBrainsMono Nerd Font"
+        "Source Code Pro"
+      ];
+      sansSerif = [ 
+        "FiraCode Nerd Font Propo"
+        "Fira Sans Nerd Font" 
+        "Inter"
+        "DejaVu Sans"
+      ];
+      serif = [ 
+        "Liberation Serif" 
+        "DejaVu Serif"
+        "Times"
+      ];
     };
   };
 

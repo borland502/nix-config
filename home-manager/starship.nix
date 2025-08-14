@@ -14,7 +14,7 @@
       
       # AWS
       aws = {
-        format = "[$symbol($profile )(($region) )([$duration] )]($style)";
+        format = "[$symbol($profile )(($region) )]($style)";
         symbol = "🅰 ";
         style = "bold #FCE566"; # base0A (yellow)
         disabled = false;
