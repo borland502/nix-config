@@ -7,7 +7,6 @@
   "terminal.integrated.fontSize": 13,
   "terminal.integrated.fontWeight": "400",
   "terminal.integrated.fontWeightBold": "700",
-  "workbench.colorTheme": "Monokai",
   "editor.minimap.enabled": true,
   "editor.rulers": [80, 120],
   "editor.renderWhitespace": "boundary",

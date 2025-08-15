@@ -61,4 +61,35 @@
       };
     };
   };
+
+  # Autostart GUI apps via systemd user services
+  systemd.user.services = {
+    discord = {
+      Unit = {
+        Description = "Start Discord on graphical session";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session-pre.target" ];
+      };
+      Service = {
+        ExecStart = "${pkgs.discord}/bin/discord";
+        Restart = "on-failure";
+        RestartSec = 5;
+      };
+      Install = { WantedBy = [ "graphical-session.target" ]; };
+    };
+
+    slack = {
+      Unit = {
+        Description = "Start Slack on graphical session";
+        PartOf = [ "graphical-session.target" ];
+        After = [ "graphical-session-pre.target" ];
+      };
+      Service = {
+        ExecStart = "${pkgs.slack}/bin/slack";
+        Restart = "on-failure";
+        RestartSec = 5;
+      };
+      Install = { WantedBy = [ "graphical-session.target" ]; };
+    };
+  };
 }
