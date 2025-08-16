@@ -96,12 +96,21 @@
       };
     };
 
-    # Common theming targets
+    # Common theming targets (applies to Linux and macOS)
     targets = {
       bat.enable = true;
       fzf.enable = true;
       vim.enable = true;
       btop.enable = true;
+      # Add GUI and shell-aware targets so all profiles are themed
+      kitty.enable = true;
+      gtk.enable = true;
+      kde.enable = true;
+      vscode.enable = true;
+      firefox.enable = true;
+      starship.enable = true;
+      # Keep qt disabled unless explicitly requested
+      # qt.enable = true;
     };
   };
 
