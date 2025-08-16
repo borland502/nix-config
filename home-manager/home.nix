@@ -24,12 +24,11 @@
     usbutils
   ];
 
-  # Linux-specific Stylix targets (extending common.nix)
+  # Linux-specific Stylix targets 
   stylix.targets = {
     kitty.enable = true;
     gtk.enable = true;
     kde.enable = true;
-    qt.enable = false;
     firefox.enable = true;
   };
 

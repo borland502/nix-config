@@ -2,9 +2,6 @@
 { config, lib, pkgs, ... }:
 
 {
-  # Disable X11 as we're using Wayland
-  services.xserver.enable = false;
-
   # Enable KDE Plasma Desktop Environment
   services.displayManager = {
     sddm = {

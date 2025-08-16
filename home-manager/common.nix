@@ -109,8 +109,8 @@
       vscode.enable = true;
       firefox.enable = true;
       starship.enable = true;
-      # Keep qt disabled unless explicitly requested
-      # qt.enable = true;
+      # Keep qt disabled unless explicitly requested as the override is causing issues
+      qt.enable = false;
     };
   };
 
@@ -118,7 +118,7 @@
   programs.git = {
     enable = true;
     userName = "jhettenh";
-    userEmail = "jhettenh@example.com";
+    userEmail = "jhettenh@gmail.com";
     extraConfig = {
       init.defaultBranch = "main";
       core.editor = "vim";
