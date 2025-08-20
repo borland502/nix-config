@@ -29,7 +29,10 @@
     kitty.enable = true;
     gtk.enable = true;
     kde.enable = true;
-    firefox.enable = true;
+    firefox = {
+      enable = true;
+      profileNames = [ "default" ];
+    };
   };
 
   # Linux-specific font fallbacks

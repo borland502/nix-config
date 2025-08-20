@@ -6,16 +6,13 @@
   home.packages = with pkgs; [
     # Web browsers
     firefox
-    chromium
     
     # Media
     vlc
     mpv
-    spotify
     
     # Communication
     discord
-    telegram-desktop
     
     # Productivity
     libreoffice
@@ -24,10 +21,6 @@
     # Graphics and design
     gimp
     inkscape
-    
-    # Utilities
-    kdePackages.filelight
-    kdePackages.ark
     
     # GUI tools
     flameshot

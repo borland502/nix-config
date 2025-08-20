@@ -20,7 +20,6 @@
     # Containers and virtualization
     docker
     docker-compose
-    podman
     
     # Cloud tools
     kubectl
@@ -33,7 +32,7 @@
   # VS Code configuration
   programs.vscode = {
     enable = true;
-    extensions = with pkgs.vscode-extensions; [
+    profiles.default.extensions = with pkgs.vscode-extensions; [
       # Python development
       ms-python.python
       
@@ -47,6 +46,6 @@
       bradlc.vscode-tailwindcss
       esbenp.prettier-vscode
       ritwickdey.liveserver
-    ];
+  ];
   };
 }

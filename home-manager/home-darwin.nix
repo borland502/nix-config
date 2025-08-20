@@ -3,7 +3,8 @@
 {
   imports = [
     ./common.nix           # Import common configuration
-    # Note: development profile disabled to avoid VSCode unfree issue
+    ./profiles/development.nix
+    ./profiles/desktop.nix
   ];
 
   home.username = "jhettenh";
@@ -20,6 +21,10 @@
   stylix.targets = {
     kitty.enable = true;
     vscode.enable = true;
+    firefox = {
+      enable = true;
+      profileNames = [ "default" ];
+    };
   };
 
   # Darwin-specific font fallbacks
