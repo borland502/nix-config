@@ -3,8 +3,8 @@
 {
   imports = [
     ./common.nix           # Import common configuration
-    ./profiles/development.nix
-    ./profiles/desktop.nix
+    ./profiles/development-linux.nix
+    ./profiles/desktop-linux.nix
   ];
 
   home.username = "jhettenh";

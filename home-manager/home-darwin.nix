@@ -3,8 +3,7 @@
 {
   imports = [
     ./common.nix           # Import common configuration
-    ./profiles/development.nix
-    ./profiles/desktop.nix
+    # Homebrew casks and packages are used for dev and desktop specific tasks
   ];
 
   home.username = "jhettenh";
