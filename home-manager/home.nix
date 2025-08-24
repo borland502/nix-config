@@ -3,8 +3,8 @@
 {
   imports = [
     ./common.nix           # Import common configuration
-    ./profiles/development.nix
-    ./profiles/desktop.nix
+    ./profiles/development-linux.nix
+    ./profiles/desktop-linux.nix
   ];
 
   home.username = "jhettenh";
@@ -24,7 +24,7 @@
     usbutils
   ];
 
-  # Linux-specific Stylix targets 
+  # Linux-specific Stylix targets
   stylix.targets = {
     kitty.enable = true;
     gtk.enable = true;
@@ -92,6 +92,28 @@
         RestartSec = 5;
       };
       Install = { WantedBy = [ "graphical-session.target" ]; };
+    };
+  };
+
+  # Thunderbird configuration
+  programs.thunderbird = {
+    enable = true;
+    package = pkgs.thunderbird;
+    profiles.default = {
+      isDefault = true;
+      settings = {
+        # UI/appearance
+        "ui.systemUsesDarkTheme" = 1;
+        "svg.context-properties.content.enabled" = true;
+        # Behavior
+        "mail.spellcheck.inline" = true;
+        "mailnews.start_page.enabled" = false;
+        "mailnews.default_sort_type" = 18; # sort by date desc
+        # Performance/UX
+        "general.smoothScroll" = true;
+        # Allow userChrome.css if you want to theme further later
+        "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
+      };
     };
   };
 }
