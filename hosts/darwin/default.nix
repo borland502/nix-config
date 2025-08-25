@@ -50,12 +50,12 @@
     if ! grep -q "pam_tid.so" /etc/pam.d/sudo; then
       # Create a backup of the original sudo pam file
       cp /etc/pam.d/sudo /etc/pam.d/sudo.backup.before.nix-darwin
-      
+
       # Add Touch ID support to sudo
       sed -i'.bak' '2i\
 auth       sufficient     pam_tid.so
 ' /etc/pam.d/sudo
-      
+
       echo "Touch ID for sudo has been enabled"
     else
       echo "Touch ID for sudo is already enabled"
@@ -69,13 +69,13 @@ auth       sufficient     pam_tid.so
       orientation = "bottom";
       tilesize = 48;
     };
-    
+
     finder = {
       AppleShowAllExtensions = true;
       ShowPathbar = true;
       ShowStatusBar = true;
     };
-    
+
     NSGlobalDomain = {
       AppleInterfaceStyle = "Dark";
       AppleKeyboardUIMode = 3;
@@ -95,7 +95,7 @@ auth       sufficient     pam_tid.so
     nerd-fonts.jetbrains-mono
     nerd-fonts.sauce-code-pro
     nerd-fonts.hack
-    
+
     # System fonts
     inter
     liberation_ttf
@@ -107,7 +107,7 @@ auth       sufficient     pam_tid.so
   # Homebrew configuration
   homebrew = {
     enable = true;
-    
+
     # Homebrew package management
     onActivation = {
       autoUpdate = true;
@@ -132,16 +132,16 @@ auth       sufficient     pam_tid.so
       "docker"
       "docker-buildx"
       "docker-compose"
+      "docker-credential-helper"
       "direnv"
       "git"
       "go-task"
       "jq"
       "kion-cli"
-      "yq"
       "mas"  # Mac App Store command line interface
-      "node"
-      "npm"
+      "python@3"
       "starship"
+      "yq"
       "zsh"
     ];
 

@@ -114,6 +114,28 @@
     };
   };
 
+  # VS Code: sensible default profile with Stylix theme
+  programs.vscode = {
+    enable = true;
+    profiles.default = {
+      userSettings = {
+        # Ensure Stylix theme is selected by default
+        "workbench.colorTheme" = "Stylix";
+        "workbench.preferredDarkColorTheme" = "Stylix";
+
+        # Fonts consistent with Stylix
+        "editor.fontFamily" = "FiraCode Nerd Font Mono";
+        "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
+
+        # Small quality-of-life defaults (non-Stylix)
+        "editor.fontLigatures" = true;
+        "editor.formatOnSave" = true;
+        "files.trimTrailingWhitespace" = true;
+        "files.insertFinalNewline" = true;
+      };
+    };
+  };
+
   # Common Git configuration
   programs.git = {
     enable = true;

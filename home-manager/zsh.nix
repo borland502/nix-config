@@ -8,7 +8,7 @@
     syntaxHighlighting.enable = true;
 
     defaultKeymap = "vicmd";
-    
+
     initContent = ''
       # Set zsh options
       setopt NO_BEEP
@@ -30,7 +30,7 @@
 
       # Initialize shell integrations
       eval "$(zoxide init zsh)"
-      
+
       # FZF integration
       if command -v fzf >/dev/null 2>&1; then
         source <(fzf --zsh)
@@ -62,7 +62,7 @@
       llm = "eza --all --header --long --sort=modified $eza_params";
       la = "eza -lbhHigUmuSa --git --color-scale --icons"; # all list
       lx = "eza -lbhHigUmuSa@ --git --color-scale --icons"; # all + extended list
-      
+
       # Zoxide shortcuts
       cd = "z";  # Use zoxide instead of cd
     };
@@ -100,12 +100,12 @@
       export purple="#948ae3"
       export red="#fc618d"
       export yellow="#fcd566"
-      
+
       # Terminal and editor configuration
       export EDITOR="vim"
       export TERM="xterm-256color"
       export KITTY_TERM="kitty"
-      
+
       # XDG directories (set only if not already defined)
       export XDG_BIN_HOME="''${XDG_BIN_HOME:-$HOME/.local/bin}"
       export XDG_CACHE_HOME="''${XDG_CACHE_HOME:-$HOME/.cache}"
@@ -113,12 +113,12 @@
       export XDG_DATA_HOME="''${XDG_DATA_HOME:-$HOME/.local/share}"
       export XDG_LIB_HOME="''${XDG_LIB_HOME:-$HOME/.local/lib}"
       export XDG_STATE_HOME="''${XDG_STATE_HOME:-$HOME/.local/state}"
-      
+
       # Development environment
       export CAN_USE_SUDO=1
       export DOCKER_BUILDKIT=1
       export GOMPLATE_CONFIG="$XDG_CONFIG_HOME/gomplate/gomplate.yaml"
-      
+
       # UI configuration
       export GUM_CHOOSE_CURSOR_FOREGROUND="$green"
       export GUM_CHOOSE_ITEM_FOREGROUND="$blue"
@@ -129,14 +129,14 @@
       export GUM_INPUT_PROMPT_FOREGROUND="$blue"
       export GUM_INPUT_WIDTH=120
       export HAS_ALLOW_UNSAFE='y'
-      
+
       # Homebrew configuration
-      export HOMEBREW_NO_ANALYTICS=0
+      export HOMEBREW_NO_ANALYTICS=
       export HOMEBREW_NO_INSTALL_CLEANUP=true
-      
+
       # Other tools
       export UNISON="$XDG_CONFIG_HOME/unison"
-      
+
       # Ensure Homebrew is in PATH (important for GUI terminals)
       export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
     '';
