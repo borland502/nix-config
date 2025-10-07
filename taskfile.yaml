@@ -155,4 +155,8 @@ tasks:
     desc: Update nixpkgs and rebuild the system
     cmd: |
       nix flake update
-      sudo nixos-rebuild switch --flake .#{{.HOST}}
+      {{if eq .IS_DARWIN "true"}}
+        sudo darwin-rebuild switch --flake .#{{.HOST}}
+      {{else}}
+        sudo nixos-rebuild switch --flake .#{{.HOST}}
+      {{end}}

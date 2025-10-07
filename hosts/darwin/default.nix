@@ -124,7 +124,10 @@ auth       sufficient     pam_tid.so
     # CLI tools and libraries
     brews = [
       # Command-line tools not available in nixpkgs or newer versions
+      "awscli"
+      "aws-console"
       "awslogs"
+      "aws-sam-cli"
       "bun"
       "checkov"
       "colima"
@@ -138,8 +141,11 @@ auth       sufficient     pam_tid.so
       "go-task"
       "jq"
       "kion-cli"
+      "lima-additional-guestagents"
       "mas"  # Mac App Store command line interface
+      "node@22"
       "python@3"
+      "scrcpy"
       "starship"
       "yq"
       "zsh"
@@ -148,12 +154,14 @@ auth       sufficient     pam_tid.so
     # GUI applications
     casks = [
       # GUI applications that work better via Homebrew
+      "android-platform-tools"
       "chromium"        # Chromium Browser
       "dbeaver-community" # Database management tool
       "discord"          # Discord
       "firefox"          # Firefox Browser
       "google-chrome"    # Google Chrome
       "iterm2"           # iTerm2 terminal
+      "jetbrains-toolbox" # JetBrains Toolbox
       "keepassxc"
       "kitty"            # Kitty terminal
       "obsidian"         # Note-taking app
