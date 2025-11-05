@@ -29,10 +29,8 @@
     zoxide     # Smart cd replacement
 
     # Productivity and content
-    hugo
     glow
     gum
-    nix-output-monitor
     tealdeer
 
     # Basic utilities
@@ -53,22 +51,22 @@
   fonts.fontconfig = {
     enable = true;
     defaultFonts = {
-      monospace = [ 
+      monospace = [
         "FiraCode Nerd Font Mono"
-        "FiraCode Nerd Font" 
+        "FiraCode Nerd Font"
         "Fira Code"
         "JetBrainsMono Nerd Font"
         "Source Code Pro"
       ];
-      sansSerif = [ 
+      sansSerif = [
         "FiraCode Nerd Font Propo"
-        "Inter" 
+        "Inter"
         "Helvetica"
         "Arial"
         "DejaVu Sans"
       ];
-      serif = [ 
-        "Liberation Serif" 
+      serif = [
+        "Liberation Serif"
         "Times New Roman"
         "Times"
         "DejaVu Serif"
@@ -80,7 +78,7 @@
   stylix = {
     enable = true;
     base16Scheme = ./config/colors/monokai.base24.yaml;
-    
+
     fonts = {
       monospace = {
         package = pkgs.nerd-fonts.fira-code;

@@ -139,10 +139,13 @@ auth       sufficient     pam_tid.so
       "direnv"
       "git"
       "go-task"
+      "java"
+      "java11"
       "jq"
       "kion-cli"
       "lima-additional-guestagents"
       "mas"  # Mac App Store command line interface
+      "maven"
       "node@22"
       "python@3"
       "scrcpy"
@@ -162,21 +165,23 @@ auth       sufficient     pam_tid.so
       "google-chrome"    # Google Chrome
       "iterm2"           # iTerm2 terminal
       "jetbrains-toolbox" # JetBrains Toolbox
+      "jordanbaird-ice"
       "keepassxc"
       "kitty"            # Kitty terminal
       "obsidian"         # Note-taking app
-      "rectangle"        # Window management
-      "raycast"          # Spotlight replacement
       "session-manager-plugin"
       "slack"            # Team communication
       "visual-studio-code" # VS Code
       "vivaldi"          # Vivaldi Browser
+      "whatsapp"
     ];
 
     # Mac App Store applications
     masApps = {
       # Mac App Store applications (find IDs with: mas search "app name")
       "Xcode" = 497799835;
+      "Amazon Kindle" = 302584613;
+      "Unzip - RAR ZIP 7Z Unarchiver" = 1537056818;
     };
   };
 }
