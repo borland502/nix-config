@@ -41,6 +41,7 @@
     ncdu
     rsync
     direnv
+    unzip
 
     # System monitoring (cross-platform)
     btop
@@ -173,4 +174,19 @@
   # Common home-manager settings
   home.stateVersion = "25.05";
   programs.home-manager.enable = true;
+
+  programs.vim = {
+    enable = true;
+    defaultEditor = true;
+    plugins = with pkgs.vimPlugins; [
+      vim-airline
+      vim-airline-themes
+      nerdtree
+      vim-fugitive
+      vim-surround
+      vim-commentary
+      coc-nvim
+      monokai-pro-nvim
+    ];
+  };
 }

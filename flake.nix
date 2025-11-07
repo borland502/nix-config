@@ -25,7 +25,7 @@
     stylix = {
       url = "github:danth/stylix/release-25.05";
       inputs.nixpkgs.follows = "nixpkgs";
-    };    
+    };
   };
 
   outputs = inputs@{ nixpkgs, nix-darwin, home-manager, plasma-manager, stylix, ... }: {
@@ -61,7 +61,7 @@
 
     # nix-darwin configurations for macOS
     darwinConfigurations = {
-      ICFC9DWH494TM-2 = nix-darwin.lib.darwinSystem {
+      ICFGG241C3Y03 = nix-darwin.lib.darwinSystem {
         system = "aarch64-darwin";
         modules = [
           ./hosts/darwin
@@ -77,8 +77,8 @@
             home-manager.sharedModules = [
               stylix.homeModules.stylix
             ];
-            
-            home-manager.users.jhettenh = import ./home-manager/home-darwin.nix;
+
+            home-manager.users."42245" = import ./home-manager/home-darwin.nix;
           }
         ];
       };

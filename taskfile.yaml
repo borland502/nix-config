@@ -9,8 +9,8 @@ vars:
       case "$hostname" in
         "krile") echo "krile" ;;
         "nixos") echo "nixos" ;;
-        "ICFC9DWH494TM") echo "ICFC9DWH494TM-2" ;;
-        "ICFC9DWH494TM-2") echo "ICFC9DWH494TM-2" ;;
+        "ICFGG241C3Y03") echo "ICFGG241C3Y03" ;;
+        "ICFGG241C3Y03-2") echo "ICFC9DWH494TM-2" ;;
         *) echo "nixos" ;;  # Default to nixos for unknown hosts
       esac
   HOST: '{{.HOST | default .DETECTED_HOST}}'

@@ -42,7 +42,7 @@
   nixpkgs.hostPlatform = "aarch64-darwin";
 
   # Set the primary user for system defaults
-  system.primaryUser = "jhettenh";
+  system.primaryUser = "42245";
 
   # Enable Touch ID for sudo authentication via activation script
   system.activationScripts.extraActivation.text = ''
@@ -67,23 +67,73 @@ auth       sufficient     pam_tid.so
     dock = {
       autohide = true;
       orientation = "bottom";
+      show-recents = false;
       tilesize = 48;
     };
 
     finder = {
       AppleShowAllExtensions = true;
+      FXDefaultSearchScope = "SCcf"; # Search current folder by default
+      FXEnableExtensionChangeWarning = false;
+      FXPreferredViewStyle = "Nlsv"; # List view
       ShowPathbar = true;
       ShowStatusBar = true;
     };
 
     NSGlobalDomain = {
       AppleInterfaceStyle = "Dark";
-      AppleKeyboardUIMode = 3;
       ApplePressAndHoldEnabled = false;
       KeyRepeat = 2;
       InitialKeyRepeat = 15;
+      NSDocumentSaveNewDocumentsToCloud = false;
       "com.apple.mouse.tapBehavior" = 1;
       "com.apple.sound.beep.volume" = 0.0;
+      "com.apple.swipescrolldirection" = false;
+    };
+
+    screencapture = {
+      location = "$HOME/Pictures/Screenshots";
+      target = "clipboard";
+      type = "png";
+    };
+
+    CustomUserPreferences = {
+      "com.apple.Spotlight" =
+        let
+          enableCategories = [
+            "APPLICATIONS"
+            "SYSTEM_PREFS"
+            "DIRECTORIES"
+            "PDF"
+            "FONTS"
+            "DOCUMENTS"
+            "MESSAGES"
+            "CONTACT"
+            "EVENT_TODO"
+            "IMAGES"
+            "BOOKMARKS"
+            "MUSIC"
+            "MOVIES"
+            "PRESENTATIONS"
+            "SPREADSHEETS"
+            "SOURCE"
+            "MENU_DEFINITION"
+            "MENU_OTHER"
+            "MENU_CONVERSION"
+            "MENU_EXPRESSION"
+          ];
+
+          disableCategories = [
+            "MENU_WEBSEARCH"
+            "MENU_SPOTLIGHT_SUGGESTIONS"
+          ];
+
+          mkItem = enabled: name: { inherit name enabled; };
+        in {
+          orderedItems =
+            (map (mkItem 1) enableCategories)
+            ++ (map (mkItem 0) disableCategories);
+        };
     };
   };
 
@@ -117,8 +167,8 @@ auth       sufficient     pam_tid.so
 
     # Taps (third-party repositories)
     taps = [
-      "homebrew/services"
       "oven-sh/bun"
+      "kionsoftware/tap"
     ];
 
     # CLI tools and libraries
@@ -138,18 +188,20 @@ auth       sufficient     pam_tid.so
       "docker-credential-helper"
       "direnv"
       "git"
+      "golang"
       "go-task"
-      "java"
-      "java11"
       "jq"
       "kion-cli"
       "lima-additional-guestagents"
       "mas"  # Mac App Store command line interface
       "maven"
-      "node@22"
+      "nvm"
+      "overmind"
       "python@3"
       "scrcpy"
       "starship"
+      "tmux"
+      "unzip"
       "yq"
       "zsh"
     ];

@@ -48,7 +48,7 @@
       General = {
         disabledTrayIcon = false;
         showStartupLaunchMessage = false;
-        savePath = "/home/jhettenh/Pictures/Screenshots";
+        savePath = "/home/42245/Pictures/Screenshots";
         savePathFixed = true;
       };
     };
