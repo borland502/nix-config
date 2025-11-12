@@ -20,7 +20,7 @@
 
   # Ensure Homebrew is in PATH for all shells and applications
   environment.shellInit = ''
-    export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+    export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PATH"
   '';
 
   # Create /etc/zshrc that loads the nix-darwin environment.
@@ -28,7 +28,7 @@
 
   # Ensure Homebrew is in system PATH for all applications
   environment.variables = {
-    PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:$PATH";
+    PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PATH";
   };
 
   # Set Git commit hash for darwin-version.
@@ -197,7 +197,9 @@ auth       sufficient     pam_tid.so
       "maven"
       "nvm"
       "overmind"
+      "pipx"
       "python@3"
+      "pydantic"
       "scrcpy"
       "starship"
       "tmux"

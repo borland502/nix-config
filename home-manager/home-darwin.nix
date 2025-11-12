@@ -43,6 +43,9 @@
       # Ensure Homebrew is in PATH (critical for GUI terminals like kitty)
       export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 
+      # Make sure locally installed CLI tools (pipx, npm, etc.) are reachable
+      export PATH="$HOME/.local/bin:$PATH"
+
       # Disable loading of old zsh configurations that might conflict
       # This prevents zmodule errors from old Zim framework
       unset ZIM_HOME

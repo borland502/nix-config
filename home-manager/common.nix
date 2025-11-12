@@ -8,6 +8,9 @@
     ./starship.nix
   ];
 
+  # Ensure user-local binaries are found regardless of shell
+  home.sessionPath = lib.mkBefore [ "$HOME/.local/bin" ];
+
   # Common packages (platform-agnostic)
   home.packages = with pkgs; [
     # Development tools
@@ -131,6 +134,7 @@
         "editor.formatOnSave" = true;
         "files.trimTrailingWhitespace" = true;
         "files.insertFinalNewline" = true;
+        "git.autofetch" = true;
       };
     };
   };

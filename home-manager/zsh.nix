@@ -138,7 +138,10 @@
       export UNISON="$XDG_CONFIG_HOME/unison"
 
       # Ensure Homebrew is in PATH (important for GUI terminals)
-      export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+  export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+
+  # Ensure local user bin directory is available for tools like pipx
+  export PATH="$HOME/.local/bin:$PATH"
     '';
 
     history = {
