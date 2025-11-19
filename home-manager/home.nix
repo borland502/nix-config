@@ -125,4 +125,19 @@ in
       };
     };
   };
+
+  programs.bash = {
+    enable = true;
+    enableCompletion = true;
+    profileExtra = ''
+      if [ -n "$INSIDE_DEVCONTAINER" ] && [ -z "$BASH_NO_AUTO_ZSH" ] && [ -t 0 ] && command -v zsh >/dev/null 2>&1; then
+        exec zsh -l
+      fi
+    '';
+    initExtra = ''
+      if [ -n "$INSIDE_DEVCONTAINER" ] && [ -z "$BASH_NO_AUTO_ZSH" ] && [ -t 0 ] && command -v zsh >/dev/null 2>&1; then
+        exec zsh
+      fi
+    '';
+  };
 }
