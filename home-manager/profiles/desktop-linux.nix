@@ -1,32 +1,37 @@
 # Desktop-focused home-manager profile
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
-{
-  # Desktop applications
-  home.packages = with pkgs; [
+let
+  desktopPackages = with pkgs; [
     # Web browsers
     firefox
-    
+
     # Media
     vlc
     mpv
-    
+
     # Communication
     discord
-    
+
     # Productivity
     libreoffice
     obsidian
-    
+
     # Graphics and design
     gimp
     inkscape
-    
+
     # GUI tools
     flameshot
     slack
-    keepassxc    
+    keepassxc
   ];
+
+  availablePackages = lib.filter (pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg) desktopPackages;
+in
+{
+  # Desktop applications
+  home.packages = availablePackages;
 
   # Note: System monitoring tools (htop, btop, iotop) moved to platform-specific configs
   # Note: Removed duplicated discord entry

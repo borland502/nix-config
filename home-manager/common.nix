@@ -117,7 +117,7 @@
   };
 
   # VS Code: sensible default profile with Stylix theme
-  programs.vscode = {
+  programs.vscode = lib.mkIf (pkgs ? vscode) {
     enable = true;
     profiles.default = {
       userSettings = {

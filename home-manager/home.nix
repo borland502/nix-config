@@ -1,17 +1,7 @@
 { config, pkgs, lib, ... }:
 
-{
-  imports = [
-    ./common.nix           # Import common configuration
-    ./profiles/development-linux.nix
-    ./profiles/desktop-linux.nix
-  ];
-
-  home.username = "jhettenh";
-  home.homeDirectory = lib.mkForce "/home/jhettenh";
-
-  # Linux-specific packages
-  home.packages = with pkgs; [
+let
+  linuxPackages = with pkgs; [
     # Linux-specific system monitoring
     iotop
     iftop
@@ -22,7 +12,24 @@
     ethtool
     pciutils
     usbutils
+    dbus
   ];
+
+  availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
+  availableLinuxPackages = lib.filter availableOnHost linuxPackages;
+in
+{
+  imports = [
+    ./common.nix           # Import common configuration
+    ./profiles/development-linux.nix
+    ./profiles/desktop-linux.nix
+  ];
+
+  home.username = lib.mkDefault "jhettenh";
+  home.homeDirectory = lib.mkDefault "/home/jhettenh";
+
+  # Linux-specific packages
+  home.packages = availableLinuxPackages;
 
   # Linux-specific Stylix targets
   stylix.targets = {
@@ -48,7 +55,7 @@
       General = {
         disabledTrayIcon = false;
         showStartupLaunchMessage = false;
-        savePath = "/home/42245/Pictures/Screenshots";
+        savePath = "${config.home.homeDirectory}/Pictures/Screenshots";
         savePathFixed = true;
       };
     };
@@ -65,35 +72,37 @@
   };
 
   # Autostart GUI apps via systemd user services
-  systemd.user.services = {
-    discord = {
-      Unit = {
-        Description = "Start Discord on graphical session";
-        PartOf = [ "graphical-session.target" ];
-        After = [ "graphical-session-pre.target" ];
+  systemd.user.services =
+    lib.optionalAttrs (availableOnHost pkgs.discord) {
+      discord = {
+        Unit = {
+          Description = "Start Discord on graphical session";
+          PartOf = [ "graphical-session.target" ];
+          After = [ "graphical-session-pre.target" ];
+        };
+        Service = {
+          ExecStart = "${pkgs.discord}/bin/discord";
+          Restart = "on-failure";
+          RestartSec = 5;
+        };
+        Install = { WantedBy = [ "graphical-session.target" ]; };
       };
-      Service = {
-        ExecStart = "${pkgs.discord}/bin/discord";
-        Restart = "on-failure";
-        RestartSec = 5;
+    }
+    // lib.optionalAttrs (availableOnHost pkgs.slack) {
+      slack = {
+        Unit = {
+          Description = "Start Slack on graphical session";
+          PartOf = [ "graphical-session.target" ];
+          After = [ "graphical-session-pre.target" ];
+        };
+        Service = {
+          ExecStart = "${pkgs.slack}/bin/slack";
+          Restart = "on-failure";
+          RestartSec = 5;
+        };
+        Install = { WantedBy = [ "graphical-session.target" ]; };
       };
-      Install = { WantedBy = [ "graphical-session.target" ]; };
     };
-
-    slack = {
-      Unit = {
-        Description = "Start Slack on graphical session";
-        PartOf = [ "graphical-session.target" ];
-        After = [ "graphical-session-pre.target" ];
-      };
-      Service = {
-        ExecStart = "${pkgs.slack}/bin/slack";
-        Restart = "on-failure";
-        RestartSec = 5;
-      };
-      Install = { WantedBy = [ "graphical-session.target" ]; };
-    };
-  };
 
   # Thunderbird configuration
   programs.thunderbird = {

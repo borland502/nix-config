@@ -1,0 +1,33 @@
+{
+  "name": "nix-config dev",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/nix:1": {
+      "extraNixConfig": "experimental-features = nix-command flakes\n"
+    }
+  },
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "NIX_CONFIG": "experimental-features = nix-command flakes",
+    "LANG": "en_US.UTF-8",
+    "LC_ALL": "en_US.UTF-8"
+  },
+  "mounts": [
+    "source=nix-store,target=/nix,type=volume",
+    "source=nix-config-cache,target=/home/vscode/.cache,type=volume"
+  ],
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.cache && ARCH=$(uname -m); ATTR=vscode@devcontainer; if [ \"$ARCH\" = \"aarch64\" ] || [ \"$ARCH\" = \"arm64\" ]; then ATTR=vscode@devcontainer-aarch64; fi; nix run .#home-manager -- switch --flake .#$ATTR -b bak-devcontainer",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "jnoortheen.nix-ide",
+        "arrterian.nix-env-selector",
+        "tamasfe.even-better-toml",
+        "EditorConfig.EditorConfig"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  }
+}
