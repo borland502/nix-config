@@ -17,13 +17,25 @@ vars:
   # Detect if we're on macOS or Linux
   IS_DARWIN:
     sh: '[[ "$(uname)" == "Darwin" ]] && echo "true" || echo "false"'
+  IN_DEVCONTAINER:
+    sh: '[[ -n "${INSIDE_DEVCONTAINER:-}" ]] && echo "true" || echo "false"'
+  DEVCONTAINER_ATTR:
+    sh: |
+      arch=$(uname -m)
+      if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
+        echo "vscode@devcontainer-aarch64"
+      else
+        echo "vscode@devcontainer"
+      fi
 
 tasks:
   # System management - Auto-detect platform
   build:
     desc: Build the system configuration
     cmd: |
-      {{if eq .IS_DARWIN "true"}}
+      {{if eq .IN_DEVCONTAINER "true"}}
+        nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage
+      {{else if eq .IS_DARWIN "true"}}
         darwin-rebuild build --flake .#{{.HOST}}
       {{else}}
         nixos-rebuild build --flake .#{{.HOST}}
@@ -32,7 +44,9 @@ tasks:
   switch:
     desc: Build and switch to the system configuration
     cmd: |
-      {{if eq .IS_DARWIN "true"}}
+      {{if eq .IN_DEVCONTAINER "true"}}
+        nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
+      {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else}}
         sudo nixos-rebuild switch --flake .#{{.HOST}}
@@ -60,6 +74,8 @@ tasks:
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
+      - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
+        msg: 'This task is unavailable inside the devcontainer'
 
   nixos-switch:
     desc: Build and switch to the NixOS configuration
@@ -67,6 +83,8 @@ tasks:
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
+      - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
+        msg: 'This task is unavailable inside the devcontainer'
 
   boot:
     desc: Build and boot the NixOS configuration (for testing)
@@ -74,6 +92,8 @@ tasks:
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
+      - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
+        msg: 'This task is unavailable inside the devcontainer'
 
   test:
     desc: Test the NixOS configuration
@@ -81,11 +101,15 @@ tasks:
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
+      - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
+        msg: 'This task is unavailable inside the devcontainer'
 
   dry-build:
     desc: Perform a dry build to check for errors without applying changes
     cmd: |
-      {{if eq .IS_DARWIN "true"}}
+      {{if eq .IN_DEVCONTAINER "true"}}
+        nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage --dry-run
+      {{else if eq .IS_DARWIN "true"}}
         darwin-rebuild build --dry-run --flake .#{{.HOST}}
       {{else}}
         nixos-rebuild dry-build --flake .#{{.HOST}}
@@ -94,11 +118,21 @@ tasks:
   # Home Manager
   home-build:
     desc: Build home-manager configuration
-    cmd: home-manager build --flake .#jhettenh@{{.HOST}}
+    cmd: |
+      {{if eq .IN_DEVCONTAINER "true"}}
+        nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage
+      {{else}}
+        home-manager build --flake .#jhettenh@{{.HOST}}
+      {{end}}
 
   home-switch:
     desc: Switch home-manager configuration
-    cmd: home-manager switch --flake .#jhettenh@{{.HOST}}
+    cmd: |
+      {{if eq .IN_DEVCONTAINER "true"}}
+        nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
+      {{else}}
+        home-manager switch --flake .#jhettenh@{{.HOST}}
+      {{end}}
 
   # Maintenance
   update:
@@ -109,7 +143,9 @@ tasks:
     desc: Garbage collect old generations
     cmd: |
       nix-collect-garbage -d
-      sudo nix-collect-garbage -d
+      {{if ne .IN_DEVCONTAINER "true"}}
+        sudo nix-collect-garbage -d
+      {{end}}
 
   optimize:
     desc: Optimize nix store
@@ -141,10 +177,16 @@ tasks:
   service-status:
     desc: Check status of rclone services
     cmd: systemctl --user status rclone-*
+    preconditions:
+      - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
+        msg: 'User systemd is unavailable inside the devcontainer'
 
   logs:
     desc: Show logs for a specific service
     cmd: journalctl -u {{.SERVICE}} -f
+    preconditions:
+      - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
+        msg: 'journald is unavailable inside the devcontainer'
 
   # Quick actions
   edit:
@@ -155,7 +197,9 @@ tasks:
     desc: Update nixpkgs and rebuild the system
     cmd: |
       nix flake update
-      {{if eq .IS_DARWIN "true"}}
+      {{if eq .IN_DEVCONTAINER "true"}}
+        nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
+      {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else}}
         sudo nixos-rebuild switch --flake .#{{.HOST}}

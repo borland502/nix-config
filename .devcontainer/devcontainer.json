@@ -10,7 +10,8 @@
   "containerEnv": {
     "NIX_CONFIG": "experimental-features = nix-command flakes",
     "LANG": "en_US.UTF-8",
-    "LC_ALL": "en_US.UTF-8"
+    "LC_ALL": "en_US.UTF-8",
+    "INSIDE_DEVCONTAINER": "1"
   },
   "mounts": [
     "source=nix-store,target=/nix,type=volume",
