@@ -2,6 +2,11 @@
 { config, pkgs, lib, ... }:
 
 {
+  nixpkgs.config = {
+    allowUnfree = true;
+    allowUnfreePredicate = (_: true);
+  };
+
   # Shared imports
   imports = [
     ./zsh.nix
@@ -142,9 +147,11 @@
   # Common Git configuration
   programs.git = {
     enable = true;
-    userName = "jhettenh";
-    userEmail = "jhettenh@gmail.com";
-    extraConfig = {
+    settings = {
+      user = {
+        name = "jhettenh";
+        email = "jhettenh@gmail.com";
+      };
       init.defaultBranch = "main";
       core.editor = "vim";
       pull.rebase = false;
