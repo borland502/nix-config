@@ -223,6 +223,7 @@ auth       sufficient     pam_tid.so
       "keepassxc"
       "kitty"            # Kitty terminal
       "obsidian"         # Note-taking app
+      "postman-cli"
       "session-manager-plugin"
       "slack"            # Team communication
       "visual-studio-code" # VS Code

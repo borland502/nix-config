@@ -37,9 +37,6 @@
     enable = true;
     enableCompletion = true;
     initContent = ''
-      # Ensure home-manager packages are in PATH
-      export PATH="$HOME/.local/state/nix/profiles/home-manager/home-path/bin:$PATH"
-
       # Ensure Homebrew is in PATH (critical for GUI terminals like kitty)
       export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 

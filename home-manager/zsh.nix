@@ -68,6 +68,20 @@
     };
 
     envExtra = ''
+      # If an old standalone Home Manager profile path is present, remove it.
+      # nix-darwin + home-manager module exposes the right profile via /etc/profiles.
+      path=(''${path:#$HOME/.local/state/nix/profiles/home-manager/home-path/bin})
+      export PATH=''${(j/:/)path}
+
+      # Prefer nix-darwin system/user profiles early in PATH.
+      # This avoids accidentally running stale binaries from an inherited PATH.
+      if [[ -d "/etc/profiles/per-user/$USER/bin" ]]; then
+        export PATH="/etc/profiles/per-user/$USER/bin:$PATH"
+      fi
+      if [[ -d "/run/current-system/sw/bin" ]]; then
+        export PATH="/run/current-system/sw/bin:$PATH"
+      fi
+
       # Color scheme exports
       export base00="#222222"
       export base01="#363537"
