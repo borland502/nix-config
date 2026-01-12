@@ -12,7 +12,11 @@
   # Darwin-specific packages
   home.packages = with pkgs; [
     # macOS-specific GUI applications
-    firefox
+
+    # NOTE: Firefox (and firefox-bin) disabled due to LLVM 20 build issues on macOS (2025-01-12).
+    # Re-enable when cache issues or upstream build is fixed.
+    # firefox-bin
+
     # Note: Many GUI apps on macOS are better installed via Homebrew or App Store
   ];
 
@@ -20,10 +24,6 @@
   stylix.targets = {
     kitty.enable = true;
     vscode.enable = true;
-    firefox = {
-      enable = true;
-      profileNames = [ "default" ];
-    };
   };
 
   # Darwin-specific font fallbacks

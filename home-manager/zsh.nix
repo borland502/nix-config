@@ -7,7 +7,7 @@
     autosuggestion.enable = true;
     syntaxHighlighting.enable = true;
 
-    defaultKeymap = "vicmd";
+    defaultKeymap = "viins";
 
     initContent = ''
       # Set zsh options

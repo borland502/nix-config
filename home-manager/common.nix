@@ -46,7 +46,7 @@
     file
     which
     tree
-    ncdu
+    # ncdu # Disabling to avoid LLVM/Zig build issues
     rsync
     direnv
     unzip
@@ -114,7 +114,8 @@
       gtk.enable = true;
       kde.enable = true;
       vscode.enable = true;
-      firefox.enable = true;
+      # Temporary disabled due to LLVM/Zig build issues causing build failures on macOS
+      firefox.enable = false;
       starship.enable = true;
       # Keep qt disabled unless explicitly requested as the override is causing issues
       qt.enable = false;

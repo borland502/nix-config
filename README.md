@@ -147,3 +147,17 @@ If migrating from the old monolithic configuration:
 2. Copy host-specific settings to the new structure
 3. Test the build with `task check` and `task build`
 4. Switch when ready with `task switch`
+
+## Known Issues (macOS)
+
+### LLVM/Zig Build Failures (2025-01-12)
+Due to upstream issues with building LLVM 20 from source on macOS (failing `getMacOSHostVersion` test) and/or binary cache misses, the following packages have been temporarily disabled to avoid massive local compilation times and build failures:
+
+1. **Firefox**:
+   - `home-manager/home-darwin.nix`: Removed `firefox` / `firefox-bin`.
+   - `home-manager/common.nix`: Set `stylix.targets.firefox.enable = false`.
+
+2. **ncdu**:
+   - `home-manager/common.nix`: Commented out. Modern `ncdu` (v2+) is written in Zig, which pulls in the failing LLVM toolchain.
+
+**Fix:** Once LLVM 20 builds reliably on macOS or the cache is populated, these can be re-enabled.
