@@ -223,6 +223,7 @@ auth       sufficient     pam_tid.so
       "keepassxc"
       "kitty"            # Kitty terminal
       "obsidian"         # Note-taking app
+      "moonlight"
       "postman"
       "postman-cli"
       "session-manager-plugin"
