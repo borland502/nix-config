@@ -169,11 +169,12 @@ auth       sufficient     pam_tid.so
     taps = [
       "oven-sh/bun"
       "kionsoftware/tap"
+      "atlassian/homebrew-acli"
     ];
 
     # CLI tools and libraries
     brews = [
-      # Command-line tools not available in nixpkgs or newer versions
+      "acli"
       "awscli"
       "aws-console"
       "awslogs"
