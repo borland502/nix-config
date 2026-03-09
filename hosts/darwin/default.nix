@@ -41,6 +41,17 @@
   # The platform the configuration will be used on.
   nixpkgs.hostPlatform = "aarch64-darwin";
 
+  # Set up skhd for custom hotkeys (like Flameshot)
+  services.skhd = {
+    enable = true;
+    skhdConfig = ''
+      # Rectangular capture
+      shift + cmd - 4 : /Applications/Flameshot.app/Contents/MacOS/flameshot gui
+      # Full screen capture
+      shift + cmd - 3 : /Applications/Flameshot.app/Contents/MacOS/flameshot full
+    '';
+  };
+
   # Set the primary user for system defaults
   system.primaryUser = "42245";
 
@@ -59,6 +70,14 @@ auth       sufficient     pam_tid.so
       echo "Touch ID for sudo has been enabled"
     else
       echo "Touch ID for sudo is already enabled"
+    fi
+  '';
+
+  # Strip quarantine from Flameshot after Homebrew installs it to bypass Gatekeeper
+  system.activationScripts.postUserActivation.text = ''
+    if [ -d "/Applications/Flameshot.app" ]; then
+      echo "Stripping quarantine attribute from Flameshot..."
+      xattr -cr /Applications/Flameshot.app || true
     fi
   '';
 
@@ -98,6 +117,20 @@ auth       sufficient     pam_tid.so
     };
 
     CustomUserPreferences = {
+      # Disable macOS default capture shortcuts so Flameshot can override them
+      "com.apple.symbolichotkeys" = {
+        AppleSymbolicHotKeys = {
+          # Cmd + Shift + 4 (Rectangular capture)
+          "30" = { enabled = false; };
+          # Cmd + Ctrl + Shift + 4 (Rectangular capture to clipboard)
+          "31" = { enabled = false; };
+          # Cmd + Shift + 3 (Full screen capture)
+          "28" = { enabled = false; };
+          # Cmd + Ctrl + Shift + 3 (Full screen capture to clipboard)
+          "29" = { enabled = false; };
+        };
+      };
+
       "com.apple.Spotlight" =
         let
           enableCategories = [
@@ -169,7 +202,11 @@ auth       sufficient     pam_tid.so
     taps = [
       "oven-sh/bun"
       "kionsoftware/tap"
-      "atlassian/homebrew-acli"
+      "atlassian/homebrew-acli
+
+
+
+      "
     ];
 
     # CLI tools and libraries
@@ -217,6 +254,7 @@ auth       sufficient     pam_tid.so
       "dbeaver-community" # Database management tool
       "discord"          # Discord
       "firefox"          # Firefox Browser
+      "flameshot"        # Flameshot screenshot tool
       "google-chrome"    # Google Chrome
       "iterm2"           # iTerm2 terminal
       "jetbrains-toolbox" # JetBrains Toolbox

@@ -66,7 +66,7 @@ in
     enable = true;
     shortcuts = {
       "flameshot" = {
-        "Capture" = "Ctrl+Shift+S";
+        "Capture" = "Meta+Shift+4";
       };
     };
   };
