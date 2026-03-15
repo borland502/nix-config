@@ -3,6 +3,10 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    nixos-wsl = {
+      url = "github:nix-community/NixOS-WSL/main";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # nix-darwin for macOS system management
     nix-darwin = {
       url = "github:LnL7/nix-darwin/nix-darwin-25.11";
@@ -28,7 +32,7 @@
     };
   };
 
-  outputs = inputs@{ nixpkgs, nix-darwin, home-manager, plasma-manager, stylix, ... }:
+  outputs = inputs@{ nixpkgs, nixos-wsl, nix-darwin, home-manager, plasma-manager, stylix, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
       linuxSystems = [ "x86_64-linux" "aarch64-linux" ];
@@ -88,6 +92,25 @@
             }
           ];
         };
+
+        wsl = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            nixos-wsl.nixosModules.default
+            home-manager.nixosModules.home-manager
+            ./hosts/wsl
+            {
+              home-manager.useGlobalPkgs = false;
+              home-manager.useUserPackages = true;
+              home-manager.backupFileExtension = ".bak0809-1320";
+              home-manager.sharedModules = [
+                stylix.homeModules.stylix
+              ];
+
+              home-manager.users.nixos = import ./home-manager/home-wsl.nix;
+            }
+          ];
+        };
       };
 
       homeConfigurations = {
@@ -97,6 +120,14 @@
             plasma-manager.homeModules.plasma-manager
             stylix.homeModules.stylix
             ./home-manager/home.nix
+          ];
+        };
+
+        "nixos@wsl" = home-manager.lib.homeManagerConfiguration {
+          pkgs = pkgsFor "x86_64-linux";
+          modules = [
+            stylix.homeModules.stylix
+            ./home-manager/home-wsl.nix
           ];
         };
 

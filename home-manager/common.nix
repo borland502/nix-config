@@ -114,8 +114,6 @@
       gtk.enable = true;
       kde.enable = true;
       vscode.enable = true;
-      # Temporary disabled due to LLVM/Zig build issues causing build failures on macOS
-      firefox.enable = false;
       starship.enable = true;
       # Keep qt disabled unless explicitly requested as the override is causing issues
       qt.enable = false;
@@ -134,6 +132,13 @@
         # Fonts consistent with Stylix
         "editor.fontFamily" = "FiraCode Nerd Font Mono";
         "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
+        "terminal.integrated.defaultProfile.linux" = "zsh";
+        "terminal.integrated.profiles.linux" = {
+          zsh = {
+            path = "${pkgs.zsh}/bin/zsh";
+            args = [ "-l" ];
+          };
+        };
 
         # Small quality-of-life defaults (non-Stylix)
         "editor.fontLigatures" = true;

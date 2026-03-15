@@ -8,12 +8,42 @@ vars:
       hostname=$(hostname)
       case "$hostname" in
         "krile") echo "krile" ;;
-        "nixos") echo "nixos" ;;
+        "nixos"|"wsl") echo "wsl" ;;
         "ICFGG241C3Y03") echo "ICFGG241C3Y03" ;;
         "ICFGG241C3Y03-2") echo "ICFC9DWH494TM-2" ;;
-        *) echo "nixos" ;;  # Default to nixos for unknown hosts
+        *) echo "wsl" ;;  # Default to the WSL host for unknown Linux hosts
       esac
   HOST: '{{.HOST | default .DETECTED_HOST}}'
+  HOME_ATTR:
+    sh: |
+      case "{{.HOST | default .DETECTED_HOST}}" in
+        "wsl") echo "nixos@wsl" ;;
+        *) echo "jhettenh@{{.HOST | default .DETECTED_HOST}}" ;;
+      esac
+  SYSTEM_FLAKE:
+    sh: |
+      case "{{.HOST | default .DETECTED_HOST}}" in
+        "wsl") printf 'path:%s#wsl\n' "$PWD" ;;
+        *) printf '.#%s\n' "{{.HOST | default .DETECTED_HOST}}" ;;
+      esac
+  HOME_FLAKE:
+    sh: |
+      case "{{.HOST | default .DETECTED_HOST}}" in
+        "wsl") printf 'path:%s#nixos@wsl\n' "$PWD" ;;
+        *) printf '.#%s\n' "{{.HOME_ATTR}}" ;;
+      esac
+  HOME_MANAGER_APP:
+    sh: |
+      case "{{.HOST | default .DETECTED_HOST}}" in
+        "wsl") printf 'path:%s#home-manager\n' "$PWD" ;;
+        *) printf '.#home-manager\n' ;;
+      esac
+  NIX_CONFIG_PREFIX:
+    sh: |
+      case "{{.HOST | default .DETECTED_HOST}}" in
+        "wsl") printf 'NIX_CONFIG="experimental-features = nix-command flakes" ' ;;
+        *) printf '' ;;
+      esac
   # Detect if we're on macOS or Linux
   IS_DARWIN:
     sh: '[[ "$(uname)" == "Darwin" ]] && echo "true" || echo "false"'
@@ -38,7 +68,7 @@ tasks:
       {{else if eq .IS_DARWIN "true"}}
         darwin-rebuild build --flake .#{{.HOST}}
       {{else}}
-        nixos-rebuild build --flake .#{{.HOST}}
+        {{.NIX_CONFIG_PREFIX}}nixos-rebuild build --flake "{{.SYSTEM_FLAKE}}"
       {{end}}
 
   switch:
@@ -49,7 +79,7 @@ tasks:
       {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else}}
-        sudo nixos-rebuild switch --flake .#{{.HOST}}
+        {{.NIX_CONFIG_PREFIX}}sudo nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
       {{end}}
 
   # Darwin-specific tasks
@@ -70,7 +100,7 @@ tasks:
   # NixOS-specific tasks (kept for Linux systems)
   nixos-build:
     desc: Build the NixOS configuration
-    cmd: nixos-rebuild build --flake .#{{.HOST}}
+    cmd: '{{.NIX_CONFIG_PREFIX}}nixos-rebuild build --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
@@ -79,7 +109,7 @@ tasks:
 
   nixos-switch:
     desc: Build and switch to the NixOS configuration
-    cmd: sudo nixos-rebuild switch --flake .#{{.HOST}}
+    cmd: '{{.NIX_CONFIG_PREFIX}}sudo nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
@@ -88,7 +118,7 @@ tasks:
 
   boot:
     desc: Build and boot the NixOS configuration (for testing)
-    cmd: sudo nixos-rebuild boot --flake .#{{.HOST}}
+    cmd: '{{.NIX_CONFIG_PREFIX}}sudo nixos-rebuild boot --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
@@ -97,7 +127,7 @@ tasks:
 
   test:
     desc: Test the NixOS configuration
-    cmd: nixos-rebuild test --flake .#{{.HOST}}
+    cmd: '{{.NIX_CONFIG_PREFIX}}nixos-rebuild test --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
@@ -112,7 +142,7 @@ tasks:
       {{else if eq .IS_DARWIN "true"}}
         darwin-rebuild build --dry-run --flake .#{{.HOST}}
       {{else}}
-        nixos-rebuild dry-build --flake .#{{.HOST}}
+        {{.NIX_CONFIG_PREFIX}}nixos-rebuild dry-build --flake "{{.SYSTEM_FLAKE}}"
       {{end}}
 
   # Home Manager
@@ -122,7 +152,7 @@ tasks:
       {{if eq .IN_DEVCONTAINER "true"}}
         nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage
       {{else}}
-        home-manager build --flake .#jhettenh@{{.HOST}}
+        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- build --flake "{{.HOME_FLAKE}}"
       {{end}}
 
   home-switch:
@@ -131,7 +161,7 @@ tasks:
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else}}
-        home-manager switch --flake .#jhettenh@{{.HOST}}
+        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
       {{end}}
 
   # Maintenance
@@ -154,7 +184,7 @@ tasks:
   # Development
   check:
     desc: Check flake for errors
-    cmd: nix flake check
+    cmd: '{{.NIX_CONFIG_PREFIX}}nix flake check {{if eq .HOST "wsl"}}"path:$PWD"{{end}}'
 
   fmt:
     desc: Format nix files
@@ -169,9 +199,9 @@ tasks:
     desc: Switch to krile configuration
     cmd: task switch HOST=krile
 
-  nixos:
-    desc: Switch to nixos configuration
-    cmd: task switch HOST=nixos
+  wsl:
+    desc: Switch to wsl configuration
+    cmd: task switch HOST=wsl
 
   # Service management
   service-status:
@@ -202,5 +232,5 @@ tasks:
       {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else}}
-        sudo nixos-rebuild switch --flake .#{{.HOST}}
+        {{.NIX_CONFIG_PREFIX}}sudo nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
       {{end}}

@@ -1,6 +1,6 @@
-# NixOS Configuration
+# Nix Configuration
 
-Jeremy's personal NixOS configuration with modular organization and Home Manager integration.
+Jeremy's personal Nix configuration with modular organization for NixOS, WSL, and macOS via Home Manager, NixOS-WSL, and nix-darwin.
 
 ## Structure
 
@@ -11,8 +11,9 @@ Jeremy's personal NixOS configuration with modular organization and Home Manager
 │   ├── common/                 # Shared configurations
 │   │   ├── global.nix         # Common system settings
 │   │   └── users.nix          # User configurations
+│   ├── darwin/                # macOS host configuration
 │   ├── krile/                 # Krile laptop configuration
-│   └── nixos/                 # Other host configuration
+│   └── wsl/                   # WSL host configuration
 ├── modules/                    # Reusable NixOS modules
 │   ├── desktop/               # Desktop environment modules
 │   │   └── plasma.nix         # KDE Plasma configuration
@@ -36,8 +37,8 @@ Jeremy's personal NixOS configuration with modular organization and Home Manager
 ### Initial Setup
 
 1. Clone this repository to `~/.config/nix`
-2. Update the hardware configuration for your system
-3. Modify user-specific settings in `hosts/common/users.nix`
+2. Update the host-specific settings for your machine
+3. Apply the matching system or home configuration for your platform
 
 ### Building and Switching
 
@@ -66,10 +67,47 @@ task fmt
 task check
 ```
 
+### WSL Bootstrap
+
+If WSL is not yet running this configuration, use a path-based flake reference for the first switch so newly added local files are included even before they are tracked by Git:
+
+```bash
+cd ~/nix-config
+NIX_CONFIG="experimental-features = nix-command flakes" sudo nixos-rebuild switch --flake "path:$PWD#wsl"
+```
+
+After the initial switch, you can continue using the WSL task alias:
+
+```bash
+task wsl
+task home-switch HOST=wsl
+```
+
+### macOS Setup
+
+For macOS, this repo uses `nix-darwin` plus Home Manager. The configured Darwin host in this repo is `ICFGG241C3Y03`.
+
+Use the platform-aware tasks or the Darwin-specific aliases:
+
+```bash
+task build
+task switch
+task darwin-build
+task darwin-switch
+```
+
+The macOS setup in this repo includes:
+
+- A dedicated Darwin host at `hosts/darwin/default.nix`
+- A dedicated Home Manager profile at `home-manager/home-darwin.nix`
+- Shared shell and prompt configuration through Zsh and Starship
+- nix-darwin and Home Manager integration through the flake
+
 ### Available Hosts
 
+- **ICFGG241C3Y03**: macOS configuration using nix-darwin and Home Manager
 - **krile**: Laptop configuration with KDE Plasma, development tools, and rclone mounts
-- **nixos**: Base configuration (customize as needed)
+- **wsl**: WSL configuration using NixOS-WSL
 
 ## Modules
 
@@ -124,6 +162,20 @@ Includes:
 
 The configuration uses Stylix for system-wide theming with the Monokai color scheme.
 
+## Platform Notes
+
+### macOS
+
+- Uses `nix-darwin` for system settings and Home Manager for user configuration
+- Shell configuration is shared with Linux where possible, with Darwin-specific overrides in `home-manager/home-darwin.nix`
+- Determinate Nix compatibility is handled in the Darwin configuration
+
+### WSL
+
+- Uses `NixOS-WSL` as the base system module
+- Uses a dedicated WSL Home Manager profile at `home-manager/home-wsl.nix`
+- First-time switch commands should use a path-based flake reference until all new files are tracked by Git
+
 ## Maintenance
 
 - Run `task update && task switch` regularly to keep the system updated
@@ -134,8 +186,8 @@ The configuration uses Stylix for system-wide theming with the Monokai color sch
 
 To customize for your setup:
 
-1. Update user information in `hosts/common/users.nix`
-2. Modify host-specific settings in `hosts/[hostname]/`
+1. Update user information in the relevant host or Home Manager profile
+2. Update the user and shell settings in the relevant host or home-manager profile
 3. Add or remove packages in the appropriate profile
 4. Adjust module configurations as needed
 
@@ -161,3 +213,11 @@ Due to upstream issues with building LLVM 20 from source on macOS (failing `getM
    - `home-manager/common.nix`: Commented out. Modern `ncdu` (v2+) is written in Zig, which pulls in the failing LLVM toolchain.
 
 **Fix:** Once LLVM 20 builds reliably on macOS or the cache is populated, these can be re-enabled.
+
+## Validation Notes
+
+### macOS
+
+- `darwin-rebuild` is expected to be available from the active system profile
+- Platform-aware tasks in `taskfile.yaml` detect Darwin and route to `darwin-rebuild`
+- Home Manager is integrated into the Darwin flake output rather than managed separately

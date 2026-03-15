@@ -22,6 +22,8 @@
 
   # Darwin-specific Stylix targets (extending common.nix)
   stylix.targets = {
+    # Temporary disabled due to LLVM/Zig build issues causing build failures on macOS.
+    firefox.enable = false;
     kitty.enable = true;
     vscode.enable = true;
   };
