@@ -1,24 +1,22 @@
 { config, pkgs, lib, ... }:
 
+let
+  availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
+  darwinPackages = lib.filter availableOnHost (with pkgs; [
+    mas
+  ]);
+in
 {
   imports = [
     ./common.nix           # Import common configuration
-    # Homebrew casks and packages are used for dev and desktop specific tasks
+    # Homebrew is reserved for macOS-only GUI apps and formulae without a clean Nix path.
   ];
 
   home.username = "42245";
   home.homeDirectory = lib.mkForce "/Users/42245";
 
   # Darwin-specific packages
-  home.packages = with pkgs; [
-    # macOS-specific GUI applications
-
-    # NOTE: Firefox (and firefox-bin) disabled due to LLVM 20 build issues on macOS (2025-01-12).
-    # Re-enable when cache issues or upstream build is fixed.
-    # firefox-bin
-
-    # Note: Many GUI apps on macOS are better installed via Homebrew or App Store
-  ];
+  home.packages = darwinPackages;
 
   # Darwin-specific Stylix targets (extending common.nix)
   stylix.targets = {

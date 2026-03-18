@@ -2,10 +2,70 @@
 { config, pkgs, lib, ... }:
 
 let
-  copilotInstructionsFileName = "copilot-defaults.instructions.md";
-  copilotInstructionsPath = ./config/copilot/copilot-defaults.instructions.md;
-  githubCopilotConfigDir = ".config/github-copilot";
-  jetbrainsCopilotInstructionsFileName = "global-copilot-instructions.md";
+  availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
+  awsSamCliPatched = pkgs.aws-sam-cli.overridePythonAttrs (old: {
+    # nixpkgs currently wires newer click and aws-lambda-builders versions than
+    # the wheel metadata expects. Keep the package Nix-managed and skip the
+    # strict runtime metadata check until upstream packaging catches up.
+    doCheck = false;
+    dontCheckRuntimeDeps = true;
+    pythonRelaxDeps = (old.pythonRelaxDeps or [ ]) ++ [ "click" ];
+  });
+  commonPackages = with pkgs; [
+    # Development tools
+    git
+    gh
+    curl
+    wget
+    go
+    go-task
+    python3
+    pipx
+    maven
+    awscli2
+    awslogs
+    awsSamCliPatched
+    checkov
+    bun
+
+    # Container and process tooling
+    docker
+    docker-buildx
+    docker-compose
+    overmind
+
+    # Shell integration tools
+    bat
+    eza
+    fzf
+    fd
+    ripgrep
+    sd
+    jq
+    yq-go
+    zoxide
+    direnv
+    dasel
+    tmux
+    unzip
+
+    # Productivity and content
+    glow
+    gum
+    tealdeer
+    scrcpy
+
+    # Basic utilities
+    cowsay
+    file
+    which
+    tree
+    rsync
+
+    # System monitoring (cross-platform)
+    btop
+    lsof
+  ];
 in
 {
   nixpkgs.config = {
@@ -22,63 +82,8 @@ in
   # Ensure user-local binaries are found regardless of shell
   home.sessionPath = lib.mkBefore [ "$HOME/.local/bin" ];
 
-  home.file = lib.mkMerge [
-    {
-      "${githubCopilotConfigDir}/${copilotInstructionsFileName}".source = copilotInstructionsPath;
-      "${githubCopilotConfigDir}/intellij/${jetbrainsCopilotInstructionsFileName}".source = copilotInstructionsPath;
-    }
-    (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
-      "Library/Application Support/Code/User/prompts/${copilotInstructionsFileName}".source = copilotInstructionsPath;
-    })
-    (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
-      ".config/Code/User/prompts/${copilotInstructionsFileName}".source = copilotInstructionsPath;
-      ".vscode-server/data/User/prompts/${copilotInstructionsFileName}".source = copilotInstructionsPath;
-    })
-  ];
-
-  home.activation.ensureCopilotCacheDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    mkdir -p "$HOME/.cache/copilot"
-  '';
-
-  # Common packages (platform-agnostic)
-  home.packages = with pkgs; [
-    # Development tools
-    git
-    gh
-    curl
-    wget
-    go-task
-
-    # Shell integration tools
-    bat        # Better cat with syntax highlighting
-    eza        # Modern ls replacement
-    fzf        # Fuzzy finder
-    fd         # Better find
-    ripgrep    # Fast text search
-    sd         # Better sed
-    jq         # JSON processor
-    yq         # YAML processor
-    zoxide     # Smart cd replacement
-
-    # Productivity and content
-    glow
-    gum
-    tealdeer
-
-    # Basic utilities
-    cowsay
-    file
-    which
-    tree
-    # ncdu # Disabling to avoid LLVM/Zig build issues
-    rsync
-    direnv
-    unzip
-
-    # System monitoring (cross-platform)
-    btop
-    lsof
-  ];
+  # Common packages shared across Linux, WSL, and macOS.
+  home.packages = lib.filter availableOnHost commonPackages;
 
   # Common font configuration
   fonts.fontconfig = {
@@ -138,8 +143,6 @@ in
       gtk.enable = true;
       kde.enable = true;
       vscode.enable = true;
-      # Temporary disabled due to LLVM/Zig build issues causing build failures on macOS
-      firefox.enable = lib.mkForce false;
       starship.enable = true;
       # Keep qt disabled unless explicitly requested as the override is causing issues
       qt.enable = false;
@@ -165,7 +168,6 @@ in
             args = [ "-l" ];
           };
         };
-        "terminal.integrated.shellIntegration.enabled" = true;
 
         # Small quality-of-life defaults (non-Stylix)
         "editor.fontLigatures" = true;
