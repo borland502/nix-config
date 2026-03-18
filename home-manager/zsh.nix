@@ -40,6 +40,12 @@
       if command -v fzf >/dev/null 2>&1; then
         source <(fzf --zsh)
       fi
+
+      # Initialize Starship through PATH so shell startup does not depend on a
+      # hardcoded store or Homebrew path.
+      if [[ "$TERM" != "dumb" ]] && command -v starship >/dev/null 2>&1; then
+        eval "$(starship init zsh)"
+      fi
     '';
 
     shellAliases = {
