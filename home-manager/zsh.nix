@@ -28,6 +28,11 @@
         alias ssh="kitty +kitten ssh"
       fi
 
+      # Enable VS Code terminal shell integration even with custom zsh init.
+      if [[ "$TERM_PROGRAM" == "vscode" ]] && command -v code >/dev/null 2>&1; then
+        source "$(code --locate-shell-integration-path zsh)"
+      fi
+
       # Initialize shell integrations
       eval "$(zoxide init zsh)"
 
