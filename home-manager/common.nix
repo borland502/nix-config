@@ -4,7 +4,8 @@
 let
   copilotInstructionsFileName = "copilot-defaults.instructions.md";
   copilotInstructionsPath = ./config/copilot/copilot-defaults.instructions.md;
-  copilotInstructionsText = builtins.readFile copilotInstructionsPath;
+  githubCopilotConfigDir = ".config/github-copilot";
+  jetbrainsCopilotInstructionsFileName = "global-copilot-instructions.md";
 in
 {
   nixpkgs.config = {
@@ -22,12 +23,16 @@ in
   home.sessionPath = lib.mkBefore [ "$HOME/.local/bin" ];
 
   home.file = lib.mkMerge [
+    {
+      "${githubCopilotConfigDir}/${copilotInstructionsFileName}".source = copilotInstructionsPath;
+      "${githubCopilotConfigDir}/intellij/${jetbrainsCopilotInstructionsFileName}".source = copilotInstructionsPath;
+    }
     (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
-      "Library/Application Support/Code/User/prompts/${copilotInstructionsFileName}".text = copilotInstructionsText;
+      "Library/Application Support/Code/User/prompts/${copilotInstructionsFileName}".source = copilotInstructionsPath;
     })
     (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
-      ".config/Code/User/prompts/${copilotInstructionsFileName}".text = copilotInstructionsText;
-      ".vscode-server/data/User/prompts/${copilotInstructionsFileName}".text = copilotInstructionsText;
+      ".config/Code/User/prompts/${copilotInstructionsFileName}".source = copilotInstructionsPath;
+      ".vscode-server/data/User/prompts/${copilotInstructionsFileName}".source = copilotInstructionsPath;
     })
   ];
 
