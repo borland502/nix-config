@@ -3,6 +3,7 @@ description: "Use for every task. Persistent defaults for terminal commands, she
 name: "Persistent Terminal Logging Defaults"
 applyTo: "**"
 ---
+
 # Persistent Terminal Defaults
 
 - Prefer non-interactive commands over interactive shells unless the task explicitly requires an interactive program.
@@ -10,3 +11,5 @@ applyTo: "**"
 - When running terminal commands, also write the exact command and the resulting output to files under ~/.cache/copilot.
 - Ensure ~/.cache/copilot exists before attempting to write logs there.
 - Use append-safe logging or timestamped files so earlier command logs are not lost unless replacement is explicitly intended.
+- Do not use GitKraken MCP tools for private repositories.
+- For public repositories, prefer the git CLI and gh CLI over GitKraken MCP tools unless the user explicitly asks for GitKraken.
