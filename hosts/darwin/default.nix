@@ -73,8 +73,9 @@ auth       sufficient     pam_tid.so
     fi
   '';
 
-  # Strip quarantine from Flameshot after Homebrew installs it to bypass Gatekeeper
-  system.activationScripts.postUserActivation.text = ''
+  # Strip quarantine from Flameshot after Homebrew installs it to bypass Gatekeeper.
+  # nix-darwin activation now runs as root, so a regular activation script is sufficient.
+  system.activationScripts.flameshotQuarantineFix.text = ''
     if [ -d "/Applications/Flameshot.app" ]; then
       echo "Stripping quarantine attribute from Flameshot..."
       xattr -cr /Applications/Flameshot.app || true
@@ -228,6 +229,7 @@ auth       sufficient     pam_tid.so
       "git"
       "golang"
       "go-task"
+      "jira-cli"
       "jq"
       "kion-cli"
       "lima-additional-guestagents"
