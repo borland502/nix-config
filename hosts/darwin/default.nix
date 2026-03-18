@@ -188,7 +188,7 @@ auth       sufficient     pam_tid.so
   # Note: Stylix system configuration disabled to avoid conflicts
   # Theming is handled at the home-manager level
 
-  # Homebrew configuration
+  # Homebrew configuration for macOS-only GUI apps and vendor-specific formulae.
   homebrew = {
     enable = true;
 
@@ -201,7 +201,6 @@ auth       sufficient     pam_tid.so
 
     # Taps (third-party repositories)
     taps = [
-      "oven-sh/bun"
       "kionsoftware/tap"
       "atlassian/homebrew-acli
 
@@ -213,39 +212,14 @@ auth       sufficient     pam_tid.so
     # CLI tools and libraries
     brews = [
       "acli"
-      "awscli"
       "aws-console"
-      "awslogs"
-      "aws-sam-cli"
-      "bun"
-      "checkov"
       "colima"
-      "dasel"
-      "docker"
-      "docker-buildx"
-      "docker-compose"
       "docker-credential-helper"
-      "direnv"
-      "git"
-      "golang"
-      "go-task"
       "jira-cli"
-      "jq"
       "kion-cli"
       "lima-additional-guestagents"
-      "mas"  # Mac App Store command line interface
-      "maven"
       "nvm"
-      "overmind"
-      "pipx"
-      "python@3"
       "pydantic"
-      "scrcpy"
-      "starship"
-      "tmux"
-      "unzip"
-      "yq"
-      "zsh"
     ];
 
     # GUI applications

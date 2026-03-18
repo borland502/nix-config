@@ -13,16 +13,9 @@ let
 
     # Languages and runtimes
     nodejs
-    python3
-    go
-
-    # Containers and virtualization
-    docker
-    docker-compose
 
     # Cloud tools
     kubectl
-    awscli2
   ];
 
   availablePackages = lib.filter (pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg) devPackages;

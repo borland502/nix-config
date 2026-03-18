@@ -44,6 +44,13 @@ vars:
         "wsl") printf 'NIX_CONFIG="experimental-features = nix-command flakes" ' ;;
         *) printf '' ;;
       esac
+  ROOT_CMD:
+    sh: |
+      if [[ "$(uname)" == "Linux" && -x /run/wrappers/bin/sudo ]]; then
+        printf '/run/wrappers/bin/sudo\n'
+      else
+        printf 'sudo\n'
+      fi
   # Detect if we're on macOS or Linux
   IS_DARWIN:
     sh: '[[ "$(uname)" == "Darwin" ]] && echo "true" || echo "false"'
@@ -79,7 +86,7 @@ tasks:
       {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else}}
-        {{.NIX_CONFIG_PREFIX}}sudo nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
+        {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
       {{end}}
 
   # Darwin-specific tasks
@@ -109,7 +116,7 @@ tasks:
 
   nixos-switch:
     desc: Build and switch to the NixOS configuration
-    cmd: '{{.NIX_CONFIG_PREFIX}}sudo nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"'
+    cmd: '{{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
@@ -118,7 +125,7 @@ tasks:
 
   boot:
     desc: Build and boot the NixOS configuration (for testing)
-    cmd: '{{.NIX_CONFIG_PREFIX}}sudo nixos-rebuild boot --flake "{{.SYSTEM_FLAKE}}"'
+    cmd: '{{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild boot --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
         msg: 'This task can only be run on Linux'
@@ -174,7 +181,7 @@ tasks:
     cmd: |
       nix-collect-garbage -d
       {{if ne .IN_DEVCONTAINER "true"}}
-        sudo nix-collect-garbage -d
+        {{.ROOT_CMD}} nix-collect-garbage -d
       {{end}}
 
   optimize:
@@ -232,5 +239,5 @@ tasks:
       {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else}}
-        {{.NIX_CONFIG_PREFIX}}sudo nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
+        {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
       {{end}}

@@ -83,6 +83,9 @@
       if [[ -d "/etc/profiles/per-user/$USER/bin" ]]; then
         export PATH="/etc/profiles/per-user/$USER/bin:$PATH"
       fi
+      if [[ -d "/run/wrappers/bin" ]]; then
+        export PATH="/run/wrappers/bin:$PATH"
+      fi
       if [[ -d "/run/current-system/sw/bin" ]]; then
         export PATH="/run/current-system/sw/bin:$PATH"
       fi
