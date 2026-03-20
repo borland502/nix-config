@@ -4,6 +4,8 @@
 - Minimize use of interactive terminal flows that can mangle command output in the IDE.
 - When running terminal commands, also write the exact command and the resulting output to files under `~/.cache/copilot`.
 - Ensure `~/.cache/copilot` exists before attempting to write logs there.
+- Prefer executing scripts from files written under `~/.cache/copilot` instead of inline heredocs when a command needs multi-line shell logic.
 - Use append-safe logging or timestamped files so earlier command logs are not lost unless replacement is explicitly intended.
 - Do not use GitKraken MCP tools for private repositories.
 - For public repositories, prefer the git CLI and gh CLI over GitKraken MCP tools unless the user explicitly asks for GitKraken.
+- Do not merge the current branch into any target or base branch unless the user explicitly instructs you to perform that merge.

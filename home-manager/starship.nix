@@ -8,7 +8,7 @@
       add_newline = true;
       command_timeout = 500;
       continuation_prompt = "[∙](#bab6c0) "; # base05 (light gray) for visibility
-      format = "$os$username$hostname$directory$git_branch$git_status$package$nix_shell$nodejs$python$rust$golang$docker_context$kubernetes$aws$cmd_duration$line_break$character";
+      format = "$os$username$hostname$directory$git_branch$git_status$package$nix_shell$nodejs$python$rust$golang$docker_context$kubernetes$aws$cmd_duration$line_break$time$character";
       right_format = "";
       scan_timeout = 30;
       
@@ -20,6 +20,22 @@
         disabled = false;
         expiration_symbol = "X";
         force_display = false;
+      };
+
+      os = {
+        disabled = false;
+        format = "[$symbol]($style) ";
+        style = "#7BD88F bold";
+        symbols = {
+          Macos = "󰀵 ";
+          NixOS = " ";
+          Ubuntu = "󰕈 ";
+          Debian = "󰣚 ";
+          Fedora = "󰣛 ";
+          Arch = "󰣇 ";
+          Linux = "󰌽 ";
+          Windows = "󰍲 ";
+        };
       };
 
       # Character
@@ -43,7 +59,7 @@
 
       # Directory
       directory = {
-        truncation_length = 3;
+        truncation_length = 2;
         truncate_to_repo = true;
         format = "[$path]($style)[$read_only]($read_only_style) ";
         style = "#5AD4E6"; # base0C (cyan)
@@ -63,9 +79,9 @@
 
       # Docker Context
       docker_context = {
-        format = "[$symbol$context]($style) ";
+        format = "[$symbol\\[$context\\]]($style) ";
         style = "#5AD4E6"; # base0C (cyan)
-        symbol = " ";
+        symbol = "⬢ ";
         only_with_files = true;
         disabled = false;
         detect_extensions = [];
@@ -79,8 +95,8 @@
 
       # Git Branch
       git_branch = {
-        format = "[$symbol$branch(:$remote_branch)]($style) ";
-        symbol = " ";
+        format = "[on](#bab6c0) [$symbol$branch(:$remote_branch)]($style) ";
+        symbol = " ";
         style = "#948ae3"; # base0D (purple)
         truncation_length = 9223372036854775807;
         truncation_symbol = "…";
@@ -92,20 +108,20 @@
 
       # Git Status
       git_status = {
-        format = "([\\[$all_status$ahead_behind\\]]($style) )";
+        format = "([\\[$all_status$ahead_behind\\]]($style)) ";
         style = "#FC618D bold"; # base08 (red)
-        stashed = "\\$";
+        stashed = "≡";
         ahead = "⇡";
         behind = "⇣";
         up_to_date = "";
         diverged = "⇕";
-        conflicted = "=";
+        conflicted = "═";
         deleted = "✘";
         renamed = "»";
-        modified = "M";
-        staged = "+";
+        modified = "!";
+        staged = "✚";
         untracked = "?";
-        typechanged = "";
+        typechanged = "◈";
         disabled = false;
       };
 
@@ -173,6 +189,15 @@
         detect_folders = [];
       };
 
+      time = {
+        disabled = false;
+        format = "[🕒 $time]($style) ";
+        style = "#bab6c0 bold";
+        time_format = "%R";
+        use_12hr = false;
+        utc_time_offset = "local";
+      };
+
       golang = {
         format = "[$symbol($version )]($style)";
         version_format = "v\${raw}";
@@ -196,7 +221,7 @@
       username = {
         style_root = "#FC618D"; # base08 (red)
         style_user = "#948ae3"; # base0D (purple)
-        format = "[$user]($style) ";
+        format = "[$user]($style)";
         disabled = false;
         show_always = false;
       };
