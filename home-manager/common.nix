@@ -66,6 +66,7 @@ let
     btop
     lsof
   ];
+  copilotDefaultsFile = ./config/copilot/copilot-defaults.instructions.md;
 in
 {
   nixpkgs.config = {
@@ -220,6 +221,14 @@ in
   # Common home-manager settings
   home.stateVersion = "25.05";
   programs.home-manager.enable = true;
+
+  # Make Copilot defaults visible to desktop, remote, and shared IDE sessions.
+  home.file = {
+    ".config/Code/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
+    ".vscode-server/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
+    ".config/github-copilot/copilot-defaults.instructions.md".source = copilotDefaultsFile;
+    ".config/github-copilot/intellij/global-copilot-instructions.md".source = copilotDefaultsFile;
+  };
 
   programs.vim = {
     enable = true;

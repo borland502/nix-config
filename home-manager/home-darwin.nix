@@ -104,6 +104,9 @@ in
     # Stylix will automatically handle theming
   };
 
+  # Install the shared Copilot defaults into the macOS VS Code user prompts directory.
+  home.file."Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = ./config/copilot/copilot-defaults.instructions.md;
+
   # Kitty terminal configuration
   xdg.configFile."kitty/kitty.conf".source = ./config/kitty/kitty.conf;
 }
