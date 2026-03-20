@@ -1,6 +1,9 @@
-{ config, pkgs, lib, ... }:
-
-let
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}: let
   linuxPackages = with pkgs; [
     # Linux-specific system monitoring
     iotop
@@ -17,19 +20,20 @@ let
 
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   availableLinuxPackages = lib.filter availableOnHost linuxPackages;
-in
-{
+in {
   imports = [
-    ./common.nix           # Import common configuration
+    ./common.nix # Import common configuration
     ./profiles/development-linux.nix
     ./profiles/desktop-linux.nix
   ];
 
-  home.username = lib.mkDefault "jhettenh";
-  home.homeDirectory = lib.mkDefault "/home/jhettenh";
+  home = {
+    username = lib.mkDefault "jhettenh";
+    homeDirectory = lib.mkDefault "/home/jhettenh";
 
-  # Linux-specific packages
-  home.packages = availableLinuxPackages;
+    # Linux-specific packages
+    packages = availableLinuxPackages;
+  };
 
   # Linux-specific Stylix targets
   stylix.targets = {
@@ -38,14 +42,14 @@ in
     kde.enable = true;
     firefox = {
       enable = true;
-      profileNames = [ "default" ];
+      profileNames = ["default"];
     };
   };
 
   # Linux-specific font fallbacks
   fonts.fontconfig.defaultFonts = {
-    sansSerif = lib.mkAfter [ "DejaVu Sans" ];
-    serif = lib.mkAfter [ "DejaVu Serif" ];
+    sansSerif = lib.mkAfter ["DejaVu Sans"];
+    serif = lib.mkAfter ["DejaVu Serif"];
   };
 
   # Linux-specific services
@@ -61,73 +65,75 @@ in
     };
   };
 
-  # Linux-specific KDE shortcuts
-  programs.plasma = {
-    enable = true;
-    shortcuts = {
-      "flameshot" = {
-        "Capture" = "Meta+Shift+4";
-      };
-    };
-  };
-
   # Autostart GUI apps via systemd user services
   systemd.user.services =
     lib.optionalAttrs (availableOnHost pkgs.discord) {
       discord = {
         Unit = {
           Description = "Start Discord on graphical session";
-          PartOf = [ "graphical-session.target" ];
-          After = [ "graphical-session-pre.target" ];
+          PartOf = ["graphical-session.target"];
+          After = ["graphical-session-pre.target"];
         };
         Service = {
           ExecStart = "${pkgs.discord}/bin/discord";
           Restart = "on-failure";
           RestartSec = 5;
         };
-        Install = { WantedBy = [ "graphical-session.target" ]; };
+        Install = {WantedBy = ["graphical-session.target"];};
       };
     }
     // lib.optionalAttrs (availableOnHost pkgs.slack) {
       slack = {
         Unit = {
           Description = "Start Slack on graphical session";
-          PartOf = [ "graphical-session.target" ];
-          After = [ "graphical-session-pre.target" ];
+          PartOf = ["graphical-session.target"];
+          After = ["graphical-session-pre.target"];
         };
         Service = {
           ExecStart = "${pkgs.slack}/bin/slack";
           Restart = "on-failure";
           RestartSec = 5;
         };
-        Install = { WantedBy = [ "graphical-session.target" ]; };
+        Install = {WantedBy = ["graphical-session.target"];};
       };
     };
 
-  # Thunderbird configuration
-  programs.thunderbird = {
-    enable = true;
-    package = pkgs.thunderbird;
-    profiles.default = {
-      isDefault = true;
-      settings = {
-        # UI/appearance
-        "ui.systemUsesDarkTheme" = 1;
-        "svg.context-properties.content.enabled" = true;
-        # Behavior
-        "mail.spellcheck.inline" = true;
-        "mailnews.start_page.enabled" = false;
-        "mailnews.default_sort_type" = 18; # sort by date desc
-        # Performance/UX
-        "general.smoothScroll" = true;
-        # Allow userChrome.css if you want to theme further later
-        "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
+  programs = {
+    # Linux-specific KDE shortcuts
+    plasma = {
+      enable = true;
+      shortcuts = {
+        "flameshot" = {
+          "Capture" = "Meta+Shift+4";
+        };
       };
     };
-  };
 
-  programs.bash = {
-    enable = true;
-    enableCompletion = true;
+    # Thunderbird configuration
+    thunderbird = {
+      enable = true;
+      package = pkgs.thunderbird;
+      profiles.default = {
+        isDefault = true;
+        settings = {
+          # UI/appearance
+          "ui.systemUsesDarkTheme" = 1;
+          "svg.context-properties.content.enabled" = true;
+          # Behavior
+          "mail.spellcheck.inline" = true;
+          "mailnews.start_page.enabled" = false;
+          "mailnews.default_sort_type" = 18; # sort by date desc
+          # Performance/UX
+          "general.smoothScroll" = true;
+          # Allow userChrome.css if you want to theme further later
+          "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
+        };
+      };
+    };
+
+    bash = {
+      enable = true;
+      enableCompletion = true;
+    };
   };
 }

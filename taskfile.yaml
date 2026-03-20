@@ -2,16 +2,17 @@
 version: '3'
 
 vars:
-  # Auto-detect host based on hostname or allow override
+  # Auto-detect host based on hostname or allow override.
+  # The generic names in this repo are placeholder install targets for new systems.
   DETECTED_HOST:
     sh: |
+      os=$(uname)
       hostname=$(hostname)
-      case "$hostname" in
-        "krile") echo "krile" ;;
-        "nixos"|"wsl") echo "wsl" ;;
-        "ICFGG241C3Y03") echo "ICFGG241C3Y03" ;;
-        "ICFGG241C3Y03-2") echo "ICFC9DWH494TM-2" ;;
-        *) echo "wsl" ;;  # Default to the WSL host for unknown Linux hosts
+      case "$os:$hostname" in
+        "Darwin:"*) echo "darwin" ;;
+        "Linux:nixos"|"Linux:wsl") echo "wsl" ;;
+        "Linux:linux") echo "linux" ;;
+        *) echo "linux" ;;  # Default to the Linux install target for unknown Linux hosts
       esac
   HOST: '{{.HOST | default .DETECTED_HOST}}'
   HOME_ATTR:
@@ -90,6 +91,10 @@ tasks:
       {{end}}
 
   # Darwin-specific tasks
+  darwin:
+    desc: Switch to the Darwin configuration
+    cmd: task switch HOST=darwin
+
   darwin-build:
     desc: Build the nix-darwin configuration
     cmd: darwin-rebuild build --flake .#{{.HOST}}
@@ -191,20 +196,30 @@ tasks:
   # Development
   check:
     desc: Check flake for errors
-    cmd: '{{.NIX_CONFIG_PREFIX}}nix flake check {{if eq .HOST "wsl"}}"path:$PWD"{{end}}'
+    cmd: '{{.NIX_CONFIG_PREFIX}}nix flake check "path:$PWD"'
 
   fmt:
     desc: Format nix files
-    cmd: nixpkgs-fmt .
+    cmd: alejandra .
+
+  fmt:check:
+    desc: Check nix file formatting
+    cmd: alejandra --check .
+
+  lint:nix:
+    desc: Lint nix files
+    cmd: |
+      statix check .
+      deadnix .
 
   repl:
     desc: Start nix repl with flake
     cmd: nix repl --expr 'builtins.getFlake "."'
 
-  # Host-specific tasks
-  krile:
-    desc: Switch to krile configuration
-    cmd: task switch HOST=krile
+  # Platform-specific shortcuts
+  linux:
+    desc: Switch to the Linux configuration
+    cmd: task switch HOST=linux
 
   wsl:
     desc: Switch to wsl configuration
@@ -212,9 +227,11 @@ tasks:
 
   # Service management
   service-status:
-    desc: Check status of rclone services
-    cmd: systemctl --user status rclone-*
+    desc: Check status of a specific user service
+    cmd: systemctl --user status {{.SERVICE}}
     preconditions:
+      - sh: '[[ -n "{{.SERVICE}}" ]]'
+        msg: 'Set SERVICE, for example: task service-status SERVICE=pipewire.service'
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'User systemd is unavailable inside the devcontainer'
 
@@ -222,6 +239,8 @@ tasks:
     desc: Show logs for a specific service
     cmd: journalctl -u {{.SERVICE}} -f
     preconditions:
+      - sh: '[[ -n "{{.SERVICE}}" ]]'
+        msg: 'Set SERVICE, for example: task logs SERVICE=pipewire.service'
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'journald is unavailable inside the devcontainer'
 

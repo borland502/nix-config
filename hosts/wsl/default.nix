@@ -1,13 +1,11 @@
 # NixOS WSL host configuration
-{ pkgs, ... }:
-
-{
+{pkgs, ...}: {
   wsl.enable = true;
   wsl.defaultUser = "nixos";
 
   networking.hostName = "wsl";
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.experimental-features = ["nix-command" "flakes"];
 
   programs.zsh.enable = true;
   users.defaultUserShell = pkgs.zsh;
