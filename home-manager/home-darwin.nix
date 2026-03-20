@@ -8,6 +8,8 @@
     mas
   ]);
 in {
+  _module.args.isWsl = lib.mkDefault false;
+
   imports = [
     ./common.nix # Import common configuration
     # Homebrew is reserved for macOS-only GUI apps and formulae without a clean Nix path.
