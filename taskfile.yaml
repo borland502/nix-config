@@ -163,6 +163,8 @@ tasks:
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage
+      {{else if eq .IS_DARWIN "true"}}
+        darwin-rebuild build --flake .#{{.HOST}}
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- build --flake "{{.HOME_FLAKE}}"
       {{end}}
@@ -172,6 +174,8 @@ tasks:
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
+      {{else if eq .IS_DARWIN "true"}}
+        sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
       {{end}}
@@ -228,7 +232,7 @@ tasks:
   # Service management
   service-status:
     desc: Check status of a specific user service
-    cmd: systemctl --user status {{.SERVICE}}
+    cmd: systemctl --user status -- "{{.SERVICE}}"
     preconditions:
       - sh: '[[ -n "{{.SERVICE}}" ]]'
         msg: 'Set SERVICE, for example: task service-status SERVICE=pipewire.service'
@@ -237,7 +241,7 @@ tasks:
 
   logs:
     desc: Show logs for a specific service
-    cmd: journalctl -u {{.SERVICE}} -f
+    cmd: journalctl --user --follow --unit "{{.SERVICE}}"
     preconditions:
       - sh: '[[ -n "{{.SERVICE}}" ]]'
         msg: 'Set SERVICE, for example: task logs SERVICE=pipewire.service'
