@@ -2,11 +2,11 @@
 {
   pkgs,
   lib,
+  isWsl ? false,
   ...
 }: let
   devPackages = with pkgs; [
     # Editors and IDEs
-    vscode
     neovim
 
     # Build tools
@@ -18,7 +18,7 @@
 
     # Cloud tools
     kubectl
-  ];
+  ] ++ lib.optionals (!isWsl) [pkgs.vscode];
 
   availablePackages = lib.filter (pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg) devPackages;
 in {
@@ -29,7 +29,7 @@ in {
   # Note: Common dev tools (jq, yq, ripgrep, fd, bat) moved to common.nix
 
   # VS Code configuration
-  programs.vscode = lib.mkIf (pkgs ? vscode) {
+  programs.vscode = lib.mkIf (!isWsl && pkgs ? vscode) {
     enable = true;
     profiles.default.extensions = with pkgs.vscode-extensions; [
       # Python development
