@@ -99,9 +99,21 @@ in {
       elif [ ! -x "$wslpath_exe" ]; then
         echo "Skipping Windows PowerShell bootstrap: $wslpath_exe is unavailable."
       else
-        ${if windowsBootstrap.userProfilePath != null then "windows_home_win='${windowsBootstrap.userProfilePath}'" else ''windows_home_win="$($windows_powershell_exe -NoProfile -Command "[Environment]::GetFolderPath('UserProfile')" | $tr_exe -d '\r')"''}
-        ${if windowsBootstrap.documentsPath != null then "windows_documents_win='${windowsBootstrap.documentsPath}'" else ''windows_documents_win="$($windows_powershell_exe -NoProfile -Command "[Environment]::GetFolderPath('MyDocuments')" | $tr_exe -d '\r')"''}
-        ${if windowsBootstrap.localAppDataPath != null then "windows_local_appdata_win='${windowsBootstrap.localAppDataPath}'" else ''windows_local_appdata_win="$($windows_powershell_exe -NoProfile -Command "[Environment]::GetFolderPath('LocalApplicationData')" | $tr_exe -d '\r')"''}
+        ${
+        if windowsBootstrap.userProfilePath != null
+        then "windows_home_win='${windowsBootstrap.userProfilePath}'"
+        else ''windows_home_win="$($windows_powershell_exe -NoProfile -Command "[Environment]::GetFolderPath('UserProfile')" | $tr_exe -d '\r')"''
+      }
+        ${
+        if windowsBootstrap.documentsPath != null
+        then "windows_documents_win='${windowsBootstrap.documentsPath}'"
+        else ''windows_documents_win="$($windows_powershell_exe -NoProfile -Command "[Environment]::GetFolderPath('MyDocuments')" | $tr_exe -d '\r')"''
+      }
+        ${
+        if windowsBootstrap.localAppDataPath != null
+        then "windows_local_appdata_win='${windowsBootstrap.localAppDataPath}'"
+        else ''windows_local_appdata_win="$($windows_powershell_exe -NoProfile -Command "[Environment]::GetFolderPath('LocalApplicationData')" | $tr_exe -d '\r')"''
+      }
 
         if [ -z "$windows_home_win" ] || [ -z "$windows_documents_win" ] || [ -z "$windows_local_appdata_win" ]; then
           echo "Skipping Windows PowerShell bootstrap: could not resolve Windows profile paths."

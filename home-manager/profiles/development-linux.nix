@@ -5,20 +5,22 @@
   isWsl ? false,
   ...
 }: let
-  devPackages = with pkgs; [
-    # Editors and IDEs
-    neovim
+  devPackages = with pkgs;
+    [
+      # Editors and IDEs
+      neovim
 
-    # Build tools
-    gnumake
-    cmake
+      # Build tools
+      gnumake
+      cmake
 
-    # Languages and runtimes
-    nodejs
+      # Languages and runtimes
+      nodejs
 
-    # Cloud tools
-    kubectl
-  ] ++ lib.optionals (!isWsl) [pkgs.vscode];
+      # Cloud tools
+      kubectl
+    ]
+    ++ lib.optionals (!isWsl) [pkgs.vscode];
 
   availablePackages = lib.filter (pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg) devPackages;
 in {
