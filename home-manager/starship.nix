@@ -11,7 +11,7 @@
       format = "$os$username$hostname$directory$git_branch$git_status$package$nix_shell$nodejs$python$rust$golang$docker_context$kubernetes$aws$cmd_duration$line_break$time$character";
       right_format = "";
       scan_timeout = 30;
-      
+
       # AWS
       aws = {
         format = "[$symbol($profile )(($region) )]($style)";
