@@ -1,0 +1,69 @@
+name: Nix Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  flake-check:
+    name: Flake Check (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
+
+      - name: Enable Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Run flake checks
+        run: nix flake check --print-build-logs
+
+  linux-and-wsl-builds:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux Host Build
+            build_command: nix build .#nixosConfigurations.krile.config.system.build.toplevel --print-build-logs
+          - name: WSL System Build
+            build_command: nix build .#nixosConfigurations.wsl.config.system.build.toplevel --print-build-logs
+          - name: WSL Home Manager Build
+            build_command: nix build '.#homeConfigurations."nixos@wsl".activationPackage' --print-build-logs
+          - name: Devcontainer Home Build
+            build_command: nix build '.#homeConfigurations."vscode@devcontainer".activationPackage' --print-build-logs
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
+
+      - name: Enable Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Build target
+        run: ${{ matrix.build_command }}
+
+  darwin-build:
+    name: Darwin Build
+    runs-on: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
+
+      - name: Enable Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+
+      - name: Build Darwin system
+        run: nix build .#darwinConfigurations.ICFGG241C3Y03.system --print-build-logs

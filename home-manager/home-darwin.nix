@@ -20,7 +20,7 @@ in
 
   # Darwin-specific Stylix targets (extending common.nix)
   stylix.targets = {
-    # Temporary disabled due to LLVM/Zig build issues causing build failures on macOS.
+    # Keep Firefox Stylix integration off on macOS for now; Firefox itself is installed via Homebrew.
     firefox.enable = false;
     kitty.enable = true;
     vscode.enable = true;

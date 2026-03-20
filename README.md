@@ -200,24 +200,24 @@ If migrating from the old monolithic configuration:
 3. Test the build with `task check` and `task build`
 4. Switch when ready with `task switch`
 
-## Known Issues (macOS)
+## macOS Notes
 
-### LLVM/Zig Build Failures (2025-01-12)
-Due to upstream issues with building LLVM 20 from source on macOS (failing `getMacOSHostVersion` test) and/or binary cache misses, the following packages have been temporarily disabled to avoid massive local compilation times and build failures:
-
-1. **Firefox**:
-   - `home-manager/home-darwin.nix`: Removed `firefox` / `firefox-bin`.
-   - `home-manager/common.nix`: Set `stylix.targets.firefox.enable = false`.
-
-2. **ncdu**:
-   - `home-manager/common.nix`: Commented out. Modern `ncdu` (v2+) is written in Zig, which pulls in the failing LLVM toolchain.
-
-**Fix:** Once LLVM 20 builds reliably on macOS or the cache is populated, these can be re-enabled.
+- Firefox is installed on macOS via Homebrew casks in `hosts/darwin/default.nix`.
+- The Stylix Firefox target remains disabled in `home-manager/home-darwin.nix`, so Firefox theming integration is intentionally off on macOS for now.
+- `ncdu` is not currently included in the shared package list in `home-manager/common.nix`.
+- The previous LLVM/Zig build warning from 2025 is no longer confirmed by current dry-run checks: on 2026-03-20, `nix build nixpkgs#ncdu --dry-run` resolved via fetchable artifacts, and `nix build nixpkgs#firefox --dry-run` resolved to fetched artifacts plus small wrapper derivations rather than the older large local toolchain build pattern.
 
 ## Validation Notes
 
-### macOS
+### Darwin Validation
 
 - `darwin-rebuild` is expected to be available from the active system profile
 - Platform-aware tasks in `taskfile.yaml` detect Darwin and route to `darwin-rebuild`
 - Home Manager is integrated into the Darwin flake output rather than managed separately
+
+### GitHub Actions CI
+
+- GitHub Actions can validate Linux and macOS targets directly by building flake outputs.
+- The WSL target can be validated in CI by building `nixosConfigurations.wsl`, which checks the NixOS-WSL configuration itself.
+- GitHub-hosted runners do not provide a real WSL2 runtime session, so end-to-end WSL boot or runtime tests require a self-hosted Windows runner with WSL2 enabled.
+- The workflow for this repository lives at `.github/workflows/nix-validation.yml`.
