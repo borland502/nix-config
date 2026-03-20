@@ -1,139 +1,125 @@
-{ config, pkgs, ... }:
-
-{
+{pkgs, ...}: {
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
 
   # Disable nix-darwin's Nix management since we're using Determinate Nix
   nix.enable = false;
 
-  # List packages installed in system profile
-  environment.systemPackages = with pkgs; [
-    vim
-    git
-    curl
-    wget
-    htop
-    tree
-    base16-schemes  # Required for Stylix theming
-  ];
+  environment = {
+    # List packages installed in system profile
+    systemPackages = with pkgs; [
+      vim
+      git
+      curl
+      wget
+      htop
+      tree
+      base16-schemes # Required for Stylix theming
+    ];
 
-  # Ensure Homebrew is in PATH for all shells and applications
-  environment.shellInit = ''
-    export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PATH"
-  '';
+    # Ensure Homebrew is in PATH for all shells and applications
+    shellInit = ''
+      export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PATH"
+    '';
+
+    # Ensure Homebrew is in system PATH for all applications
+    variables = {
+      PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PATH";
+    };
+  };
 
   # Create /etc/zshrc that loads the nix-darwin environment.
   programs.zsh.enable = true;
 
-  # Ensure Homebrew is in system PATH for all applications
-  environment.variables = {
-    PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PATH";
-  };
+  system = {
+    # Set Git commit hash for darwin-version.
+    configurationRevision = null;
 
-  # Set Git commit hash for darwin-version.
-  system.configurationRevision = null;
+    # Used for backwards compatibility, please read the changelog before changing.
+    # $ darwin-rebuild changelog
+    stateVersion = 5;
 
-  # Used for backwards compatibility, please read the changelog before changing.
-  # $ darwin-rebuild changelog
-  system.stateVersion = 5;
+    # Set the primary user for system defaults
+    primaryUser = "42245";
 
-  # The platform the configuration will be used on.
-  nixpkgs.hostPlatform = "aarch64-darwin";
+    # Enable Touch ID for sudo authentication via activation script
+    activationScripts.extraActivation.text = ''
+          echo "Setting up Touch ID for sudo..."
+          if ! grep -q "pam_tid.so" /etc/pam.d/sudo; then
+            # Create a backup of the original sudo pam file
+            cp /etc/pam.d/sudo /etc/pam.d/sudo.backup.before.nix-darwin
 
-  # Set up skhd for custom hotkeys (like Flameshot)
-  services.skhd = {
-    enable = true;
-    skhdConfig = ''
-      # Rectangular capture
-      shift + cmd - 4 : /Applications/Flameshot.app/Contents/MacOS/flameshot gui
-      # Full screen capture
-      shift + cmd - 3 : /Applications/Flameshot.app/Contents/MacOS/flameshot full
+            # Add Touch ID support to sudo
+            sed -i'.bak' '2i\
+      auth       sufficient     pam_tid.so
+      ' /etc/pam.d/sudo
+
+            echo "Touch ID for sudo has been enabled"
+          else
+            echo "Touch ID for sudo is already enabled"
+          fi
     '';
-  };
 
-  # Set the primary user for system defaults
-  system.primaryUser = "42245";
+    # Strip quarantine from Flameshot after Homebrew installs it to bypass Gatekeeper.
+    # nix-darwin activation now runs as root, so a regular activation script is sufficient.
+    activationScripts.flameshotQuarantineFix.text = ''
+      if [ -d "/Applications/Flameshot.app" ]; then
+        echo "Stripping quarantine attribute from Flameshot..."
+        xattr -cr /Applications/Flameshot.app || true
+      fi
+    '';
 
-  # Enable Touch ID for sudo authentication via activation script
-  system.activationScripts.extraActivation.text = ''
-    echo "Setting up Touch ID for sudo..."
-    if ! grep -q "pam_tid.so" /etc/pam.d/sudo; then
-      # Create a backup of the original sudo pam file
-      cp /etc/pam.d/sudo /etc/pam.d/sudo.backup.before.nix-darwin
-
-      # Add Touch ID support to sudo
-      sed -i'.bak' '2i\
-auth       sufficient     pam_tid.so
-' /etc/pam.d/sudo
-
-      echo "Touch ID for sudo has been enabled"
-    else
-      echo "Touch ID for sudo is already enabled"
-    fi
-  '';
-
-  # Strip quarantine from Flameshot after Homebrew installs it to bypass Gatekeeper.
-  # nix-darwin activation now runs as root, so a regular activation script is sufficient.
-  system.activationScripts.flameshotQuarantineFix.text = ''
-    if [ -d "/Applications/Flameshot.app" ]; then
-      echo "Stripping quarantine attribute from Flameshot..."
-      xattr -cr /Applications/Flameshot.app || true
-    fi
-  '';
-
-  # System settings
-  system.defaults = {
-    dock = {
-      autohide = true;
-      orientation = "bottom";
-      show-recents = false;
-      tilesize = 48;
-    };
-
-    finder = {
-      AppleShowAllExtensions = true;
-      FXDefaultSearchScope = "SCcf"; # Search current folder by default
-      FXEnableExtensionChangeWarning = false;
-      FXPreferredViewStyle = "Nlsv"; # List view
-      ShowPathbar = true;
-      ShowStatusBar = true;
-    };
-
-    NSGlobalDomain = {
-      AppleInterfaceStyle = "Dark";
-      ApplePressAndHoldEnabled = false;
-      KeyRepeat = 2;
-      InitialKeyRepeat = 15;
-      NSDocumentSaveNewDocumentsToCloud = false;
-      "com.apple.mouse.tapBehavior" = 1;
-      "com.apple.sound.beep.volume" = 0.0;
-      "com.apple.swipescrolldirection" = false;
-    };
-
-    screencapture = {
-      location = "$HOME/Pictures/Screenshots";
-      target = "clipboard";
-      type = "png";
-    };
-
-    CustomUserPreferences = {
-      # Disable macOS default capture shortcuts so Flameshot can override them
-      "com.apple.symbolichotkeys" = {
-        AppleSymbolicHotKeys = {
-          # Cmd + Shift + 4 (Rectangular capture)
-          "30" = { enabled = false; };
-          # Cmd + Ctrl + Shift + 4 (Rectangular capture to clipboard)
-          "31" = { enabled = false; };
-          # Cmd + Shift + 3 (Full screen capture)
-          "28" = { enabled = false; };
-          # Cmd + Ctrl + Shift + 3 (Full screen capture to clipboard)
-          "29" = { enabled = false; };
-        };
+    # System settings
+    defaults = {
+      dock = {
+        autohide = true;
+        orientation = "bottom";
+        show-recents = false;
+        tilesize = 48;
       };
 
-      "com.apple.Spotlight" =
-        let
+      finder = {
+        AppleShowAllExtensions = true;
+        FXDefaultSearchScope = "SCcf"; # Search current folder by default
+        FXEnableExtensionChangeWarning = false;
+        FXPreferredViewStyle = "Nlsv"; # List view
+        ShowPathbar = true;
+        ShowStatusBar = true;
+      };
+
+      NSGlobalDomain = {
+        AppleInterfaceStyle = "Dark";
+        ApplePressAndHoldEnabled = false;
+        KeyRepeat = 2;
+        InitialKeyRepeat = 15;
+        NSDocumentSaveNewDocumentsToCloud = false;
+        "com.apple.mouse.tapBehavior" = 1;
+        "com.apple.sound.beep.volume" = 0.0;
+        "com.apple.swipescrolldirection" = false;
+      };
+
+      screencapture = {
+        location = "$HOME/Pictures/Screenshots";
+        target = "clipboard";
+        type = "png";
+      };
+
+      CustomUserPreferences = {
+        # Disable macOS default capture shortcuts so Flameshot can override them
+        "com.apple.symbolichotkeys" = {
+          AppleSymbolicHotKeys = {
+            # Cmd + Shift + 4 (Rectangular capture)
+            "30" = {enabled = false;};
+            # Cmd + Ctrl + Shift + 4 (Rectangular capture to clipboard)
+            "31" = {enabled = false;};
+            # Cmd + Shift + 3 (Full screen capture)
+            "28" = {enabled = false;};
+            # Cmd + Ctrl + Shift + 3 (Full screen capture to clipboard)
+            "29" = {enabled = false;};
+          };
+        };
+
+        "com.apple.Spotlight" = let
           enableCategories = [
             "APPLICATIONS"
             "SYSTEM_PREFS"
@@ -162,18 +148,33 @@ auth       sufficient     pam_tid.so
             "MENU_SPOTLIGHT_SUGGESTIONS"
           ];
 
-          mkItem = enabled: name: { inherit name enabled; };
+          mkItem = enabled: name: {inherit name enabled;};
         in {
           orderedItems =
             (map (mkItem 1) enableCategories)
             ++ (map (mkItem 0) disableCategories);
         };
+      };
     };
+  };
+
+  # The platform the configuration will be used on.
+  nixpkgs.hostPlatform = "aarch64-darwin";
+
+  # Set up skhd for custom hotkeys (like Flameshot)
+  services.skhd = {
+    enable = true;
+    skhdConfig = ''
+      # Rectangular capture
+      shift + cmd - 4 : /Applications/Flameshot.app/Contents/MacOS/flameshot gui
+      # Full screen capture
+      shift + cmd - 3 : /Applications/Flameshot.app/Contents/MacOS/flameshot full
+    '';
   };
 
   # Enable fonts
   fonts.packages = with pkgs; [
-        # Programming fonts
+    # Programming fonts
     nerd-fonts.fira-code
     nerd-fonts.fira-mono
     nerd-fonts.jetbrains-mono
@@ -226,25 +227,25 @@ auth       sufficient     pam_tid.so
     casks = [
       # GUI applications that work better via Homebrew
       "android-platform-tools"
-      "chromium"        # Chromium Browser
+      "chromium" # Chromium Browser
       "dbeaver-community" # Database management tool
-      "discord"          # Discord
-      "firefox"          # Firefox Browser
-      "flameshot"        # Flameshot screenshot tool
-      "google-chrome"    # Google Chrome
-      "iterm2"           # iTerm2 terminal
+      "discord" # Discord
+      "firefox" # Firefox Browser
+      "flameshot" # Flameshot screenshot tool
+      "google-chrome" # Google Chrome
+      "iterm2" # iTerm2 terminal
       "jetbrains-toolbox" # JetBrains Toolbox
       "jordanbaird-ice"
       "keepassxc"
-      "kitty"            # Kitty terminal
-      "obsidian"         # Note-taking app
+      "kitty" # Kitty terminal
+      "obsidian" # Note-taking app
       "moonlight"
       "postman"
       "postman-cli"
       "session-manager-plugin"
-      "slack"            # Team communication
+      "slack" # Team communication
       "visual-studio-code" # VS Code
-      "vivaldi"          # Vivaldi Browser
+      "vivaldi" # Vivaldi Browser
       "whatsapp"
     ];
 

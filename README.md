@@ -5,31 +5,33 @@ Jeremy's personal Nix configuration with modular organization for NixOS, WSL, an
 ## Structure
 
 ```text
-├── flake.nix                    # Main flake configuration
-├── taskfile.yaml               # Task automation for common operations
-├── hosts/                      # Host-specific configurations
-│   ├── common/                 # Shared configurations
-│   │   ├── global.nix         # Common system settings
-│   │   └── users.nix          # User configurations
-│   ├── darwin/                # macOS host configuration
-│   ├── krile/                 # Krile laptop configuration
-│   └── wsl/                   # WSL host configuration
-├── modules/                    # Reusable NixOS modules
-│   ├── desktop/               # Desktop environment modules
-│   │   └── plasma.nix         # KDE Plasma configuration
-│   ├── audio/                 # Audio system modules
-│   │   └── pulseaudio.nix     # PulseAudio configuration
-│   ├── virtualization/        # Virtualization modules
-│   │   └── libvirt.nix        # Libvirt/QEMU configuration
-│   └── services/              # Service modules
-│       └── rclone.nix         # Reusable rclone mount service
-└── home-manager/              # Home Manager configurations
-    ├── profiles/              # User profiles
-    │   ├── development.nix    # Development tools and configuration
-    │   └── desktop.nix        # Desktop applications
-    ├── zsh.nix               # Zsh shell configuration
-    ├── starship.nix          # Starship prompt configuration
-    └── plasma.nix            # KDE Plasma user configuration
+├── flake.nix                         # Flake inputs and platform outputs
+├── flake.lock                        # Locked flake input revisions
+├── taskfile.yaml                     # Common build, switch, and maintenance tasks
+├── hosts/                            # System-level host definitions
+│   ├── darwin/default.nix            # nix-darwin system configuration
+│   ├── linux/default.nix             # NixOS module for the linux target
+│   ├── linux/hardware-configuration.nix
+│   └── wsl/default.nix               # NixOS-WSL host configuration
+├── modules/
+│   └── audio/pulseaudio.nix          # Shared audio/PipeWire module
+├── home-manager/
+│   ├── common.nix                    # Shared Home Manager base config
+│   ├── home.nix                      # Linux Home Manager entrypoint
+│   ├── home-darwin.nix               # macOS Home Manager entrypoint
+│   ├── home-wsl.nix                  # WSL Home Manager entrypoint
+│   ├── zsh.nix                       # Shared shell configuration
+│   ├── starship.nix                  # Shared prompt configuration
+│   ├── profiles/
+│   │   ├── development-linux.nix     # Linux development packages
+│   │   └── desktop-linux.nix         # Linux desktop packages
+│   └── config/
+│       ├── colors/monokai.base24.yaml
+│       ├── copilot/
+│       └── kitty/kitty.conf
+├── .devcontainer/devcontainer.json   # Devcontainer bootstrap for Home Manager outputs
+├── .github/workflows/nix-validation.yml
+└── .vscode/                          # Repo-local VS Code recommendations/settings
 ```
 
 ## Quick Start
@@ -51,8 +53,8 @@ task build
 # Build and switch to the configuration
 task switch
 
-# Build for a specific host
-task switch HOST=krile
+# Build for the Linux target explicitly
+task switch HOST=linux
 
 # Update flake inputs
 task update
@@ -85,13 +87,14 @@ task home-switch HOST=wsl
 
 ### macOS Setup
 
-For macOS, this repo uses `nix-darwin` plus Home Manager. The configured Darwin host in this repo is `ICFGG241C3Y03`.
+For macOS, this repo uses `nix-darwin` plus Home Manager. The primary Darwin target in this repo is `darwin`.
 
 Use the platform-aware tasks or the Darwin-specific aliases:
 
 ```bash
 task build
 task switch
+task switch HOST=darwin
 task darwin-build
 task darwin-switch
 ```
@@ -105,38 +108,17 @@ The macOS setup in this repo includes:
 
 ### Available Hosts
 
-- **ICFGG241C3Y03**: macOS configuration using nix-darwin and Home Manager
-- **krile**: Laptop configuration with KDE Plasma, development tools, and rclone mounts
+These host names are starter placeholders for new installs. They are intentionally generic so the initial flake and task workflow works out of the box; rename the target names and underlying `networking.hostName` values later if you want machine-specific identities. The older machine-specific macOS target `ICFGG241C3Y03` remains as a compatibility alias to the same Darwin configuration.
+
+- **darwin**: Primary macOS configuration using nix-darwin and Home Manager
+- **linux**: Primary Linux configuration with KDE Plasma, development tooling, virtualization, and desktop packages
 - **wsl**: WSL configuration using NixOS-WSL
 
 ## Modules
 
-### Services Module: rclone
-
-The rclone module provides a declarative way to configure rclone mounts:
-
-```nix
-services.rclone-mounts = {
-  enable = true;
-  mounts.gdrive = {
-    remote = "gdrive:";
-    mountPoint = "/home/jhettenh/.state/remotes/gdrive";
-    user = "jhettenh";
-  };
-};
-```
-
-### Desktop Module: plasma
-
-Configures KDE Plasma 6 with Wayland support.
-
 ### Audio Module: pulseaudio
 
-Configures PulseAudio with Real-Time Kit support.
-
-### Virtualization Module: libvirt
-
-Sets up QEMU/KVM virtualization with virt-manager.
+Disables legacy PulseAudio and enables PipeWire with ALSA, PulseAudio compatibility, and Real-Time Kit support.
 
 ## Home Manager Profiles
 
@@ -153,10 +135,23 @@ Includes:
 
 Includes:
 
-- Web browsers (Firefox, Chromium)
-- Media applications (VLC, Spotify)
-- Communication tools (Discord, Telegram)
+- Web browsers and GUI tools
+- Media applications (VLC, mpv)
+- Communication tools (Discord, Slack)
 - Productivity software (LibreOffice, Obsidian)
+
+## Editor Configuration
+
+- `home-manager/common.nix` is the source for persistent VS Code user defaults applied through Home Manager.
+- `.devcontainer/devcontainer.json` is only the bootstrap layer for container sessions before the Home Manager profile is applied.
+- `.vscode/settings.json` and `.vscode/extensions.json` are the repository-specific layer and should stay focused on workspace behavior such as the Nix formatter, language server, and extension recommendations.
+- If a setting should follow you across machines, keep it in Home Manager. If it should apply only to this repository, keep it in `.vscode`.
+
+## Service Tasks
+
+- `task service-status SERVICE=pipewire.service` checks a specific user service.
+- `task logs SERVICE=pipewire.service` tails logs for a specific service.
+- These tasks are generic wrappers around `systemctl --user` and `journalctl`; they are not specific to rclone.
 
 ## Theming
 

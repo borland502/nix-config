@@ -1,6 +1,8 @@
-{ pkgs, lib, ... }:
-
-let
+{
+  pkgs,
+  lib,
+  ...
+}: let
   linuxPackages = with pkgs; [
     iotop
     iftop
@@ -17,23 +19,38 @@ let
 
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   availableLinuxPackages = lib.filter availableOnHost linuxPackages;
-in
-{
+in {
   imports = [
     ./common.nix
     ./profiles/development-linux.nix
   ];
 
-  home.username = lib.mkDefault "nixos";
-  home.homeDirectory = lib.mkDefault "/home/nixos";
+  home = {
+    username = lib.mkDefault "nixos";
+    homeDirectory = lib.mkDefault "/home/nixos";
 
-  home.packages = availableLinuxPackages;
+    packages = availableLinuxPackages;
 
-  home.activation.dconfSettings = lib.mkForce (
-    lib.hm.dag.entryAfter [ "checkLinkTargets" ] ''
-      echo "Skipping dconfSettings in WSL (no dconf service available)."
-    ''
-  );
+    activation.dconfSettings = lib.mkForce (
+      lib.hm.dag.entryAfter ["checkLinkTargets"] ''
+        echo "Skipping dconfSettings in WSL (no dconf service available)."
+      ''
+    );
+
+    file.".vscode-server/data/Machine/settings.json".text = builtins.toJSON {
+      "terminal.integrated.defaultProfile.linux" = "zsh";
+      "terminal.integrated.profiles.linux" = {
+        zsh = {
+          path = "${pkgs.zsh}/bin/zsh";
+          args = ["-l"];
+        };
+      };
+      "terminal.integrated.automationProfile.linux" = {
+        path = "${pkgs.zsh}/bin/zsh";
+        args = ["-l"];
+      };
+    };
+  };
 
   stylix.targets = {
     bat.enable = lib.mkForce true;
@@ -71,22 +88,8 @@ in
     directory.truncation_length = lib.mkForce 5;
   };
 
-  home.file.".vscode-server/data/Machine/settings.json".text = builtins.toJSON {
-    "terminal.integrated.defaultProfile.linux" = "zsh";
-    "terminal.integrated.profiles.linux" = {
-      zsh = {
-        path = "${pkgs.zsh}/bin/zsh";
-        args = [ "-l" ];
-      };
-    };
-    "terminal.integrated.automationProfile.linux" = {
-      path = "${pkgs.zsh}/bin/zsh";
-      args = [ "-l" ];
-    };
-  };
-
   fonts.fontconfig.defaultFonts = {
-    sansSerif = lib.mkAfter [ "DejaVu Sans" ];
-    serif = lib.mkAfter [ "DejaVu Serif" ];
+    sansSerif = lib.mkAfter ["DejaVu Sans"];
+    serif = lib.mkAfter ["DejaVu Serif"];
   };
 }

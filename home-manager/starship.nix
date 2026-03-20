@@ -1,6 +1,4 @@
-{ config, pkgs, lib, ... }:
-
-{
+_: {
   programs.starship = {
     enable = true;
     enableZshIntegration = false;

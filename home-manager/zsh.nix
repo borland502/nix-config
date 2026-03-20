@@ -1,6 +1,4 @@
-{ config, pkgs, lib, ... }:
-
-{
+_: {
   programs.zsh = {
     enable = true;
     enableCompletion = true;
@@ -49,16 +47,12 @@
     '';
 
     shellAliases = {
-      rsync-cp =
-        "rsync -avzhi --filter=':- .gitignore' --exclude='node_modules' --exclude='.venv' --compress-choice=zstd --info=progress2 --stats";
-      rsync-mv =
-        "rsync -avz --compress-choice=zstd --progress -h --remove-source-files";
+      rsync-cp = "rsync -avzhi --filter=':- .gitignore' --exclude='node_modules' --exclude='.venv' --compress-choice=zstd --info=progress2 --stats";
+      rsync-mv = "rsync -avz --compress-choice=zstd --progress -h --remove-source-files";
       rsync-update = "rsync -avzu --compress-choice=zstd --progress -h";
-      rsync-sync =
-        "rsync -avzu --compress-choice=zstd --delete --info=progress2 --no-whole-file -h";
+      rsync-sync = "rsync -avzu --compress-choice=zstd --delete --info=progress2 --no-whole-file -h";
 
-      rsync-bak =
-        "rsync -avbuzh --numeric-ids --compress-choice=zstd --progress --backup-dir={{.xdg_cache_home}}/rsync";
+      rsync-bak = "rsync -avbuzh --numeric-ids --compress-choice=zstd --progress --backup-dir={{.xdg_cache_home}}/rsync";
 
       cat = "bat --pager=never";
       top = "sudo htop";
@@ -68,108 +62,107 @@
       ls = "eza --icons"; # ls
       l = "eza -lbF --git --icons"; # list, size, type, git
       ll = "eza -lbGF --git --icons"; # long list
-      ltr =
-        "eza -lbGd --git --sort=modified --icons"; # long list, modified date sort
+      ltr = "eza -lbGd --git --sort=modified --icons"; # long list, modified date sort
       llm = "eza --all --header --long --sort=modified $eza_params";
       la = "eza -lbhHigUmuSa --git --color-scale --icons"; # all list
       lx = "eza -lbhHigUmuSa@ --git --color-scale --icons"; # all + extended list
 
       # Zoxide shortcuts
-      cd = "z";  # Use zoxide instead of cd
+      cd = "z"; # Use zoxide instead of cd
     };
 
     envExtra = ''
-      # If an old standalone Home Manager profile path is present, remove it.
-      # nix-darwin + home-manager module exposes the right profile via /etc/profiles.
-      path=(''${path:#$HOME/.local/state/nix/profiles/home-manager/home-path/bin})
-      export PATH=''${(j/:/)path}
+          # If an old standalone Home Manager profile path is present, remove it.
+          # nix-darwin + home-manager module exposes the right profile via /etc/profiles.
+          path=(''${path:#$HOME/.local/state/nix/profiles/home-manager/home-path/bin})
+          export PATH=''${(j/:/)path}
 
-      # Prefer nix-darwin system/user profiles early in PATH.
-      # This avoids accidentally running stale binaries from an inherited PATH.
-      if [[ -d "/etc/profiles/per-user/$USER/bin" ]]; then
-        export PATH="/etc/profiles/per-user/$USER/bin:$PATH"
-      fi
-      if [[ -d "/run/wrappers/bin" ]]; then
-        export PATH="/run/wrappers/bin:$PATH"
-      fi
-      if [[ -d "/run/current-system/sw/bin" ]]; then
-        export PATH="/run/current-system/sw/bin:$PATH"
-      fi
+          # Prefer nix-darwin system/user profiles early in PATH.
+          # This avoids accidentally running stale binaries from an inherited PATH.
+          if [[ -d "/etc/profiles/per-user/$USER/bin" ]]; then
+            export PATH="/etc/profiles/per-user/$USER/bin:$PATH"
+          fi
+          if [[ -d "/run/wrappers/bin" ]]; then
+            export PATH="/run/wrappers/bin:$PATH"
+          fi
+          if [[ -d "/run/current-system/sw/bin" ]]; then
+            export PATH="/run/current-system/sw/bin:$PATH"
+          fi
 
-      # Color scheme exports
-      export base00="#222222"
-      export base01="#363537"
-      export base02="#525053"
-      export base03="#69676c"
-      export base04="#8b888f"
-      export base05="#bab6c0"
-      export base07="#f7f1ff"
-      export base06="#fbf8ff"
-      export base08="#FC618D"
-      export base09="#fd9353"
-      export base0a="#FCE566"
-      export base0b="#7BD88F"
-      export base0c="#5AD4E6"
-      export base0d="#948ae3"
-      export base0e="#fc618d"
-      export base0f="#fef20a"
-      export base10="#191919"
-      export base11="#222222"
-      export base12="#FC618D"
-      export base13="#FCE566"
-      export base14="#7BD88F"
-      export base15="#5AD4E6"
-      export base16="#948AE3"
-      export base17="#FD9353"
-      export base8x0c="#2b2b2b"
-      export blue="#5ad4e6"
-      export green="#7bd88f"
-      export orange="#fd9353"
-      export purple="#948ae3"
-      export red="#fc618d"
-      export yellow="#fcd566"
+          # Color scheme exports
+          export base00="#222222"
+          export base01="#363537"
+          export base02="#525053"
+          export base03="#69676c"
+          export base04="#8b888f"
+          export base05="#bab6c0"
+          export base07="#f7f1ff"
+          export base06="#fbf8ff"
+          export base08="#FC618D"
+          export base09="#fd9353"
+          export base0a="#FCE566"
+          export base0b="#7BD88F"
+          export base0c="#5AD4E6"
+          export base0d="#948ae3"
+          export base0e="#fc618d"
+          export base0f="#fef20a"
+          export base10="#191919"
+          export base11="#222222"
+          export base12="#FC618D"
+          export base13="#FCE566"
+          export base14="#7BD88F"
+          export base15="#5AD4E6"
+          export base16="#948AE3"
+          export base17="#FD9353"
+          export base8x0c="#2b2b2b"
+          export blue="#5ad4e6"
+          export green="#7bd88f"
+          export orange="#fd9353"
+          export purple="#948ae3"
+          export red="#fc618d"
+          export yellow="#fcd566"
 
-      # Terminal and editor configuration
-      export EDITOR="vim"
-      export TERM="xterm-256color"
-      export KITTY_TERM="kitty"
+          # Terminal and editor configuration
+          export EDITOR="vim"
+          export TERM="xterm-256color"
+          export KITTY_TERM="kitty"
 
-      # XDG directories (set only if not already defined)
-      export XDG_BIN_HOME="''${XDG_BIN_HOME:-$HOME/.local/bin}"
-      export XDG_CACHE_HOME="''${XDG_CACHE_HOME:-$HOME/.cache}"
-      export XDG_CONFIG_HOME="''${XDG_CONFIG_HOME:-$HOME/.config}"
-      export XDG_DATA_HOME="''${XDG_DATA_HOME:-$HOME/.local/share}"
-      export XDG_LIB_HOME="''${XDG_LIB_HOME:-$HOME/.local/lib}"
-      export XDG_STATE_HOME="''${XDG_STATE_HOME:-$HOME/.local/state}"
+          # XDG directories (set only if not already defined)
+          export XDG_BIN_HOME="''${XDG_BIN_HOME:-$HOME/.local/bin}"
+          export XDG_CACHE_HOME="''${XDG_CACHE_HOME:-$HOME/.cache}"
+          export XDG_CONFIG_HOME="''${XDG_CONFIG_HOME:-$HOME/.config}"
+          export XDG_DATA_HOME="''${XDG_DATA_HOME:-$HOME/.local/share}"
+          export XDG_LIB_HOME="''${XDG_LIB_HOME:-$HOME/.local/lib}"
+          export XDG_STATE_HOME="''${XDG_STATE_HOME:-$HOME/.local/state}"
 
-      # Development environment
-      export CAN_USE_SUDO=1
-      export DOCKER_BUILDKIT=1
-      export GOMPLATE_CONFIG="$XDG_CONFIG_HOME/gomplate/gomplate.yaml"
+          # Development environment
+          export CAN_USE_SUDO=1
+          export DOCKER_BUILDKIT=1
+          export GOMPLATE_CONFIG="$XDG_CONFIG_HOME/gomplate/gomplate.yaml"
 
-      # UI configuration
-      export GUM_CHOOSE_CURSOR_FOREGROUND="$green"
-      export GUM_CHOOSE_ITEM_FOREGROUND="$blue"
-      export GUM_CHOOSE_SELECTED_FOREGROUND="$purple"
-      export GUM_INPUT_CURSOR_FOREGROUND="$green"
-      export GUM_INPUT_PLACEHOLDER="What is the value?"
-      export GUM_INPUT_PROMPT="> "
-      export GUM_INPUT_PROMPT_FOREGROUND="$blue"
-      export GUM_INPUT_WIDTH=120
-      export HAS_ALLOW_UNSAFE='y'
+          # UI configuration
+          export GUM_CHOOSE_CURSOR_FOREGROUND="$green"
+          export GUM_CHOOSE_ITEM_FOREGROUND="$blue"
+          export GUM_CHOOSE_SELECTED_FOREGROUND="$purple"
+          export GUM_INPUT_CURSOR_FOREGROUND="$green"
+          export GUM_INPUT_PLACEHOLDER="What is the value?"
+          export GUM_INPUT_PROMPT="> "
+          export GUM_INPUT_PROMPT_FOREGROUND="$blue"
+          export GUM_INPUT_WIDTH=120
+          export HAS_ALLOW_UNSAFE='y'
 
-      # Homebrew configuration
-      export HOMEBREW_NO_ANALYTICS=
-      export HOMEBREW_NO_INSTALL_CLEANUP=true
+          # Homebrew configuration
+          export HOMEBREW_NO_ANALYTICS=
+          export HOMEBREW_NO_INSTALL_CLEANUP=true
 
-      # Other tools
-      export UNISON="$XDG_CONFIG_HOME/unison"
+          # Other tools
+          export UNISON="$XDG_CONFIG_HOME/unison"
 
-      # Ensure Homebrew is in PATH (important for GUI terminals)
-  export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+          # Ensure Homebrew is in PATH (important for GUI terminals)
+      export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 
-  # Ensure local user bin directory is available for tools like pipx
-  export PATH="$HOME/.local/bin:$PATH"
+      # Ensure local user bin directory is available for tools like pipx
+      export PATH="$HOME/.local/bin:$PATH"
     '';
 
     history = {

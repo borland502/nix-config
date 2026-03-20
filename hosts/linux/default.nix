@@ -1,11 +1,9 @@
 # Edit this configuration file to define what should be installed on
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running 'nixos-help').
-
-{ config, pkgs, ... }:
-
-{
-  imports = [ # Include the results of the hardware scan.
+{pkgs, ...}: {
+  imports = [
+    # Include the results of the hardware scan.
     ./hardware-configuration.nix
     ../../modules/audio/pulseaudio.nix
   ];
@@ -14,7 +12,7 @@
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  networking.hostName = "krile"; # Define your hostname.
+  networking.hostName = "linux"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
 
   # Configure network proxy if necessary
@@ -42,29 +40,38 @@
     LC_TIME = "en_US.UTF-8";
   };
 
-  # Enable the X11 windowing system.
-  # You can disable this if you're only using the Wayland session.
-  services.xserver.enable = true;
+  services = {
+    # Enable the X11 windowing system.
+    # You can disable this if you're only using the Wayland session.
+    xserver.enable = true;
 
-  # Enable the KDE Plasma Desktop Environment.
-  services.displayManager = {
-    sddm = {
-      enable = true;
-      wayland.enable = true;
+    # Enable the KDE Plasma Desktop Environment.
+    displayManager = {
+      sddm = {
+        enable = true;
+        wayland.enable = true;
+      };
+      defaultSession = "plasma";
     };
-    defaultSession = "plasma";
-  };
-  services.desktopManager.plasma6.enable = true;
+    desktopManager.plasma6.enable = true;
 
-  # Enable CUPS to print documents.
-  services.printing.enable = true;
+    # Enable CUPS to print documents.
+    printing.enable = true;
+
+    # Enable the OpenSSH daemon.
+    openssh.enable = true;
+  };
 
   # Enable touchpad support (enabled default in most desktopManager).
   # services.xserver.libinput.enable = true;
 
-  programs.zsh.enable = true; # Enable Zsh shell
+  programs = {
+    zsh.enable = true; # Enable Zsh shell
+    virt-manager.enable = true;
 
-  users.defaultUserShell = pkgs.zsh;
+    # Gaming
+    steam.enable = true;
+  };
 
   fonts.packages = with pkgs; [
     nerd-fonts.fira-code
@@ -77,28 +84,30 @@
     enable = true;
 
     defaultFonts = {
-      monospace = [ "Fira Code Nerd Font Mono" ];
-      sansSerif = [ "Fira Sans Nerd Font" ];
-      serif = [ "Fira Serif Nerd Font" ];
+      monospace = ["Fira Code Nerd Font Mono"];
+      sansSerif = ["Fira Sans Nerd Font"];
+      serif = ["Fira Serif Nerd Font"];
     };
   };
 
-  # Define a user account. Don't forget to set a password with ‘passwd’.
-  users.users.jhettenh = {
-    isNormalUser = true;
-    description = "Jeremy Hettenhouser";
-    extraGroups = [ "networkmanager" "wheel" ];
-    linger = true;
-    shell = pkgs.zsh;
-    packages = with pkgs;
-      [
+  users = {
+    defaultUserShell = pkgs.zsh;
+
+    # Define a user account. Don't forget to set a password with ‘passwd’.
+    users.jhettenh = {
+      isNormalUser = true;
+      description = "Jeremy Hettenhouser";
+      extraGroups = ["networkmanager" "wheel"];
+      linger = true;
+      shell = pkgs.zsh;
+      packages = with pkgs; [
         kdePackages.kate
       ];
+    };
+
+    groups.libvirtd.members = ["jhettenh"];
   };
 
-  programs.virt-manager.enable = true;
-
-  users.groups.libvirtd.members = [ "jhettenh" ];
   virtualisation.libvirtd.enable = true; # enable libvirt daemon
   virtualisation.spiceUSBRedirection.enable = true; # enable spice USB redirection
 
@@ -106,18 +115,17 @@
 
   # Allow unfree packages (needed for VS Code and other unfree packages in home-manager)
   nixpkgs.config.allowUnfree = true;
-  nixpkgs.config.allowUnfreePredicate = (_: true);
+  nixpkgs.config.allowUnfreePredicate = _: true;
 
   # List packages installed in system profile. To search, run:
   # $ nix search wget
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  environment.systemPackages = with pkgs; [ vim wget rclone ];
+  nix.settings.experimental-features = ["nix-command" "flakes"];
+  environment.systemPackages = with pkgs; [vim wget rclone];
 
-  environment.shells = with pkgs;
-    [
-      # Add your preferred shell here
-      zsh
-    ];
+  environment.shells = with pkgs; [
+    # Add your preferred shell here
+    zsh
+  ];
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
@@ -128,9 +136,6 @@
   # };
 
   # List services that you want to enable:
-
-  # Enable the OpenSSH daemon.
-  services.openssh.enable = true;
 
   # Open ports in the firewall.
   # networking.firewall.allowedTCPPorts = [ ... ];
@@ -146,8 +151,5 @@
   # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
   system.stateVersion = "25.05"; # Did you read the comment?
 
-  # Gaming
-  programs.steam.enable = true;
   hardware.steam-hardware.enable = true;
-
 }

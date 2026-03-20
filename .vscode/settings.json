@@ -1,0 +1,10 @@
+{
+  "[nix]": {
+    "editor.defaultFormatter": "jnoortheen.nix-ide"
+  },
+  "editor.formatOnSave": true,
+  "workbench.colorTheme": "Stylix",
+  "workbench.preferredDarkColorTheme": "Stylix",
+  "nix.enableLanguageServer": true,
+  "nix.serverPath": "nixd"
+}

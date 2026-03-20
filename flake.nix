@@ -32,142 +32,160 @@
     };
   };
 
-  outputs = inputs@{ nixpkgs, nixos-wsl, nix-darwin, home-manager, plasma-manager, stylix, ... }:
-    let
-      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
-      linuxSystems = [ "x86_64-linux" "aarch64-linux" ];
-      forAllSystems = nixpkgs.lib.genAttrs systems;
-      pkgsFor = system:
-        import nixpkgs {
-          inherit system;
-          config = {
-            allowUnfree = true;
-            allowUnfreePredicate = _: true;
-          };
-        };
-      devcontainerConfigs = nixpkgs.lib.genAttrs linuxSystems (system:
-        home-manager.lib.homeManagerConfiguration {
-          pkgs = pkgsFor system;
-          modules = [
-            plasma-manager.homeModules.plasma-manager
+  outputs = {
+    nixpkgs,
+    nixos-wsl,
+    nix-darwin,
+    home-manager,
+    plasma-manager,
+    stylix,
+    ...
+  }: let
+    systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin"];
+    linuxSystems = ["x86_64-linux" "aarch64-linux"];
+    forAllSystems = nixpkgs.lib.genAttrs systems;
+    darwinModules = [
+      ./hosts/darwin
+
+      stylix.darwinModules.stylix
+
+      # Enable home-manager for nix-darwin
+      home-manager.darwinModules.home-manager
+      {
+        home-manager = {
+          useGlobalPkgs = false;
+          useUserPackages = true;
+          backupFileExtension = ".bak0809-1320";
+          sharedModules = [
             stylix.homeModules.stylix
-            ./home-manager/home.nix
-            ({ lib, ... }: {
-              home.username = "vscode";
-              home.homeDirectory = "/home/vscode";
-              home.activation.dconfSettings = lib.mkForce (
-                lib.hm.dag.entryAfter [ "checkLinkTargets" ] ''
+          ];
+
+          users."42245" = import ./home-manager/home-darwin.nix;
+        };
+      }
+    ];
+    mkDarwinConfig = nix-darwin.lib.darwinSystem {
+      system = "aarch64-darwin";
+      modules = darwinModules;
+    };
+    pkgsFor = system:
+      import nixpkgs {
+        inherit system;
+        config = {
+          allowUnfree = true;
+          allowUnfreePredicate = _: true;
+        };
+      };
+    devcontainerConfigs = nixpkgs.lib.genAttrs linuxSystems (system:
+      home-manager.lib.homeManagerConfiguration {
+        pkgs = pkgsFor system;
+        modules = [
+          plasma-manager.homeModules.plasma-manager
+          stylix.homeModules.stylix
+          ./home-manager/home.nix
+          ({lib, ...}: {
+            home = {
+              username = "vscode";
+              homeDirectory = "/home/vscode";
+              activation.dconfSettings = lib.mkForce (
+                lib.hm.dag.entryAfter ["checkLinkTargets"] ''
                   echo "Skipping dconfSettings in devcontainer (no dbus session available)."
                 ''
               );
-            })
-          ];
-        });
-    in {
-      # NixOS configurations
-      nixosConfigurations = {
-        krile = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = [
-            ./hosts/krile
+            };
+          })
+        ];
+      });
+  in {
+    # NixOS configurations
+    nixosConfigurations = {
+      linux = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          ./hosts/linux
 
-            stylix.nixosModules.stylix
+          stylix.nixosModules.stylix
 
-            # make home-manager as a module of nixos
-            # so that home-manager configuration will be deployed automatically when executing `nixos-rebuild switch`
-            home-manager.nixosModules.home-manager
-            {
-              home-manager.useGlobalPkgs = false;
-              home-manager.useUserPackages = true;
-              home-manager.backupFileExtension = ".bak0809-1320";
-              home-manager.sharedModules = [
+          # make home-manager as a module of nixos
+          # so that home-manager configuration will be deployed automatically when executing `nixos-rebuild switch`
+          home-manager.nixosModules.home-manager
+          {
+            home-manager = {
+              useGlobalPkgs = false;
+              useUserPackages = true;
+              backupFileExtension = ".bak0809-1320";
+              sharedModules = [
                 # Import the plasma-manager module
                 plasma-manager.homeModules.plasma-manager
                 stylix.homeModules.stylix
               ];
 
-              home-manager.users.jhettenh = import ./home-manager/home.nix;
+              users.jhettenh = import ./home-manager/home.nix;
 
               # Optionally, use home-manager.extraSpecialArgs to pass arguments to home.nix
-            }
-          ];
-        };
+            };
+          }
+        ];
+      };
 
-        wsl = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = [
-            nixos-wsl.nixosModules.default
-            home-manager.nixosModules.home-manager
-            ./hosts/wsl
-            {
-              home-manager.useGlobalPkgs = false;
-              home-manager.useUserPackages = true;
-              home-manager.backupFileExtension = ".bak0809-1320";
-              home-manager.sharedModules = [
+      wsl = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          nixos-wsl.nixosModules.default
+          home-manager.nixosModules.home-manager
+          ./hosts/wsl
+          {
+            home-manager = {
+              useGlobalPkgs = false;
+              useUserPackages = true;
+              backupFileExtension = ".bak0809-1320";
+              sharedModules = [
                 stylix.homeModules.stylix
               ];
 
-              home-manager.users.nixos = import ./home-manager/home-wsl.nix;
-            }
-          ];
-        };
+              users.nixos = import ./home-manager/home-wsl.nix;
+            };
+          }
+        ];
+      };
+    };
+
+    homeConfigurations = {
+      "jhettenh@linux" = home-manager.lib.homeManagerConfiguration {
+        pkgs = pkgsFor "x86_64-linux";
+        modules = [
+          plasma-manager.homeModules.plasma-manager
+          stylix.homeModules.stylix
+          ./home-manager/home.nix
+        ];
       };
 
-      homeConfigurations = {
-        "jhettenh@krile" = home-manager.lib.homeManagerConfiguration {
-          pkgs = pkgsFor "x86_64-linux";
-          modules = [
-            plasma-manager.homeModules.plasma-manager
-            stylix.homeModules.stylix
-            ./home-manager/home.nix
-          ];
-        };
-
-        "nixos@wsl" = home-manager.lib.homeManagerConfiguration {
-          pkgs = pkgsFor "x86_64-linux";
-          modules = [
-            stylix.homeModules.stylix
-            ./home-manager/home-wsl.nix
-          ];
-        };
-
-        "vscode@devcontainer" = devcontainerConfigs."x86_64-linux";
-        "vscode@devcontainer-aarch64" = devcontainerConfigs."aarch64-linux";
+      "nixos@wsl" = home-manager.lib.homeManagerConfiguration {
+        pkgs = pkgsFor "x86_64-linux";
+        modules = [
+          stylix.homeModules.stylix
+          ./home-manager/home-wsl.nix
+        ];
       };
 
-      apps = forAllSystems (system: {
-        home-manager = {
-          type = "app";
-          program = "${home-manager.packages.${system}.home-manager}/bin/home-manager";
-          meta = {
-            description = "Home Manager CLI helper";
-          };
-        };
-      });
+      "vscode@devcontainer" = devcontainerConfigs."x86_64-linux";
+      "vscode@devcontainer-aarch64" = devcontainerConfigs."aarch64-linux";
+    };
 
-      # nix-darwin configurations for macOS
-      darwinConfigurations = {
-        ICFGG241C3Y03 = nix-darwin.lib.darwinSystem {
-          system = "aarch64-darwin";
-          modules = [
-            ./hosts/darwin
-
-            stylix.darwinModules.stylix
-
-            # Enable home-manager for nix-darwin
-            home-manager.darwinModules.home-manager
-            {
-              home-manager.useGlobalPkgs = false;
-              home-manager.useUserPackages = true;
-              home-manager.backupFileExtension = ".bak0809-1320";
-              home-manager.sharedModules = [
-                stylix.homeModules.stylix
-              ];
-
-              home-manager.users."42245" = import ./home-manager/home-darwin.nix;
-            }
-          ];
+    apps = forAllSystems (system: {
+      home-manager = {
+        type = "app";
+        program = "${home-manager.packages.${system}.home-manager}/bin/home-manager";
+        meta = {
+          description = "Home Manager CLI helper";
         };
       };
+    });
+
+    # nix-darwin configurations for macOS
+    darwinConfigurations = {
+      darwin = mkDarwinConfig;
+      ICFGG241C3Y03 = mkDarwinConfig;
+    };
   };
 }

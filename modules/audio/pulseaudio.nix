@@ -1,11 +1,9 @@
 # Audio configuration with PulseAudio
-{ config, lib, pkgs, ... }:
-
-{
+_: {
   services.pulseaudio.enable = false;
   security.rtkit.enable = true;
-  
-  # PipeWire configuration 
+
+  # PipeWire configuration
   services.pipewire = {
     enable = true;
     alsa.enable = true;

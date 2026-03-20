@@ -23,6 +23,12 @@ jobs:
       - name: Run flake checks
         run: nix flake check --print-build-logs
 
+      - name: Check Nix formatting
+        run: nix shell nixpkgs#go-task nixpkgs#alejandra -c task fmt:check
+
+      - name: Run Nix linters
+        run: nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix -c task lint:nix
+
   linux-and-wsl-builds:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -31,7 +37,7 @@ jobs:
       matrix:
         include:
           - name: Linux Host Build
-            build_command: nix build .#nixosConfigurations.krile.config.system.build.toplevel --print-build-logs
+            build_command: nix build .#nixosConfigurations.linux.config.system.build.toplevel --print-build-logs
           - name: WSL System Build
             build_command: nix build .#nixosConfigurations.wsl.config.system.build.toplevel --print-build-logs
           - name: WSL Home Manager Build
@@ -66,4 +72,4 @@ jobs:
         uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
 
       - name: Build Darwin system
-        run: nix build .#darwinConfigurations.ICFGG241C3Y03.system --print-build-logs
+        run: nix build .#darwinConfigurations.darwin.system --print-build-logs

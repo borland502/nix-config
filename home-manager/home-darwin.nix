@@ -1,22 +1,50 @@
-{ config, pkgs, lib, ... }:
-
-let
+{
+  pkgs,
+  lib,
+  ...
+}: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   darwinPackages = lib.filter availableOnHost (with pkgs; [
     mas
   ]);
-in
-{
+in {
   imports = [
-    ./common.nix           # Import common configuration
+    ./common.nix # Import common configuration
     # Homebrew is reserved for macOS-only GUI apps and formulae without a clean Nix path.
   ];
 
-  home.username = "42245";
-  home.homeDirectory = lib.mkForce "/Users/42245";
+  home = {
+    username = "42245";
+    homeDirectory = lib.mkForce "/Users/42245";
 
-  # Darwin-specific packages
-  home.packages = darwinPackages;
+    # Darwin-specific packages
+    packages = darwinPackages;
+
+    # Install SDKMAN! on macOS so Java toolchains can be managed declaratively
+    activation.installSdkman = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      sdkman_dir="$HOME/.sdkman"
+      if [ ! -s "$sdkman_dir/bin/sdkman-init.sh" ]; then
+        echo "Installing SDKMAN! into $sdkman_dir"
+        tmp_home="$(${pkgs.coreutils}/bin/mktemp -d)"
+        cleanup() {
+          ${pkgs.coreutils}/bin/rm -rf "$tmp_home"
+        }
+        trap cleanup EXIT INT TERM
+        install_env_path="${pkgs.unzip}/bin:${pkgs.zip}/bin:${pkgs.gnutar}/bin:${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnused}/bin:${pkgs.gawk}/bin:$PATH"
+        env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
+          ${pkgs.curl}/bin/curl -sSf "https://get.sdkman.io?rcupdate=false" -o "$tmp_home/install-sdkman.sh"
+        env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
+          ${pkgs.bash}/bin/bash "$tmp_home/install-sdkman.sh"
+        cleanup
+        trap - EXIT INT TERM
+      else
+        echo "SDKMAN! already present"
+      fi
+    '';
+
+    # Install the shared Copilot defaults into the macOS VS Code user prompts directory.
+    file."Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = ./config/copilot/copilot-defaults.instructions.md;
+  };
 
   # Darwin-specific Stylix targets (extending common.nix)
   stylix.targets = {
@@ -28,8 +56,8 @@ in
 
   # Darwin-specific font fallbacks
   fonts.fontconfig.defaultFonts = {
-    sansSerif = lib.mkAfter [ "Helvetica" "Arial" ];
-    serif = lib.mkAfter [ "Times New Roman" "Times" ];
+    sansSerif = lib.mkAfter ["Helvetica" "Arial"];
+    serif = lib.mkAfter ["Times New Roman" "Times"];
   };
 
   # Darwin-specific shell configuration
@@ -75,38 +103,12 @@ in
     '';
   };
 
-  # Install SDKMAN! on macOS so Java toolchains can be managed declaratively
-  home.activation.installSdkman = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    sdkman_dir="$HOME/.sdkman"
-    if [ ! -s "$sdkman_dir/bin/sdkman-init.sh" ]; then
-      echo "Installing SDKMAN! into $sdkman_dir"
-      tmp_home="$(${pkgs.coreutils}/bin/mktemp -d)"
-      cleanup() {
-        ${pkgs.coreutils}/bin/rm -rf "$tmp_home"
-      }
-      trap cleanup EXIT INT TERM
-      install_env_path="${pkgs.unzip}/bin:${pkgs.zip}/bin:${pkgs.gnutar}/bin:${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnused}/bin:${pkgs.gawk}/bin:$PATH"
-      env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
-        ${pkgs.curl}/bin/curl -sSf "https://get.sdkman.io?rcupdate=false" -o "$tmp_home/install-sdkman.sh"
-      env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
-        ${pkgs.bash}/bin/bash "$tmp_home/install-sdkman.sh"
-      cleanup
-      trap - EXIT INT TERM
-    else
-      echo "SDKMAN! already present"
-    fi
-  '';
-
   # VSCode configuration with Stylix theming
   programs.vscode = {
     enable = true;
     # Extensions and other VSCode config can be added here
     # Stylix will automatically handle theming
   };
-
-  # Install the shared Copilot defaults into the macOS VS Code user prompts directory.
-  home.file."Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = ./config/copilot/copilot-defaults.instructions.md;
-
   # Kitty terminal configuration
   xdg.configFile."kitty/kitty.conf".source = ./config/kitty/kitty.conf;
 }

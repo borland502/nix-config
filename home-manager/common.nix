@@ -1,7 +1,9 @@
 # Common home-manager configuration shared between Linux and Darwin
-{ config, pkgs, lib, ... }:
-
-let
+{
+  pkgs,
+  lib,
+  ...
+}: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   awsSamCliPatched = pkgs.aws-sam-cli.overridePythonAttrs (old: {
     # nixpkgs currently wires newer click and aws-lambda-builders versions than
@@ -9,7 +11,7 @@ let
     # strict runtime metadata check until upstream packaging catches up.
     doCheck = false;
     dontCheckRuntimeDeps = true;
-    pythonRelaxDeps = (old.pythonRelaxDeps or [ ]) ++ [ "click" ];
+    pythonRelaxDeps = (old.pythonRelaxDeps or []) ++ ["click"];
   });
   commonPackages = with pkgs; [
     # Development tools
@@ -48,6 +50,10 @@ let
     dasel
     tmux
     unzip
+    alejandra
+    statix
+    deadnix
+    nixd
 
     # Productivity and content
     glow
@@ -67,11 +73,10 @@ let
     lsof
   ];
   copilotDefaultsFile = ./config/copilot/copilot-defaults.instructions.md;
-in
-{
+in {
   nixpkgs.config = {
     allowUnfree = true;
-    allowUnfreePredicate = (_: true);
+    allowUnfreePredicate = _: true;
   };
 
   # Shared imports
@@ -80,11 +85,24 @@ in
     ./starship.nix
   ];
 
-  # Ensure user-local binaries are found regardless of shell
-  home.sessionPath = lib.mkBefore [ "$HOME/.local/bin" ];
+  home = {
+    # Ensure user-local binaries are found regardless of shell
+    sessionPath = lib.mkBefore ["$HOME/.local/bin"];
 
-  # Common packages shared across Linux, WSL, and macOS.
-  home.packages = lib.filter availableOnHost commonPackages;
+    # Common packages shared across Linux, WSL, and macOS.
+    packages = lib.filter availableOnHost commonPackages;
+
+    # Common home-manager settings
+    stateVersion = "25.05";
+
+    # Make Copilot defaults visible to desktop, remote, and shared IDE sessions.
+    file = {
+      ".config/Code/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
+      ".vscode-server/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
+      ".config/github-copilot/copilot-defaults.instructions.md".source = copilotDefaultsFile;
+      ".config/github-copilot/intellij/global-copilot-instructions.md".source = copilotDefaultsFile;
+    };
+  };
 
   # Common font configuration
   fonts.fontconfig = {
@@ -150,98 +168,90 @@ in
     };
   };
 
-  # VS Code: sensible default profile with Stylix theme
-  programs.vscode = lib.mkIf (pkgs ? vscode) {
-    enable = true;
-    profiles.default = {
-      userSettings = {
-        # Ensure Stylix theme is selected by default
-        "workbench.colorTheme" = "Stylix";
-        "workbench.preferredDarkColorTheme" = "Stylix";
-
-        # Fonts consistent with Stylix
-        "editor.fontFamily" = "FiraCode Nerd Font Mono";
-        "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
-        "terminal.integrated.defaultProfile.linux" = "zsh";
-        "terminal.integrated.profiles.linux" = {
-          zsh = {
-            path = "${pkgs.zsh}/bin/zsh";
-            args = [ "-l" ];
+  programs = {
+    # VS Code: sensible default profile with Stylix theme
+    vscode = lib.mkIf (pkgs ? vscode) {
+      enable = true;
+      profiles.default = {
+        extensions = lib.mkAfter [pkgs.vscode-extensions.jnoortheen.nix-ide];
+        userSettings = {
+          # Fonts consistent with Stylix
+          "editor.fontFamily" = "FiraCode Nerd Font Mono";
+          "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
+          "terminal.integrated.defaultProfile.linux" = "zsh";
+          "terminal.integrated.profiles.linux" = {
+            zsh = {
+              path = "${pkgs.zsh}/bin/zsh";
+              args = ["-l"];
+            };
           };
+
+          # Small quality-of-life defaults (non-Stylix)
+          "editor.fontLigatures" = true;
+          "editor.formatOnSave" = true;
+          "[nix]" = {
+            "editor.defaultFormatter" = "jnoortheen.nix-ide";
+          };
+          "files.trimTrailingWhitespace" = true;
+          "files.insertFinalNewline" = true;
+          "git.autofetch" = true;
         };
-
-        # Small quality-of-life defaults (non-Stylix)
-        "editor.fontLigatures" = true;
-        "editor.formatOnSave" = true;
-        "files.trimTrailingWhitespace" = true;
-        "files.insertFinalNewline" = true;
-        "git.autofetch" = true;
       };
     };
-  };
 
-  # Common Git configuration
-  programs.git = {
-    enable = true;
-    settings = {
-      user = {
-        name = "jhettenh";
-        email = "jhettenh@gmail.com";
+    # Common Git configuration
+    git = {
+      enable = true;
+      settings = {
+        user = {
+          name = "jhettenh";
+          email = "jhettenh@gmail.com";
+        };
+        init.defaultBranch = "main";
+        core.editor = "vim";
+        pull.rebase = false;
       };
-      init.defaultBranch = "main";
-      core.editor = "vim";
-      pull.rebase = false;
     };
-  };
 
-  # Common program configurations
-  programs.bat.enable = true;
-  programs.dircolors = {
-    enable = true;
-    enableZshIntegration = true;
-  };
+    # Common program configurations
+    bat.enable = true;
+    dircolors = {
+      enable = true;
+      enableZshIntegration = true;
+    };
 
-  programs.eza = {
-    enable = true;
-    enableZshIntegration = true;
-    colors = "always";
-    git = true;
-    icons = "always";
-  };
+    eza = {
+      enable = true;
+      enableZshIntegration = true;
+      colors = "always";
+      git = true;
+      icons = "always";
+    };
 
-  programs.fd.enable = true;
-  programs.ripgrep.enable = true;
+    fd.enable = true;
+    ripgrep.enable = true;
 
-  # Direnv for automatic environment loading
-  programs.direnv = {
-    enable = true;
-    enableZshIntegration = true;
-  };
+    # Direnv for automatic environment loading
+    direnv = {
+      enable = true;
+      enableZshIntegration = true;
+    };
 
-  # Common home-manager settings
-  home.stateVersion = "25.05";
-  programs.home-manager.enable = true;
+    home-manager.enable = true;
 
-  # Make Copilot defaults visible to desktop, remote, and shared IDE sessions.
-  home.file = {
-    ".config/Code/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-    ".vscode-server/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-    ".config/github-copilot/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-    ".config/github-copilot/intellij/global-copilot-instructions.md".source = copilotDefaultsFile;
-  };
-
-  programs.vim = {
-    enable = true;
-    defaultEditor = true;
-    plugins = with pkgs.vimPlugins; [
-      vim-airline
-      vim-airline-themes
-      nerdtree
-      vim-fugitive
-      vim-surround
-      vim-commentary
-      coc-nvim
-      monokai-pro-nvim
-    ];
+    vim = {
+      enable = true;
+      defaultEditor = true;
+      plugins = with pkgs.vimPlugins; [
+        vim-airline
+        vim-airline-themes
+        nerdtree
+        vim-fugitive
+        vim-surround
+        vim-commentary
+        coc-nvim
+        monokai-pro-nvim
+      ];
+    };
   };
 }

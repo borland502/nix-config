@@ -1,7 +1,9 @@
 # Development-focused home-manager profile
-{ config, pkgs, lib, ... }:
-
-let
+{
+  pkgs,
+  lib,
+  ...
+}: let
   devPackages = with pkgs; [
     # Editors and IDEs
     vscode
@@ -19,8 +21,7 @@ let
   ];
 
   availablePackages = lib.filter (pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg) devPackages;
-in
-{
+in {
   # Development tools
   home.packages = availablePackages;
 

@@ -1,7 +1,9 @@
 # Desktop-focused home-manager profile
-{ config, pkgs, lib, ... }:
-
-let
+{
+  pkgs,
+  lib,
+  ...
+}: let
   desktopPackages = with pkgs; [
     # Web browsers
     firefox
@@ -28,8 +30,7 @@ let
   ];
 
   availablePackages = lib.filter (pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg) desktopPackages;
-in
-{
+in {
   # Desktop applications
   home.packages = availablePackages;
 
