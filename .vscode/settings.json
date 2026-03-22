@@ -2,6 +2,7 @@
   "[nix]": {
     "editor.defaultFormatter": "jnoortheen.nix-ide"
   },
+  "nix.formatterPath": "alejandra",
   "editor.formatOnSave": true,
   "workbench.colorTheme": "Stylix",
   "workbench.preferredDarkColorTheme": "Stylix",

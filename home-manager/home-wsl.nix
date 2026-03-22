@@ -62,6 +62,7 @@
     "[nix]" = {
       "editor.defaultFormatter" = "jnoortheen.nix-ide";
     };
+    "nix.formatterPath" = "alejandra";
     "files.trimTrailingWhitespace" = true;
     "files.insertFinalNewline" = true;
     "git.autofetch" = true;
