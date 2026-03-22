@@ -98,6 +98,8 @@ in {
         echo "Skipping Windows PowerShell bootstrap: $windows_powershell_exe is unavailable."
       elif [ ! -x "$wslpath_exe" ]; then
         echo "Skipping Windows PowerShell bootstrap: $wslpath_exe is unavailable."
+      elif ! "$windows_powershell_exe" -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' >/dev/null 2>&1; then
+        echo "Skipping Windows PowerShell bootstrap: Windows executable interop is unavailable."
       else
         ${
         if windowsBootstrap.userProfilePath != null
