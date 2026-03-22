@@ -4,6 +4,7 @@
   wsl.defaultUser = "nixos";
   wsl.docker-desktop.enable = true;
   wsl.interop.register = true;
+  programs.nix-ld.enable = true;
 
   networking.hostName = "wsl";
 

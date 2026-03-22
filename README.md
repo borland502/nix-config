@@ -174,6 +174,7 @@ The configuration uses Stylix for system-wide theming with the Monokai color sch
 
 - Uses `NixOS-WSL` as the base system module
 - Uses a dedicated WSL Home Manager profile at `home-manager/home-wsl.nix`
+- Enables `programs.nix-ld` on the WSL host so VS Code Remote / `.vscode-server` binaries have a more compatible runtime on NixOS
 - First-time switch commands should use a path-based flake reference until all new files are tracked by Git
 - The WSL profile also bridges shared prompt config into Windows by writing PowerShell profiles and a Windows `starship.toml`, then bootstrapping `starship` and PowerShell 7 with `winget` when available
 - `task wsl-bootstrap-windows` bootstraps Windows-side Scoop buckets, installs the configured Nerd Font, and updates Windows Terminal to use the same font
