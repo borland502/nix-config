@@ -4,10 +4,10 @@ set -eu
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
-if ! command -v task >/dev/null 2>&1; then
-  printf '%s\n' 'pre-commit: task is required to run repo lint checks.' >&2
+if ! command -v nix >/dev/null 2>&1; then
+  printf '%s\n' 'pre-commit: nix is required to run repo lint checks.' >&2
   exit 1
 fi
 
-printf '%s\n' 'pre-commit: running task lint:nix'
-task lint:nix
+printf '%s\n' 'pre-commit: running task lint:nix in a nix shell to match CI'
+nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix -c task lint:nix

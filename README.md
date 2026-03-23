@@ -188,7 +188,7 @@ The configuration uses Stylix for system-wide theming with the Monokai color sch
 ## Git Hooks
 
 - Run `task hooks:install` once per clone to configure Git to use the tracked hooks in `.githooks/`.
-- The repository `pre-commit` hook runs `task lint:nix` before a commit is created.
+- The repository `pre-commit` hook runs `task lint:nix` inside `nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix` so it matches the CI lint environment more closely.
 - Hooks are local Git configuration, so they do not enable themselves automatically for other clones.
 
 ## Customization

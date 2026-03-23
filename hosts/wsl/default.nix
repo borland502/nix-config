@@ -1,9 +1,12 @@
 # NixOS WSL host configuration
 {pkgs, ...}: {
-  wsl.enable = true;
-  wsl.defaultUser = "nixos";
-  wsl.docker-desktop.enable = true;
-  wsl.interop.register = true;
+  wsl = {
+    enable = true;
+    defaultUser = "nixos";
+    docker-desktop.enable = true;
+    interop.register = true;
+  };
+
   programs.nix-ld.enable = true;
 
   networking.hostName = "wsl";
