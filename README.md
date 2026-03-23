@@ -177,6 +177,12 @@ The configuration uses Stylix for system-wide theming with the Monokai color sch
 - Use `task gc` to clean up old generations
 - Use `task optimize` to optimize the Nix store
 
+## Git Hooks
+
+- Run `task hooks:install` once per clone to configure Git to use the tracked hooks in `.githooks/`.
+- The repository `pre-commit` hook runs `task lint:nix` before a commit is created.
+- Hooks are local Git configuration, so they do not enable themselves automatically for other clones.
+
 ## Customization
 
 To customize for your setup:

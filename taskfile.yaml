@@ -197,6 +197,10 @@ tasks:
     desc: Optimize nix store
     cmd: nix-store --optimise
 
+  hooks:install:
+    desc: Configure Git to use the repository's tracked hooks
+    cmd: git config core.hooksPath .githooks
+
   # Development
   check:
     desc: Check flake for errors
