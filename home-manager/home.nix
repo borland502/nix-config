@@ -21,6 +21,8 @@
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   availableLinuxPackages = lib.filter availableOnHost linuxPackages;
 in {
+  _module.args.isWsl = lib.mkDefault false;
+
   imports = [
     ./common.nix # Import common configuration
     ./profiles/development-linux.nix

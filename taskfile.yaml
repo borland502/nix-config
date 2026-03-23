@@ -233,6 +233,15 @@ tasks:
     desc: Switch to wsl configuration
     cmd: task switch HOST=wsl
 
+  wsl-bootstrap-windows:
+    desc: Bootstrap Windows tools and fonts from the WSL host
+    cmd: ./scripts/wsl/bootstrap-windows.sh
+    preconditions:
+      - sh: '[[ "$(uname)" == "Linux" ]]'
+        msg: 'This task can only be run from WSL/Linux'
+      - sh: '[[ -x /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe ]]'
+        msg: 'Windows PowerShell is unavailable from this environment'
+
   # Service management
   service-status:
     desc: Check status of a specific user service

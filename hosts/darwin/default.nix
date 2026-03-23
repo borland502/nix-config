@@ -203,11 +203,7 @@
     # Taps (third-party repositories)
     taps = [
       "kionsoftware/tap"
-      "atlassian/homebrew-acli
-
-
-
-      "
+      "atlassian/homebrew-acli"
     ];
 
     # CLI tools and libraries

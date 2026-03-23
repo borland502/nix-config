@@ -7,6 +7,10 @@ Jeremy's personal Nix configuration with modular organization for NixOS, WSL, an
 ```text
 ├── flake.nix                         # Flake inputs and platform outputs
 ├── flake.lock                        # Locked flake input revisions
+├── scripts/
+│   └── wsl/
+│       ├── bootstrap-windows.sh      # WSL entrypoint for Windows bootstrap
+│       └── bootstrap-windows.ps1     # Windows-side Scoop/font/bootstrap logic
 ├── taskfile.yaml                     # Common build, switch, and maintenance tasks
 ├── hosts/                            # System-level host definitions
 │   ├── darwin/default.nix            # nix-darwin system configuration
@@ -83,6 +87,7 @@ After the initial switch, you can continue using the WSL task alias:
 ```bash
 task wsl
 task home-switch HOST=wsl
+task wsl-bootstrap-windows
 ```
 
 ### macOS Setup
@@ -169,7 +174,10 @@ The configuration uses Stylix for system-wide theming with the Monokai color sch
 
 - Uses `NixOS-WSL` as the base system module
 - Uses a dedicated WSL Home Manager profile at `home-manager/home-wsl.nix`
+- Enables `programs.nix-ld` on the WSL host so VS Code Remote / `.vscode-server` binaries have a more compatible runtime on NixOS
 - First-time switch commands should use a path-based flake reference until all new files are tracked by Git
+- The WSL profile also bridges shared prompt config into Windows by writing PowerShell profiles and a Windows `starship.toml`, then bootstrapping `starship` and PowerShell 7 with `winget` when available
+- `task wsl-bootstrap-windows` bootstraps Windows-side Scoop buckets, installs the configured Nerd Font, and updates Windows Terminal to use the same font
 
 ## Maintenance
 

@@ -2,9 +2,33 @@
 {
   pkgs,
   lib,
+  isWsl ? false,
   ...
 }: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
+  vscodeUserSettings = {
+    # Fonts consistent with Stylix
+    "editor.fontFamily" = "FiraCode Nerd Font Mono";
+    "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
+    "terminal.integrated.defaultProfile.linux" = "zsh";
+    "terminal.integrated.profiles.linux" = {
+      zsh = {
+        path = "${pkgs.zsh}/bin/zsh";
+        args = ["-l"];
+      };
+    };
+
+    # Small quality-of-life defaults (non-Stylix)
+    "editor.fontLigatures" = true;
+    "editor.formatOnSave" = true;
+    "[nix]" = {
+      "editor.defaultFormatter" = "jnoortheen.nix-ide";
+    };
+    "nix.formatterPath" = "alejandra";
+    "files.trimTrailingWhitespace" = true;
+    "files.insertFinalNewline" = true;
+    "git.autofetch" = true;
+  };
   awsSamCliPatched = pkgs.aws-sam-cli.overridePythonAttrs (old: {
     # nixpkgs currently wires newer click and aws-lambda-builders versions than
     # the wheel metadata expects. Keep the package Nix-managed and skip the
@@ -170,32 +194,11 @@ in {
 
   programs = {
     # VS Code: sensible default profile with Stylix theme
-    vscode = lib.mkIf (pkgs ? vscode) {
+    vscode = lib.mkIf (!isWsl && pkgs ? vscode) {
       enable = true;
       profiles.default = {
         extensions = lib.mkAfter [pkgs.vscode-extensions.jnoortheen.nix-ide];
-        userSettings = {
-          # Fonts consistent with Stylix
-          "editor.fontFamily" = "FiraCode Nerd Font Mono";
-          "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
-          "terminal.integrated.defaultProfile.linux" = "zsh";
-          "terminal.integrated.profiles.linux" = {
-            zsh = {
-              path = "${pkgs.zsh}/bin/zsh";
-              args = ["-l"];
-            };
-          };
-
-          # Small quality-of-life defaults (non-Stylix)
-          "editor.fontLigatures" = true;
-          "editor.formatOnSave" = true;
-          "[nix]" = {
-            "editor.defaultFormatter" = "jnoortheen.nix-ide";
-          };
-          "files.trimTrailingWhitespace" = true;
-          "files.insertFinalNewline" = true;
-          "git.autofetch" = true;
-        };
+        userSettings = vscodeUserSettings;
       };
     };
 
