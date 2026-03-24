@@ -25,6 +25,13 @@
       "editor.defaultFormatter" = "jnoortheen.nix-ide";
     };
     "nix.formatterPath" = "alejandra";
+    "nix.enableLanguageServer" = true;
+    "nix.serverPath" = "nixd";
+    "nix.serverSettings" = {
+      nixd = {
+        formatting.command = ["alejandra"];
+      };
+    };
     "files.trimTrailingWhitespace" = true;
     "files.insertFinalNewline" = true;
     "git.autofetch" = true;
