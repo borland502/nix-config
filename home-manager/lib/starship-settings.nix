@@ -34,8 +34,8 @@
   character = {
     format = "$symbol ";
     disabled = false;
-    success_symbol = "[❯](#7BD88F) ";
-    error_symbol = "[❯](#FC618D)";
+    success_symbol = "[](#7BD88F) ";
+    error_symbol = "[](#FC618D)";
   };
 
   cmd_duration = {
@@ -70,7 +70,7 @@
   docker_context = {
     format = "[$symbol\\[$context\\]]($style) ";
     style = "#5AD4E6";
-    symbol = "⬢ ";
+    symbol = " ";
     only_with_files = true;
     disabled = false;
     detect_extensions = [];
@@ -83,9 +83,9 @@
   };
 
   git_branch = {
-    format = "[on](#bab6c0) [$symbol$branch(:$remote_branch)]($style) ";
+    format = "[$symbol$branch(:$remote_branch)]($style) ";
     symbol = " ";
-    style = "#948ae3";
+    style = "#AB9DF2";
     truncation_length = 9223372036854775807;
     truncation_symbol = "…";
     only_attached = false;
@@ -96,7 +96,7 @@
 
   git_status = {
     format = "([\\[$all_status$ahead_behind\\]]($style)) ";
-    style = "#FC618D bold";
+    style = "#FC618D";
     stashed = "≡";
     ahead = "⇡";
     behind = "⇣";
