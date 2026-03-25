@@ -22,27 +22,83 @@ in {
     # Darwin-specific packages
     packages = darwinPackages;
 
-    # Install SDKMAN! on macOS so Java toolchains can be managed declaratively
-    activation.installSdkman = lib.hm.dag.entryAfter ["writeBoundary"] ''
-      sdkman_dir="$HOME/.sdkman"
-      if [ ! -s "$sdkman_dir/bin/sdkman-init.sh" ]; then
-        echo "Installing SDKMAN! into $sdkman_dir"
-        tmp_home="$(${pkgs.coreutils}/bin/mktemp -d)"
-        cleanup() {
-          ${pkgs.coreutils}/bin/rm -rf "$tmp_home"
-        }
-        trap cleanup EXIT INT TERM
-        install_env_path="${pkgs.unzip}/bin:${pkgs.zip}/bin:${pkgs.gnutar}/bin:${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnused}/bin:${pkgs.gawk}/bin:$PATH"
-        env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
-          ${pkgs.curl}/bin/curl -sSf "https://get.sdkman.io?rcupdate=false" -o "$tmp_home/install-sdkman.sh"
-        env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
-          ${pkgs.bash}/bin/bash "$tmp_home/install-sdkman.sh"
-        cleanup
-        trap - EXIT INT TERM
-      else
-        echo "SDKMAN! already present"
-      fi
-    '';
+    activation = {
+      # Install SDKMAN! on macOS so Java toolchains can be managed declaratively
+      installSdkman = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        sdkman_dir="$HOME/.sdkman"
+        if [ ! -s "$sdkman_dir/bin/sdkman-init.sh" ]; then
+          echo "Installing SDKMAN! into $sdkman_dir"
+          tmp_home="$(${pkgs.coreutils}/bin/mktemp -d)"
+          cleanup() {
+            ${pkgs.coreutils}/bin/rm -rf "$tmp_home"
+          }
+          trap cleanup EXIT INT TERM
+          install_env_path="${pkgs.unzip}/bin:${pkgs.zip}/bin:${pkgs.gnutar}/bin:${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnused}/bin:${pkgs.gawk}/bin:$PATH"
+          env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
+            ${pkgs.curl}/bin/curl -sSf "https://get.sdkman.io?rcupdate=false" -o "$tmp_home/install-sdkman.sh"
+          env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
+            ${pkgs.bash}/bin/bash "$tmp_home/install-sdkman.sh"
+          cleanup
+          trap - EXIT INT TERM
+        else
+          echo "SDKMAN! already present"
+        fi
+      '';
+
+      # Keep Node.js off Homebrew on macOS; install the latest release through nvm instead.
+      installNvmNode = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        install_env_path="${pkgs.curl}/bin:${pkgs.wget}/bin:${pkgs.coreutils}/bin:${pkgs.gawk}/bin:${pkgs.gnugrep}/bin:${pkgs.gnused}/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+        export PATH="$install_env_path"
+        export TERM=dumb
+        export NVM_DIR="$HOME/.nvm"
+        mkdir -p "$NVM_DIR"
+
+        if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+          set +u
+          . "/opt/homebrew/opt/nvm/nvm.sh"
+          export NVM_SYMLINK_CURRENT=true
+          nvm install node >/dev/null
+          nvm alias default node >/dev/null
+          nvm use default >/dev/null
+          set -u
+        else
+          echo "Homebrew nvm is not installed; skipping Node.js installation"
+        fi
+      '';
+
+      installConfluenceCli = lib.hm.dag.entryAfter ["installNvmNode"] ''
+        install_env_path="${pkgs.curl}/bin:${pkgs.wget}/bin:${pkgs.coreutils}/bin:${pkgs.gawk}/bin:${pkgs.gnugrep}/bin:${pkgs.gnused}/bin:${pkgs.jq}/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+        export PATH="$install_env_path"
+        export TERM=dumb
+        export NVM_DIR="$HOME/.nvm"
+
+        if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+          set +u
+          . "/opt/homebrew/opt/nvm/nvm.sh"
+          export NVM_SYMLINK_CURRENT=true
+          if nvm use default >/dev/null 2>&1; then
+            current_version="$(${pkgs.coreutils}/bin/timeout 30s bash -lc 'npm list -g confluence-cli --depth=0 --json 2>/dev/null || true' | ${pkgs.jq}/bin/jq -r '.dependencies["confluence-cli"].version // empty' 2>/dev/null || true)"
+            latest_version="$(${pkgs.coreutils}/bin/timeout 30s npm view confluence-cli version 2>/dev/null || true)"
+
+            if [ -z "$latest_version" ]; then
+              echo "Unable to resolve latest confluence-cli version; leaving current install unchanged"
+            elif [ "$current_version" != "$latest_version" ]; then
+              echo "Installing confluence-cli $latest_version via npm"
+              if ! npm install -g "confluence-cli@$latest_version" >/dev/null 2>&1; then
+                echo "npm install for confluence-cli failed; leaving current install unchanged"
+              fi
+            else
+              echo "confluence-cli $current_version already installed"
+            fi
+          else
+            echo "nvm default Node is unavailable; skipping confluence-cli installation"
+          fi
+          set -u
+        else
+          echo "Homebrew nvm is not installed; skipping confluence-cli installation"
+        fi
+      '';
+    };
 
     # Install the shared Copilot defaults into the macOS VS Code user prompts directory.
     file."Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = ./config/copilot/copilot-defaults.instructions.md;
@@ -84,11 +140,11 @@ in {
       fi
 
       export NVM_DIR="$HOME/.nvm"
-      if [ -s "$NVM_DIR/nvm.sh" ]; then
-        source "$NVM_DIR/nvm.sh"
+      if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+        source "/opt/homebrew/opt/nvm/nvm.sh"
       fi
-      if [ -s "$NVM_DIR/bash_completion" ]; then
-        source "$NVM_DIR/bash_completion"
+      if [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ]; then
+        source "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
       fi
       export NVM_SYMLINK_CURRENT=true
       if command -v nvm >/dev/null 2>&1; then

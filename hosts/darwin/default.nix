@@ -204,7 +204,6 @@
     taps = [
       "kionsoftware/tap"
       "atlassian/homebrew-acli"
-      "pchuri/tap"
     ];
 
     # CLI tools and libraries
@@ -212,7 +211,6 @@
       "acli"
       "aws-console"
       "colima"
-      "pchuri/tap/confluence-cli"
       "docker-credential-helper"
       "jira-cli"
       "kion-cli"

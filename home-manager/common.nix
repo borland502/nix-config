@@ -44,6 +44,13 @@
     dontCheckRuntimeDeps = true;
     pythonRelaxDeps = (old.pythonRelaxDeps or []) ++ ["click"];
   });
+  direnvPatched =
+    if pkgs.stdenv.isDarwin
+    then
+      pkgs.direnv.overrideAttrs (old: {
+        env = (old.env or {}) // {CGO_ENABLED = "1";};
+      })
+    else pkgs.direnv;
   commonPackages = with pkgs; [
     # Development tools
     git
@@ -77,7 +84,7 @@
     jq
     yq-go
     zoxide
-    direnv
+    direnvPatched
     dasel
     tmux
     unzip
@@ -248,6 +255,7 @@ in {
     direnv = {
       enable = true;
       enableZshIntegration = true;
+      package = direnvPatched;
     };
 
     home-manager.enable = true;

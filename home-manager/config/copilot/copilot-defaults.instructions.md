@@ -15,3 +15,9 @@ applyTo: "**"
 - Do not use GitKraken MCP tools for private repositories.
 - For public repositories, prefer the git CLI and gh CLI over GitKraken MCP tools unless the user explicitly asks for GitKraken.
 - Do not merge the current branch into any target or base branch unless the user explicitly instructs you to perform that merge.
+
+# Shared Tooling Defaults
+
+- The shared package set in home-manager/common.nix usually provides these CLI tools on managed hosts: git, gh, curl, wget, go-task (`task`), python3, pipx, maven, awscli2, awslogs, aws-sam-cli, checkov, bun, docker, docker-buildx, docker-compose, overmind, bat, eza, fzf, fd, ripgrep (`rg`), sd, jq, yq-go (`yq`), zoxide, direnv, dasel, tmux, unzip, age, alejandra, ncdu, statix, deadnix, nixd, unison, glow, gum, tealdeer, file, which, tree, and rsync.
+- Prefer these repo-managed tools over generic fallbacks when they fit the task: `rg` over `grep`, `fd` over `find`, `jq`/`yq`/`dasel` for structured data, `task` for repository workflows, and `alejandra`/`statix`/`deadnix` for Nix formatting and linting.
+- Treat this tool list as the default expected environment for repo work, but verify availability with `command -v` when portability matters because home-manager/common.nix still filters packages by host support.
