@@ -81,10 +81,13 @@
     dasel
     tmux
     unzip
+    age
     alejandra
+    ncdu
     statix
     deadnix
     nixd
+    unison
 
     # Productivity and content
     glow
