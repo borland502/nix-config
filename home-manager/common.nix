@@ -88,6 +88,7 @@
     dasel
     tmux
     unzip
+    p7zip
     age
     alejandra
     ncdu
