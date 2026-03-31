@@ -103,6 +103,8 @@
     "files.trimTrailingWhitespace" = true;
     "files.insertFinalNewline" = true;
     "chat.mcp.gallery.enabled" = true;
+    "cSpell.enabled" = false;
+    "git.blame.editorDecoration.enabled" = true;
     "git.autofetch" = true;
   };
 in {
