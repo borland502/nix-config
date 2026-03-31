@@ -44,6 +44,43 @@
     dbus
     nerd-fonts.fira-code
   ];
+  vivaldiBrowserWrapper = pkgs.writeShellApplication {
+    name = "vivaldi";
+    runtimeInputs = [pkgs.coreutils];
+    text = ''
+      set -eu
+
+      windows_powershell_exe="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+      wslpath_exe="/sbin/wslpath"
+      vivaldi_exe=""
+
+      if [ -x "$windows_powershell_exe" ] && [ -x "$wslpath_exe" ]; then
+        windows_local_appdata_win="$($windows_powershell_exe -NoProfile -Command "[Environment]::GetFolderPath('LocalApplicationData')" | tr -d '\r')"
+        if [ -n "$windows_local_appdata_win" ]; then
+          windows_local_appdata_unix="$($wslpath_exe -u "$windows_local_appdata_win")"
+          candidate="$windows_local_appdata_unix/Vivaldi/Application/vivaldi.exe"
+          if [ -f "$candidate" ]; then
+            vivaldi_exe="$candidate"
+          fi
+        fi
+      fi
+
+      if [ -z "$vivaldi_exe" ] && [ -f "/mnt/c/Program Files/Vivaldi/Application/vivaldi.exe" ]; then
+        vivaldi_exe="/mnt/c/Program Files/Vivaldi/Application/vivaldi.exe"
+      fi
+
+      if [ -z "$vivaldi_exe" ] && [ -f "/mnt/c/Program Files (x86)/Vivaldi/Application/vivaldi.exe" ]; then
+        vivaldi_exe="/mnt/c/Program Files (x86)/Vivaldi/Application/vivaldi.exe"
+      fi
+
+      if [ -z "$vivaldi_exe" ]; then
+        echo "Vivaldi is not installed on the Windows host." >&2
+        exit 1
+      fi
+
+      exec "$vivaldi_exe" "$@"
+    '';
+  };
 
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   availableLinuxPackages = lib.filter availableOnHost linuxPackages;
@@ -65,6 +102,7 @@
     "nix.formatterPath" = "alejandra";
     "files.trimTrailingWhitespace" = true;
     "files.insertFinalNewline" = true;
+    "chat.mcp.gallery.enabled" = true;
     "git.autofetch" = true;
   };
 in {
@@ -79,7 +117,8 @@ in {
     username = lib.mkDefault "nixos";
     homeDirectory = lib.mkDefault "/home/nixos";
 
-    packages = availableLinuxPackages;
+    packages = availableLinuxPackages ++ [vivaldiBrowserWrapper];
+    sessionVariables.BROWSER = "vivaldi";
 
     activation.dconfSettings = lib.mkForce (
       lib.hm.dag.entryAfter ["checkLinkTargets"] ''

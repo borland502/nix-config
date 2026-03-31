@@ -3,9 +3,13 @@
   lib,
   ...
 }: let
+  vivaldiBrowserWrapper = pkgs.writeShellScriptBin "vivaldi" ''
+    exec /usr/bin/open -a "Vivaldi" "$@"
+  '';
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   darwinPackages = lib.filter availableOnHost (with pkgs; [
     mas
+    vivaldiBrowserWrapper
   ]);
 in {
   _module.args.isWsl = lib.mkDefault false;
@@ -21,6 +25,7 @@ in {
 
     # Darwin-specific packages
     packages = darwinPackages;
+    sessionVariables.BROWSER = "vivaldi";
 
     activation = {
       # Install SDKMAN! on macOS so Java toolchains can be managed declaratively
@@ -96,6 +101,16 @@ in {
           set -u
         else
           echo "Homebrew nvm is not installed; skipping confluence-cli installation"
+        fi
+      '';
+
+      setDefaultBrowser = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        if [ -d "/Applications/Vivaldi.app" ]; then
+          ${pkgs.duti}/bin/duti -s com.vivaldi.Vivaldi http all
+          ${pkgs.duti}/bin/duti -s com.vivaldi.Vivaldi https all
+          ${pkgs.duti}/bin/duti -s com.vivaldi.Vivaldi public.xhtml all
+        else
+          echo "Skipping Vivaldi default browser registration: /Applications/Vivaldi.app is unavailable."
         fi
       '';
     };

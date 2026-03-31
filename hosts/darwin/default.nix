@@ -249,7 +249,8 @@
     masApps = {
       # Mac App Store applications (find IDs with: mas search "app name")
       "Xcode" = 497799835;
-      "Amazon Kindle" = 302584613;
+      # Kindle upgrades are currently failing via `mas` with MASError 5 on this host.
+      # Keep it out of automated brew bundle runs so Darwin upgrades stay reliable.
       "Unzip - RAR ZIP 7Z Unarchiver" = 1537056818;
     };
   };
