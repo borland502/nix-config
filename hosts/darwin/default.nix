@@ -212,7 +212,6 @@
       "aws-console"
       "colima"
       "docker-credential-helper"
-      "jira-cli"
       "kion-cli"
       "lima-additional-guestagents"
       "nvm"

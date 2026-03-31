@@ -71,8 +71,8 @@ in {
         fi
       '';
 
-      installConfluenceCli = lib.hm.dag.entryAfter ["installNvmNode"] ''
-        install_env_path="${pkgs.curl}/bin:${pkgs.wget}/bin:${pkgs.coreutils}/bin:${pkgs.gawk}/bin:${pkgs.gnugrep}/bin:${pkgs.gnused}/bin:${pkgs.jq}/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+      removeConfluenceCli = lib.hm.dag.entryAfter ["installNvmNode"] ''
+        install_env_path="${pkgs.curl}/bin:${pkgs.wget}/bin:${pkgs.coreutils}/bin:${pkgs.gawk}/bin:${pkgs.gnugrep}/bin:${pkgs.gnused}/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
         export PATH="$install_env_path"
         export TERM=dumb
         export NVM_DIR="$HOME/.nvm"
@@ -82,25 +82,20 @@ in {
           . "/opt/homebrew/opt/nvm/nvm.sh"
           export NVM_SYMLINK_CURRENT=true
           if nvm use default >/dev/null 2>&1; then
-            current_version="$(${pkgs.coreutils}/bin/timeout 30s bash -lc 'npm list -g confluence-cli --depth=0 --json 2>/dev/null || true' | ${pkgs.jq}/bin/jq -r '.dependencies["confluence-cli"].version // empty' 2>/dev/null || true)"
-            latest_version="$(${pkgs.coreutils}/bin/timeout 30s npm view confluence-cli version 2>/dev/null || true)"
-
-            if [ -z "$latest_version" ]; then
-              echo "Unable to resolve latest confluence-cli version; leaving current install unchanged"
-            elif [ "$current_version" != "$latest_version" ]; then
-              echo "Installing confluence-cli $latest_version via npm"
-              if ! npm install -g "confluence-cli@$latest_version" >/dev/null 2>&1; then
-                echo "npm install for confluence-cli failed; leaving current install unchanged"
+            if npm list -g confluence-cli --depth=0 >/dev/null 2>&1; then
+              echo "Removing confluence-cli from global npm packages"
+              if ! npm uninstall -g confluence-cli >/dev/null 2>&1; then
+                echo "npm uninstall for confluence-cli failed; leaving current install unchanged"
               fi
             else
-              echo "confluence-cli $current_version already installed"
+              echo "confluence-cli is not installed globally"
             fi
           else
-            echo "nvm default Node is unavailable; skipping confluence-cli installation"
+            echo "nvm default Node is unavailable; skipping confluence-cli removal"
           fi
           set -u
         else
-          echo "Homebrew nvm is not installed; skipping confluence-cli installation"
+          echo "Homebrew nvm is not installed; skipping confluence-cli removal"
         fi
       '';
 

@@ -16,6 +16,7 @@ applyTo: "**"
 - Prefer file-editing tools for long text whenever possible; reserve shell text construction for short, stable snippets.
 - Use append-safe logging or timestamped files so earlier command logs are not lost unless replacement is explicitly intended.
 - When investigating tool or command failures, inspect relevant logs under ~/.cache/copilot first; use prior successful executions there as concrete examples before retrying or changing approach.
+- For Jira and Confluence operations, prefer direct REST/API-spec requests with configured tokens over dedicated `jira-cli` or `confluence-cli` wrappers.
 - For GitHub repository, issue, release, and pull request operations, prefer GitHub's official MCP server when it is available.
 - Do not use GitKraken MCP tools for either private or public repositories.
 - When GitHub's official MCP server is unavailable, prefer the git CLI and gh CLI over other repository MCP integrations.
