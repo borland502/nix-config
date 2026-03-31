@@ -2,13 +2,17 @@
 
 - Prefer non-interactive commands over interactive shells unless the task explicitly requires an interactive program.
 - Minimize use of interactive terminal flows that can mangle command output in the IDE.
+- Prefer an isolated shell for long, heavily quoted, or stateful commands. Use a fresh terminal session instead of the shared shell when the command includes complex quoting, regexes, JSON, plist data, `osascript`, `jq`, `nix eval --expr`, or several chained steps.
+- If a shared shell shows prompt fragments, reused partial commands, or quote mangling, stop reusing it and rerun the workflow from an isolated shell.
 - When running terminal commands, also write the exact command and the resulting output to files under `~/.cache/copilot`.
 - Ensure `~/.cache/copilot` exists before attempting to write logs there.
-- Prefer executing scripts from files written under `~/.cache/copilot` instead of inline heredocs when a command needs multi-line shell logic.
+- For multi-line shell logic or long text payloads, write a temporary script or data file under `~/.cache/copilot` and execute it from an isolated shell instead of embedding long inline commands or heredocs.
+- Prefer file-editing tools for long text whenever possible; reserve shell text construction for short, stable snippets.
 - Use append-safe logging or timestamped files so earlier command logs are not lost unless replacement is explicitly intended.
 - When investigating tool or command failures, inspect relevant logs under `~/.cache/copilot` first; use prior successful executions there as concrete examples before retrying or changing approach.
-- Do not use GitKraken MCP tools for private repositories.
-- For public repositories, prefer the git CLI and gh CLI over GitKraken MCP tools unless the user explicitly asks for GitKraken.
+- For GitHub repository, issue, release, and pull request operations, prefer GitHub's official MCP server when it is available.
+- Do not use GitKraken MCP tools for either private or public repositories.
+- When GitHub's official MCP server is unavailable, prefer the git CLI and gh CLI over other repository MCP integrations.
 - Do not merge the current branch into any target or base branch unless the user explicitly instructs you to perform that merge.
 
 # Shared Tooling Defaults

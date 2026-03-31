@@ -4,9 +4,11 @@
   lib,
   ...
 }: let
+  browserDesktopId = "vivaldi.desktop";
   desktopPackages = with pkgs; [
     # Web browsers
     firefox
+    vivaldi
 
     # Media
     vlc
@@ -33,9 +35,40 @@
 in {
   # Desktop applications
   home.packages = availablePackages;
+  home.sessionVariables.BROWSER = "vivaldi";
 
   # Note: System monitoring tools (htop, btop, iotop) moved to platform-specific configs
   # Note: Removed duplicated discord entry
+
+  xdg = {
+    desktopEntries.vivaldi = {
+      name = "Vivaldi";
+      genericName = "Web Browser";
+      exec = "${pkgs.vivaldi}/bin/vivaldi %U";
+      terminal = false;
+      categories = ["Network" "WebBrowser"];
+      mimeType = [
+        "application/xhtml+xml"
+        "text/html"
+        "x-scheme-handler/about"
+        "x-scheme-handler/http"
+        "x-scheme-handler/https"
+        "x-scheme-handler/unknown"
+      ];
+    };
+
+    mimeApps = {
+      enable = true;
+      defaultApplications = {
+        "application/xhtml+xml" = [browserDesktopId];
+        "text/html" = [browserDesktopId];
+        "x-scheme-handler/about" = [browserDesktopId];
+        "x-scheme-handler/http" = [browserDesktopId];
+        "x-scheme-handler/https" = [browserDesktopId];
+        "x-scheme-handler/unknown" = [browserDesktopId];
+      };
+    };
+  };
 
   # Firefox configuration
   programs.firefox = {
