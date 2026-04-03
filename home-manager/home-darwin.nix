@@ -6,6 +6,118 @@
   vivaldiBrowserWrapper = pkgs.writeShellScriptBin "vivaldi" ''
     exec /usr/bin/open -a "Vivaldi" "$@"
   '';
+  setDefaultBrowserSource = pkgs.writeText "set-default-browser.c" ''
+    #include <CoreFoundation/CoreFoundation.h>
+    #include <CoreServices/CoreServices.h>
+    #include <stdbool.h>
+    #include <stdio.h>
+    #include <stdlib.h>
+
+    static bool cfstring_equals_case_insensitive(CFStringRef left, CFStringRef right) {
+      return left != NULL && right != NULL && CFStringCompare(left, right, kCFCompareCaseInsensitive) == kCFCompareEqualTo;
+    }
+
+    static bool default_handler_for_url_scheme_matches(const char *scheme, CFStringRef bundle_identifier) {
+      CFStringRef scheme_ref = CFStringCreateWithCString(kCFAllocatorDefault, scheme, kCFStringEncodingUTF8);
+      if (scheme_ref == NULL) {
+        return false;
+      }
+
+      CFStringRef current_handler = LSCopyDefaultHandlerForURLScheme(scheme_ref);
+      CFRelease(scheme_ref);
+
+      bool matches = cfstring_equals_case_insensitive(current_handler, bundle_identifier);
+      if (current_handler != NULL) {
+        CFRelease(current_handler);
+      }
+
+      return matches;
+    }
+
+    static bool default_handler_for_content_type_matches(const char *content_type, LSRolesMask role, CFStringRef bundle_identifier) {
+      CFStringRef content_type_ref = CFStringCreateWithCString(kCFAllocatorDefault, content_type, kCFStringEncodingUTF8);
+      if (content_type_ref == NULL) {
+        return false;
+      }
+
+      CFStringRef current_handler = LSCopyDefaultRoleHandlerForContentType(content_type_ref, role);
+      CFRelease(content_type_ref);
+
+      bool matches = cfstring_equals_case_insensitive(current_handler, bundle_identifier);
+      if (current_handler != NULL) {
+        CFRelease(current_handler);
+      }
+
+      return matches;
+    }
+
+    static bool set_default_handler_for_url_scheme(const char *scheme, CFStringRef bundle_identifier) {
+      if (default_handler_for_url_scheme_matches(scheme, bundle_identifier)) {
+        return true;
+      }
+
+      CFStringRef scheme_ref = CFStringCreateWithCString(kCFAllocatorDefault, scheme, kCFStringEncodingUTF8);
+      if (scheme_ref == NULL) {
+        fprintf(stderr, "set-default-browser: could not create CFString for URL scheme '%s'\n", scheme);
+        return false;
+      }
+
+      OSStatus status = LSSetDefaultHandlerForURLScheme(scheme_ref, bundle_identifier);
+      CFRelease(scheme_ref);
+      if (status != noErr) {
+        fprintf(stderr, "set-default-browser: failed to set handler for URL scheme '%s' (error %d)\n", scheme, (int)status);
+        return false;
+      }
+
+      return true;
+    }
+
+    static bool set_default_handler_for_content_type(const char *content_type, LSRolesMask role, CFStringRef bundle_identifier) {
+      if (default_handler_for_content_type_matches(content_type, role, bundle_identifier)) {
+        return true;
+      }
+
+      CFStringRef content_type_ref = CFStringCreateWithCString(kCFAllocatorDefault, content_type, kCFStringEncodingUTF8);
+      if (content_type_ref == NULL) {
+        fprintf(stderr, "set-default-browser: could not create CFString for content type '%s'\n", content_type);
+        return false;
+      }
+
+      OSStatus status = LSSetDefaultRoleHandlerForContentType(content_type_ref, role, bundle_identifier);
+      CFRelease(content_type_ref);
+      if (status != noErr) {
+        fprintf(stderr, "set-default-browser: failed to set handler for content type '%s' (error %d)\n", content_type, (int)status);
+        return false;
+      }
+
+      return true;
+    }
+
+    int main(int argc, char *argv[]) {
+      if (argc != 2) {
+        fprintf(stderr, "usage: %s <bundle-identifier>\n", argv[0]);
+        return 64;
+      }
+
+      CFStringRef bundle_identifier = CFStringCreateWithCString(kCFAllocatorDefault, argv[1], kCFStringEncodingUTF8);
+      if (bundle_identifier == NULL) {
+        fprintf(stderr, "set-default-browser: could not create CFString for bundle identifier '%s'\n", argv[1]);
+        return 1;
+      }
+
+      bool success = true;
+      success = set_default_handler_for_url_scheme("http", bundle_identifier) && success;
+      success = set_default_handler_for_url_scheme("https", bundle_identifier) && success;
+      success = set_default_handler_for_content_type("public.xhtml", kLSRolesAll, bundle_identifier) && success;
+
+      CFRelease(bundle_identifier);
+      return success ? 0 : 1;
+    }
+  '';
+  setDefaultBrowser = pkgs.runCommandCC "set-default-browser" {} ''
+    mkdir -p "$out/bin"
+    "$CC" -Wall -Wextra -O2 -o "$out/bin/set-default-browser" ${setDefaultBrowserSource} -framework CoreServices -framework CoreFoundation
+  '';
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   darwinPackages = lib.filter availableOnHost (with pkgs; [
     mas
@@ -101,9 +213,9 @@ in {
 
       setDefaultBrowser = lib.hm.dag.entryAfter ["writeBoundary"] ''
         if [ -d "/Applications/Vivaldi.app" ]; then
-          ${pkgs.duti}/bin/duti -s com.vivaldi.Vivaldi http all
-          ${pkgs.duti}/bin/duti -s com.vivaldi.Vivaldi https all
-          ${pkgs.duti}/bin/duti -s com.vivaldi.Vivaldi public.xhtml all
+          if ! ${setDefaultBrowser}/bin/set-default-browser com.vivaldi.Vivaldi; then
+            echo "Warning: failed to register Vivaldi as the default browser; leaving existing LaunchServices handlers unchanged"
+          fi
         else
           echo "Skipping Vivaldi default browser registration: /Applications/Vivaldi.app is unavailable."
         fi
@@ -177,6 +289,7 @@ in {
     # Extensions and other VSCode config can be added here
     # Stylix will automatically handle theming
   };
+  xdg.configFile."flameshot/flameshot.ini".source = ./config/flameshot/flameshot.ini;
   # Kitty terminal configuration
   xdg.configFile."kitty/kitty.conf".source = ./config/kitty/kitty.conf;
 }

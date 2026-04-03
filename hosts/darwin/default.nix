@@ -105,7 +105,11 @@
       };
 
       CustomUserPreferences = {
-        # Disable macOS default capture shortcuts so Flameshot can override them
+        # Disable macOS default capture shortcuts so Flameshot can claim the
+        # native chords it supports on macOS. Flameshot exposes global actions
+        # for Cmd+Shift+4 and Cmd+Shift+3; the clipboard variants remain
+        # disabled because Flameshot does not provide native macOS global
+        # bindings for them.
         "com.apple.symbolichotkeys" = {
           AppleSymbolicHotKeys = {
             # Cmd + Shift + 4 (Rectangular capture)
@@ -161,15 +165,13 @@
   # The platform the configuration will be used on.
   nixpkgs.hostPlatform = "aarch64-darwin";
 
-  # Set up skhd for custom hotkeys (like Flameshot)
-  services.skhd = {
-    enable = true;
-    skhdConfig = ''
-      # Rectangular capture
-      shift + cmd - 4 : /Applications/Flameshot.app/Contents/MacOS/flameshot gui
-      # Full screen capture
-      shift + cmd - 3 : /Applications/Flameshot.app/Contents/MacOS/flameshot full
-    '';
+  launchd.user.agents.flameshot = {
+    serviceConfig = {
+      KeepAlive = true;
+      ProgramArguments = ["/Applications/Flameshot.app/Contents/MacOS/flameshot"];
+      ProcessType = "Interactive";
+      RunAtLoad = true;
+    };
   };
 
   # Enable fonts
