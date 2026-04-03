@@ -234,6 +234,7 @@ in {
         init.defaultBranch = "main";
         core.editor = "vim";
         pull.rebase = false;
+        push.autoSetupRemote = true;
       };
     };
 

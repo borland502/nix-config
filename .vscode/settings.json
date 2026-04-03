@@ -16,5 +16,6 @@
         ]
       }
     }
-  }
+  },
+  "nixEnvSelector.nixFile": "${workspaceFolder}/flake.nix"
 }
