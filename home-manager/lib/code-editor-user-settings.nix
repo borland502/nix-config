@@ -34,10 +34,26 @@
       formatting.command = ["alejandra"];
     };
   };
+
+  # Java development
+  "java.configuration.updateBuildConfiguration" = "automatic";
+  "java.compile.nullAnalysis.mode" = "automatic";
+
   "files.trimTrailingWhitespace" = true;
   "files.insertFinalNewline" = true;
   "chat.mcp.access" = "all";
   "chat.mcp.gallery.enabled" = true;
+  "chat.tools.urls.autoApprove" = {
+    "https://code.visualstudio.com" = true;
+    "https://github.com/*" = true;
+    "https://*.github.com/*" = true;
+    "https://github.com/microsoft/vscode/wiki/*" = true;
+    "https://github.com/redhat-developer/vscode-java/wiki/settings-global" = {
+      approveRequest = false;
+      approveResponse = true;
+    };
+    "https://*.gov/*" = true;
+  };
   "cSpell.enabled" = false;
   "git.blame.editorDecoration.enabled" = true;
   "git.autofetch" = true;
