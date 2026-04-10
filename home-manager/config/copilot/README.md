@@ -18,7 +18,7 @@ home-manager/config/copilot/copilot-defaults.instructions.md
 
 ## VS Code Targets
 
-### macOS
+### VS Code macOS
 
 Copy or symlink the source file to:
 
@@ -34,7 +34,7 @@ ln -sf "$HOME/.config/nix/home-manager/config/copilot/copilot-defaults.instructi
   "$HOME/Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md"
 ```
 
-### Linux
+### VS Code Linux
 
 Copy or symlink the source file to:
 
@@ -50,7 +50,41 @@ ln -sf "$HOME/.config/nix/home-manager/config/copilot/copilot-defaults.instructi
   "$HOME/.config/Code/User/prompts/copilot-defaults.instructions.md"
 ```
 
-### Remote / WSL / VS Code Server
+## VS Code Insiders Targets
+
+### VS Code Insiders macOS
+
+Copy or symlink the source file to:
+
+```text
+~/Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md
+```
+
+Example:
+
+```sh
+mkdir -p "$HOME/Library/Application Support/Code - Insiders/User/prompts"
+ln -sf "$HOME/.config/nix/home-manager/config/copilot/copilot-defaults.instructions.md" \
+  "$HOME/Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md"
+```
+
+### VS Code Insiders Linux
+
+Copy or symlink the source file to:
+
+```text
+~/.config/Code - Insiders/User/prompts/copilot-defaults.instructions.md
+```
+
+Example:
+
+```sh
+mkdir -p "$HOME/.config/Code - Insiders/User/prompts"
+ln -sf "$HOME/.config/nix/home-manager/config/copilot/copilot-defaults.instructions.md" \
+  "$HOME/.config/Code - Insiders/User/prompts/copilot-defaults.instructions.md"
+```
+
+### VS Code Remote / WSL
 
 If you want the same defaults in remote sessions, also copy or symlink the file
 to:
@@ -65,6 +99,23 @@ Example:
 mkdir -p "$HOME/.vscode-server/data/User/prompts"
 ln -sf "$HOME/.config/nix/home-manager/config/copilot/copilot-defaults.instructions.md" \
   "$HOME/.vscode-server/data/User/prompts/copilot-defaults.instructions.md"
+```
+
+### VS Code Insiders Remote / WSL
+
+If you want the same defaults in remote Insiders sessions, also copy or symlink
+the file to:
+
+```text
+~/.vscode-server-insiders/data/User/prompts/copilot-defaults.instructions.md
+```
+
+Example:
+
+```sh
+mkdir -p "$HOME/.vscode-server-insiders/data/User/prompts"
+ln -sf "$HOME/.config/nix/home-manager/config/copilot/copilot-defaults.instructions.md" \
+  "$HOME/.vscode-server-insiders/data/User/prompts/copilot-defaults.instructions.md"
 ```
 
 ## GitHub Copilot User Config Targets

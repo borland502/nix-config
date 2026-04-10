@@ -84,29 +84,7 @@
 
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   availableLinuxPackages = lib.filter availableOnHost linuxPackages;
-  vscodeUserSettings = {
-    "editor.fontFamily" = "FiraCode Nerd Font Mono";
-    "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
-    "terminal.integrated.defaultProfile.linux" = "zsh";
-    "terminal.integrated.profiles.linux" = {
-      zsh = {
-        path = "${pkgs.zsh}/bin/zsh";
-        args = ["-l"];
-      };
-    };
-    "editor.fontLigatures" = true;
-    "editor.formatOnSave" = true;
-    "[nix]" = {
-      "editor.defaultFormatter" = "jnoortheen.nix-ide";
-    };
-    "nix.formatterPath" = "alejandra";
-    "files.trimTrailingWhitespace" = true;
-    "files.insertFinalNewline" = true;
-    "chat.mcp.gallery.enabled" = true;
-    "cSpell.enabled" = false;
-    "git.blame.editorDecoration.enabled" = true;
-    "git.autofetch" = true;
-  };
+  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
 in {
   _module.args.isWsl = true;
 
@@ -199,12 +177,20 @@ in {
       fi
     '';
 
-    file.".vscode-server/data/User/settings.json".text = builtins.toJSON vscodeUserSettings;
-
-    file.".vscode-server/data/Machine/settings.json".text = builtins.toJSON {
-      "terminal.integrated.automationProfile.linux" = {
-        path = "${pkgs.zsh}/bin/zsh";
-        args = ["-l"];
+    file = {
+      ".vscode-server/data/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
+      ".vscode-server-insiders/data/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
+      ".vscode-server/data/Machine/settings.json".text = builtins.toJSON {
+        "terminal.integrated.automationProfile.linux" = {
+          path = "${pkgs.zsh}/bin/zsh";
+          args = ["-l"];
+        };
+      };
+      ".vscode-server-insiders/data/Machine/settings.json".text = builtins.toJSON {
+        "terminal.integrated.automationProfile.linux" = {
+          path = "${pkgs.zsh}/bin/zsh";
+          args = ["-l"];
+        };
       };
     };
   };
