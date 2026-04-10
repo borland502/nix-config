@@ -224,6 +224,7 @@
     casks = [
       # GUI applications that work better via Homebrew
       "android-platform-tools"
+      "corretto@11" # AWS Corretto 11 JDK for Java tooling compatibility
       "chromium" # Chromium Browser
       "dbeaver-community" # Database management tool
       "discord" # Discord
@@ -242,6 +243,7 @@
       "session-manager-plugin"
       "slack" # Team communication
       "visual-studio-code" # VS Code
+      "visual-studio-code@insiders" # VS Code Insiders
       "vivaldi" # Vivaldi Browser
       "whatsapp"
     ];

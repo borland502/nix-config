@@ -147,9 +147,10 @@ Includes:
 
 ## Editor Configuration
 
-- `home-manager/common.nix` is the source for persistent VS Code user defaults applied through Home Manager.
+- `home-manager/lib/code-editor-user-settings.nix` is the shared source for persistent VS Code and VS Code Insiders user settings.
+- `home-manager/common.nix` and `home-manager/home-darwin.nix` install those settings and Copilot prompt files into each editor's user config directory.
 - `.devcontainer/devcontainer.json` is only the bootstrap layer for container sessions before the Home Manager profile is applied.
-- `.vscode/settings.json` and `.vscode/extensions.json` are the repository-specific layer and should stay focused on workspace behavior such as the Nix formatter, language server, and extension recommendations.
+- `.vscode/settings.json` and `.vscode/extensions.json` are the repository-specific layer and should stay focused on workspace behavior such as the Nix formatter, language server, and extension recommendations for VS Code-compatible editors, including VS Code Insiders.
 - If a setting should follow you across machines, keep it in Home Manager. If it should apply only to this repository, keep it in `.vscode`.
 
 ## Service Tasks

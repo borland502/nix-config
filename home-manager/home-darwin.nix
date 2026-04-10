@@ -3,6 +3,7 @@
   lib,
   ...
 }: let
+  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
   vivaldiBrowserWrapper = pkgs.writeShellScriptBin "vivaldi" ''
     exec /usr/bin/open -a "Vivaldi" "$@"
   '';
@@ -220,10 +221,55 @@ in {
           echo "Skipping Vivaldi default browser registration: /Applications/Vivaldi.app is unavailable."
         fi
       '';
+
+      syncCodeInsidersExtensions = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        stable_code="/opt/homebrew/bin/code"
+        insiders_code="/opt/homebrew/bin/code-insiders"
+
+        if [ ! -x "$stable_code" ] || [ ! -x "$insiders_code" ]; then
+          echo "Skipping VS Code Insiders extension sync: code or code-insiders is unavailable."
+        else
+          mkdir -p "$HOME/.vscode-insiders/extensions"
+          tmp_dir="$(${pkgs.coreutils}/bin/mktemp -d)"
+          cleanup() {
+            ${pkgs.coreutils}/bin/rm -rf "$tmp_dir"
+          }
+          trap cleanup EXIT INT TERM
+
+          "$stable_code" --list-extensions | ${pkgs.coreutils}/bin/sort -u > "$tmp_dir/stable-extensions.txt"
+          "$insiders_code" --list-extensions | ${pkgs.coreutils}/bin/sort -u > "$tmp_dir/insiders-extensions.txt"
+
+          ${pkgs.coreutils}/bin/comm -23 "$tmp_dir/stable-extensions.txt" "$tmp_dir/insiders-extensions.txt" | while IFS= read -r extension; do
+            if [ -z "$extension" ]; then
+              continue
+            fi
+
+            echo "Installing VS Code Insiders extension: $extension"
+            if ! "$insiders_code" --install-extension "$extension" >/dev/null 2>&1; then
+              extension_store_path="$(${pkgs.findutils}/bin/find /nix/store -path "*/share/vscode/extensions/$extension" 2>/dev/null | ${pkgs.coreutils}/bin/head -n 1)"
+              if [ -n "$extension_store_path" ]; then
+                extension_version="$(${pkgs.jq}/bin/jq -r '.version // "nix"' "$extension_store_path/package.json" 2>/dev/null)"
+                ${pkgs.coreutils}/bin/ln -sfn "$extension_store_path" "$HOME/.vscode-insiders/extensions/$extension-$extension_version"
+                echo "Linked Nix-managed VS Code Insiders extension: $extension"
+              else
+                echo "Warning: failed to install VS Code Insiders extension '$extension'"
+              fi
+            fi
+          done
+
+          cleanup
+          trap - EXIT INT TERM
+        fi
+      '';
     };
 
-    # Install the shared Copilot defaults into the macOS VS Code user prompts directory.
-    file."Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = ./config/copilot/copilot-defaults.instructions.md;
+    # Install shared editor settings and Copilot defaults into the macOS
+    # user configuration directories for the stable and Insiders VS Code apps.
+    file = {
+      "Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = ./config/copilot/copilot-defaults.instructions.md;
+      "Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md".source = ./config/copilot/copilot-defaults.instructions.md;
+      "Library/Application Support/Code - Insiders/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
+    };
   };
 
   # Darwin-specific Stylix targets (extending common.nix)

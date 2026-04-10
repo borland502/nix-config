@@ -27,8 +27,12 @@ _: {
       fi
 
       # Enable VS Code terminal shell integration even with custom zsh init.
-      if [[ "$TERM_PROGRAM" == "vscode" ]] && command -v code >/dev/null 2>&1; then
-        source "$(code --locate-shell-integration-path zsh)"
+      if [[ "$TERM_PROGRAM" == "vscode" || "$TERM_PROGRAM" == "vscode-insiders" ]]; then
+        if command -v code-insiders >/dev/null 2>&1; then
+          source "$(code-insiders --locate-shell-integration-path zsh)"
+        elif command -v code >/dev/null 2>&1; then
+          source "$(code --locate-shell-integration-path zsh)"
+        fi
       fi
 
       # Initialize shell integrations
