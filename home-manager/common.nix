@@ -6,7 +6,37 @@
   ...
 }: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
-  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
+  vscodeUserSettings = {
+    # Fonts consistent with Stylix
+    "editor.fontFamily" = "FiraCode Nerd Font Mono";
+    "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
+    "terminal.integrated.defaultProfile.linux" = "zsh";
+    "terminal.integrated.profiles.linux" = {
+      zsh = {
+        path = "${pkgs.zsh}/bin/zsh";
+        args = ["-l"];
+      };
+    };
+
+    # Small quality-of-life defaults (non-Stylix)
+    "editor.fontLigatures" = true;
+    "editor.formatOnSave" = true;
+    "cSpell.words" = [];
+    "[nix]" = {
+      "editor.defaultFormatter" = "jnoortheen.nix-ide";
+    };
+    "nix.formatterPath" = "alejandra";
+    "nix.enableLanguageServer" = true;
+    "nix.serverPath" = "nixd";
+    "nix.serverSettings" = {
+      nixd = {
+        formatting.command = ["alejandra"];
+      };
+    };
+    "files.trimTrailingWhitespace" = true;
+    "files.insertFinalNewline" = true;
+    "git.autofetch" = true;
+  };
   awsSamCliPatched = pkgs.aws-sam-cli.overridePythonAttrs (old: {
     # nixpkgs currently wires newer click and aws-lambda-builders versions than
     # the wheel metadata expects. Keep the package Nix-managed and skip the
@@ -28,8 +58,11 @@
     gh
     curl
     wget
+    gcc
     go
+    gopls
     go-task
+    pkg-config
     python3
     pipx
     maven
@@ -109,18 +142,12 @@ in {
     stateVersion = "25.05";
 
     # Make Copilot defaults visible to desktop, remote, and shared IDE sessions.
-    file =
-      {
-        ".config/Code/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-        ".config/Code - Insiders/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-        ".vscode-server/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-        ".vscode-server-insiders/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-        ".config/github-copilot/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-        ".config/github-copilot/intellij/global-copilot-instructions.md".source = copilotDefaultsFile;
-      }
-      // lib.optionalAttrs (!isWsl && pkgs.stdenv.isLinux) {
-        ".config/Code - Insiders/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
-      };
+    file = {
+      ".config/Code/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
+      ".vscode-server/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
+      ".config/github-copilot/copilot-defaults.instructions.md".source = copilotDefaultsFile;
+      ".config/github-copilot/intellij/global-copilot-instructions.md".source = copilotDefaultsFile;
+    };
   };
 
   # Common font configuration
@@ -193,7 +220,7 @@ in {
       enable = true;
       profiles.default = {
         extensions = lib.mkAfter [pkgs.vscode-extensions.jnoortheen.nix-ide];
-        userSettings = codeEditorUserSettings;
+        userSettings = vscodeUserSettings;
       };
     };
 
@@ -208,7 +235,6 @@ in {
         init.defaultBranch = "main";
         core.editor = "vim";
         pull.rebase = false;
-        push.autoSetupRemote = true;
       };
     };
 

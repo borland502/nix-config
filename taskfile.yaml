@@ -220,6 +220,13 @@ tasks:
       statix check .
       deadnix .
 
+  dev:go-gui:
+    desc: Enter the Go GUI development shell
+    cmd: 'nix develop "path:$PWD#go-gui"'
+    preconditions:
+      - sh: '[[ "$(uname)" == "Linux" ]]'
+        msg: 'The go-gui dev shell is only defined for Linux systems'
+
   repl:
     desc: Start nix repl with flake
     cmd: nix repl --expr 'builtins.getFlake "."'

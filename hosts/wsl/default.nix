@@ -5,6 +5,8 @@
     defaultUser = "nixos";
     docker-desktop.enable = true;
     interop.register = true;
+    useWindowsDriver = true;
+    startMenuLaunchers = true;
   };
 
   programs.nix-ld.enable = true;

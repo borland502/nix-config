@@ -73,6 +73,16 @@ task fmt
 task check
 ```
 
+### Go GUI Dev Shell
+
+For Go projects that need GLFW, Fyne, or other CGO-backed X11/OpenGL dependencies, enter the dedicated development shell:
+
+```bash
+nix develop .#go-gui
+```
+
+This shell provides Go, gopls, pkg-config, and the required X11, Wayland, and OpenGL development headers and libraries.
+
 ### WSL Bootstrap
 
 If WSL is not yet running this configuration, use a path-based flake reference for the first switch so newly added local files are included even before they are tracked by Git:

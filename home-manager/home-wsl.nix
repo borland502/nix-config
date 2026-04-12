@@ -44,47 +44,65 @@
     dbus
     nerd-fonts.fira-code
   ];
-  vivaldiBrowserWrapper = pkgs.writeShellApplication {
-    name = "vivaldi";
-    runtimeInputs = [pkgs.coreutils];
-    text = ''
-      set -eu
-
-      windows_powershell_exe="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
-      wslpath_exe="/sbin/wslpath"
-      vivaldi_exe=""
-
-      if [ -x "$windows_powershell_exe" ] && [ -x "$wslpath_exe" ]; then
-        windows_local_appdata_win="$($windows_powershell_exe -NoProfile -Command "[Environment]::GetFolderPath('LocalApplicationData')" | tr -d '\r')"
-        if [ -n "$windows_local_appdata_win" ]; then
-          windows_local_appdata_unix="$($wslpath_exe -u "$windows_local_appdata_win")"
-          candidate="$windows_local_appdata_unix/Vivaldi/Application/vivaldi.exe"
-          if [ -f "$candidate" ]; then
-            vivaldi_exe="$candidate"
-          fi
-        fi
-      fi
-
-      if [ -z "$vivaldi_exe" ] && [ -f "/mnt/c/Program Files/Vivaldi/Application/vivaldi.exe" ]; then
-        vivaldi_exe="/mnt/c/Program Files/Vivaldi/Application/vivaldi.exe"
-      fi
-
-      if [ -z "$vivaldi_exe" ] && [ -f "/mnt/c/Program Files (x86)/Vivaldi/Application/vivaldi.exe" ]; then
-        vivaldi_exe="/mnt/c/Program Files (x86)/Vivaldi/Application/vivaldi.exe"
-      fi
-
-      if [ -z "$vivaldi_exe" ]; then
-        echo "Vivaldi is not installed on the Windows host." >&2
-        exit 1
-      fi
-
-      exec "$vivaldi_exe" "$@"
-    '';
-  };
 
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   availableLinuxPackages = lib.filter availableOnHost linuxPackages;
-  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
+  guiRuntimePackages = with pkgs; [
+    libGL
+    libxkbcommon
+    wayland
+    xorg.libX11
+    xorg.libXcursor
+    xorg.libXext
+    xorg.libXrender
+    xorg.libXfixes
+    xorg.libXi
+    xorg.libXinerama
+    xorg.libXrandr
+    xorg.libXxf86vm
+  ];
+  guiDevPackages = with pkgs; [
+    libGL.dev
+    libxkbcommon.dev
+    wayland.dev
+    xorg.xorgproto
+    xorg.libX11.dev
+    xorg.libXcursor.dev
+    xorg.libXext.dev
+    xorg.libXrender.dev
+    xorg.libXfixes.dev
+    xorg.libXi.dev
+    xorg.libXinerama.dev
+    xorg.libXrandr.dev
+    xorg.libXxf86vm.dev
+  ];
+  guiPkgConfigPath =
+    (lib.makeSearchPath "lib/pkgconfig" guiDevPackages)
+    + ":"
+    + (lib.makeSearchPath "share/pkgconfig" guiDevPackages);
+  guiIncludePath = lib.makeSearchPath "include" guiDevPackages;
+  guiLibraryPath = lib.makeLibraryPath guiRuntimePackages;
+  vscodeUserSettings = {
+    "editor.fontFamily" = "FiraCode Nerd Font Mono";
+    "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
+    "terminal.integrated.defaultProfile.linux" = "zsh";
+    "terminal.integrated.profiles.linux" = {
+      zsh = {
+        path = "${pkgs.zsh}/bin/zsh";
+        args = ["-l"];
+      };
+    };
+    "editor.fontLigatures" = true;
+    "editor.formatOnSave" = true;
+    "cSpell.words" = [];
+    "[nix]" = {
+      "editor.defaultFormatter" = "jnoortheen.nix-ide";
+    };
+    "nix.formatterPath" = "alejandra";
+    "files.trimTrailingWhitespace" = true;
+    "files.insertFinalNewline" = true;
+    "git.autofetch" = true;
+  };
 in {
   _module.args.isWsl = true;
 
@@ -97,8 +115,21 @@ in {
     username = lib.mkDefault "nixos";
     homeDirectory = lib.mkDefault "/home/nixos";
 
-    packages = availableLinuxPackages ++ [vivaldiBrowserWrapper];
-    sessionVariables.BROWSER = "vivaldi";
+    packages = availableLinuxPackages;
+
+    sessionVariables = {
+      # Keep CGO GUI builds working in a regular WSL shell without a separate nix develop step.
+      PKG_CONFIG_PATH = guiPkgConfigPath;
+      CPATH = guiIncludePath;
+      LIBRARY_PATH = guiLibraryPath;
+      LD_LIBRARY_PATH = guiLibraryPath;
+      GDK_BACKEND = "wayland,x11";
+      QT_QPA_PLATFORM = "wayland;xcb";
+      SDL_VIDEODRIVER = "wayland,x11";
+      CLUTTER_BACKEND = "wayland";
+      MOZ_ENABLE_WAYLAND = "1";
+      NIXOS_OZONE_WL = "1";
+    };
 
     activation.dconfSettings = lib.mkForce (
       lib.hm.dag.entryAfter ["checkLinkTargets"] ''
@@ -177,20 +208,12 @@ in {
       fi
     '';
 
-    file = {
-      ".vscode-server/data/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
-      ".vscode-server-insiders/data/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
-      ".vscode-server/data/Machine/settings.json".text = builtins.toJSON {
-        "terminal.integrated.automationProfile.linux" = {
-          path = "${pkgs.zsh}/bin/zsh";
-          args = ["-l"];
-        };
-      };
-      ".vscode-server-insiders/data/Machine/settings.json".text = builtins.toJSON {
-        "terminal.integrated.automationProfile.linux" = {
-          path = "${pkgs.zsh}/bin/zsh";
-          args = ["-l"];
-        };
+    file.".vscode-server/data/User/settings.json".text = builtins.toJSON vscodeUserSettings;
+
+    file.".vscode-server/data/Machine/settings.json".text = builtins.toJSON {
+      "terminal.integrated.automationProfile.linux" = {
+        path = "${pkgs.zsh}/bin/zsh";
+        args = ["-l"];
       };
     };
   };
@@ -230,6 +253,13 @@ in {
 
     directory.truncation_length = lib.mkForce 5;
   };
+
+  programs.zsh.envExtra = lib.mkAfter ''
+    export PKG_CONFIG_PATH="${guiPkgConfigPath}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    export CPATH="${guiIncludePath}''${CPATH:+:$CPATH}"
+    export LIBRARY_PATH="${guiLibraryPath}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    export LD_LIBRARY_PATH="${guiLibraryPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  '';
 
   fonts.fontconfig.defaultFonts = {
     sansSerif = lib.mkAfter ["DejaVu Sans"];

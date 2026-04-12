@@ -44,6 +44,45 @@
     systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin"];
     linuxSystems = ["x86_64-linux" "aarch64-linux"];
     forAllSystems = nixpkgs.lib.genAttrs systems;
+    goGuiRuntimePackagesFor = pkgs:
+      with pkgs; [
+        libGL
+        libxkbcommon
+        wayland
+        xorg.libX11
+        xorg.libXcursor
+        xorg.libXext
+        xorg.libXrender
+        xorg.libXfixes
+        xorg.libXi
+        xorg.libXinerama
+        xorg.libXrandr
+        xorg.libXxf86vm
+      ];
+    goGuiDevPackagesFor = pkgs:
+      with pkgs; [
+        libGL.dev
+        libxkbcommon.dev
+        wayland.dev
+        xorg.xorgproto
+        xorg.libX11.dev
+        xorg.libXcursor.dev
+        xorg.libXext.dev
+        xorg.libXrender.dev
+        xorg.libXfixes.dev
+        xorg.libXi.dev
+        xorg.libXinerama.dev
+        xorg.libXrandr.dev
+        xorg.libXxf86vm.dev
+      ];
+    goGuiPkgConfigPathFor = pkgs: let
+      goGuiDevPackages = goGuiDevPackagesFor pkgs;
+    in
+      (nixpkgs.lib.makeSearchPath "lib/pkgconfig" goGuiDevPackages)
+      + ":"
+      + (nixpkgs.lib.makeSearchPath "share/pkgconfig" goGuiDevPackages);
+    goGuiIncludePathFor = pkgs: nixpkgs.lib.makeSearchPath "include" (goGuiDevPackagesFor pkgs);
+    goGuiLibraryPathFor = pkgs: nixpkgs.lib.makeLibraryPath (goGuiRuntimePackagesFor pkgs);
     darwinModules = [
       ./hosts/darwin
 
@@ -179,6 +218,37 @@
         meta = {
           description = "Home Manager CLI helper";
         };
+      };
+    });
+
+    devShells = nixpkgs.lib.genAttrs linuxSystems (system: let
+      pkgs = pkgsFor system;
+      goGuiPkgConfigPath = goGuiPkgConfigPathFor pkgs;
+      goGuiIncludePath = goGuiIncludePathFor pkgs;
+      goGuiLibraryPath = goGuiLibraryPathFor pkgs;
+    in {
+      go-gui = pkgs.mkShell {
+        packages = with pkgs;
+          [
+            go
+            gopls
+            pkg-config
+            gcc
+          ]
+          ++ (goGuiRuntimePackagesFor pkgs)
+          ++ (goGuiDevPackagesFor pkgs);
+
+        shellHook = ''
+          export PKG_CONFIG_PATH="${goGuiPkgConfigPath}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          export CPATH="${goGuiIncludePath}''${CPATH:+:$CPATH}"
+          export LIBRARY_PATH="${goGuiLibraryPath}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="${goGuiLibraryPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export GDK_BACKEND="wayland,x11"
+          export QT_QPA_PLATFORM="wayland;xcb"
+          export SDL_VIDEODRIVER="wayland,x11"
+          export MOZ_ENABLE_WAYLAND=1
+          export NIXOS_OZONE_WL=1
+        '';
       };
     });
 
