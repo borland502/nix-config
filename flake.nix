@@ -115,6 +115,20 @@
           allowUnfreePredicate = _: true;
         };
       };
+    repoDevShellFor = pkgs:
+      pkgs.mkShell {
+        packages = with pkgs; [
+          alejandra
+          deadnix
+          fd
+          git
+          go-task
+          jq
+          nixd
+          ripgrep
+          statix
+        ];
+      };
     devcontainerConfigs = nixpkgs.lib.genAttrs linuxSystems (system:
       home-manager.lib.homeManagerConfiguration {
         pkgs = pkgsFor system;
@@ -221,36 +235,45 @@
       };
     });
 
-    devShells = nixpkgs.lib.genAttrs linuxSystems (system: let
+    devShells = nixpkgs.lib.genAttrs systems (system: let
       pkgs = pkgsFor system;
-      goGuiPkgConfigPath = goGuiPkgConfigPathFor pkgs;
-      goGuiIncludePath = goGuiIncludePathFor pkgs;
-      goGuiLibraryPath = goGuiLibraryPathFor pkgs;
-    in {
-      go-gui = pkgs.mkShell {
-        packages = with pkgs;
-          [
-            go
-            gopls
-            pkg-config
-            gcc
-          ]
-          ++ (goGuiRuntimePackagesFor pkgs)
-          ++ (goGuiDevPackagesFor pkgs);
+    in
+      {
+        default = repoDevShellFor pkgs;
+      }
+      // (
+        if builtins.elem system linuxSystems
+        then let
+          goGuiPkgConfigPath = goGuiPkgConfigPathFor pkgs;
+          goGuiIncludePath = goGuiIncludePathFor pkgs;
+          goGuiLibraryPath = goGuiLibraryPathFor pkgs;
+        in {
+          go-gui = pkgs.mkShell {
+            packages = with pkgs;
+              [
+                go
+                gopls
+                pkg-config
+                gcc
+              ]
+              ++ (goGuiRuntimePackagesFor pkgs)
+              ++ (goGuiDevPackagesFor pkgs);
 
-        shellHook = ''
-          export PKG_CONFIG_PATH="${goGuiPkgConfigPath}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-          export CPATH="${goGuiIncludePath}''${CPATH:+:$CPATH}"
-          export LIBRARY_PATH="${goGuiLibraryPath}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
-          export LD_LIBRARY_PATH="${goGuiLibraryPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          export GDK_BACKEND="wayland,x11"
-          export QT_QPA_PLATFORM="wayland;xcb"
-          export SDL_VIDEODRIVER="wayland,x11"
-          export MOZ_ENABLE_WAYLAND=1
-          export NIXOS_OZONE_WL=1
-        '';
-      };
-    });
+            shellHook = ''
+              export PKG_CONFIG_PATH="${goGuiPkgConfigPath}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+              export CPATH="${goGuiIncludePath}''${CPATH:+:$CPATH}"
+              export LIBRARY_PATH="${goGuiLibraryPath}''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+              export LD_LIBRARY_PATH="${goGuiLibraryPath}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+              export GDK_BACKEND="wayland,x11"
+              export QT_QPA_PLATFORM="wayland;xcb"
+              export SDL_VIDEODRIVER="wayland,x11"
+              export MOZ_ENABLE_WAYLAND=1
+              export NIXOS_OZONE_WL=1
+            '';
+          };
+        }
+        else {}
+      ));
 
     # nix-darwin configurations for macOS
     darwinConfigurations = {

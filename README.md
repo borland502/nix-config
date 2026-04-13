@@ -73,6 +73,16 @@ task fmt
 task check
 ```
 
+### Repository Dev Shell
+
+For repo-local editing tools such as `alejandra`, `nixd`, `statix`, `deadnix`, and `task`, enter the default flake dev shell:
+
+```bash
+nix develop
+```
+
+If you use the `arrterian.nix-env-selector` VS Code extension, the workspace settings point it at this default flake shell.
+
 ### Go GUI Dev Shell
 
 For Go projects that need GLFW, Fyne, or other CGO-backed X11/OpenGL dependencies, enter the dedicated development shell:

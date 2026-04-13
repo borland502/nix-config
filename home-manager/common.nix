@@ -33,6 +33,15 @@
         formatting.command = ["alejandra"];
       };
     };
+
+    # Go development
+    "go.alternateTools" = {
+      go = "${pkgs.go}/bin/go";
+      gopls = "${pkgs.gopls}/bin/gopls";
+      dlv = "${pkgs.delve}/bin/dlv";
+    };
+    "go.diagnostic.vulncheck" = "Off";
+
     "files.trimTrailingWhitespace" = true;
     "files.insertFinalNewline" = true;
     "git.autofetch" = true;
@@ -84,6 +93,7 @@
     gcc
     go
     gopls
+    delve
     go-task
     pkg-config
     python3

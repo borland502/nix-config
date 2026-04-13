@@ -35,6 +35,14 @@
     };
   };
 
+  # Go development
+  "go.alternateTools" = {
+    go = "${pkgs.go}/bin/go";
+    gopls = "${pkgs.gopls}/bin/gopls";
+    dlv = "${pkgs.delve}/bin/dlv";
+  };
+  "go.diagnostic.vulncheck" = "Off";
+
   # Java development
   "java.configuration.updateBuildConfiguration" = "automatic";
   "java.compile.nullAnalysis.mode" = "automatic";
