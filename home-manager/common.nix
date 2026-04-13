@@ -6,46 +6,7 @@
   ...
 }: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
-  vscodeUserSettings = {
-    # Fonts consistent with Stylix
-    "editor.fontFamily" = "FiraCode Nerd Font Mono";
-    "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
-    "terminal.integrated.defaultProfile.linux" = "zsh";
-    "terminal.integrated.profiles.linux" = {
-      zsh = {
-        path = "${pkgs.zsh}/bin/zsh";
-        args = ["-l"];
-      };
-    };
-
-    # Small quality-of-life defaults (non-Stylix)
-    "editor.fontLigatures" = true;
-    "editor.formatOnSave" = true;
-    "cSpell.words" = [];
-    "[nix]" = {
-      "editor.defaultFormatter" = "jnoortheen.nix-ide";
-    };
-    "nix.formatterPath" = "alejandra";
-    "nix.enableLanguageServer" = true;
-    "nix.serverPath" = "nixd";
-    "nix.serverSettings" = {
-      nixd = {
-        formatting.command = ["alejandra"];
-      };
-    };
-
-    # Go development
-    "go.alternateTools" = {
-      go = "${pkgs.go}/bin/go";
-      gopls = "${pkgs.gopls}/bin/gopls";
-      dlv = "${pkgs.delve}/bin/dlv";
-    };
-    "go.diagnostic.vulncheck" = "Off";
-
-    "files.trimTrailingWhitespace" = true;
-    "files.insertFinalNewline" = true;
-    "git.autofetch" = true;
-  };
+  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
   awsSamCliPatched = pkgs.aws-sam-cli.overridePythonAttrs (old: {
     # nixpkgs currently wires newer click and aws-lambda-builders versions than
     # the wheel metadata expects. Keep the package Nix-managed and skip the
@@ -253,7 +214,7 @@ in {
       enable = true;
       profiles.default = {
         extensions = lib.mkAfter [pkgs.vscode-extensions.jnoortheen.nix-ide];
-        userSettings = vscodeUserSettings;
+        userSettings = codeEditorUserSettings;
       };
     };
 

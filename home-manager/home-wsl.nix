@@ -82,27 +82,7 @@
     + (lib.makeSearchPath "share/pkgconfig" guiDevPackages);
   guiIncludePath = lib.makeSearchPath "include" guiDevPackages;
   guiLibraryPath = lib.makeLibraryPath guiRuntimePackages;
-  vscodeUserSettings = {
-    "editor.fontFamily" = "FiraCode Nerd Font Mono";
-    "terminal.integrated.fontFamily" = "FiraCode Nerd Font Mono";
-    "terminal.integrated.defaultProfile.linux" = "zsh";
-    "terminal.integrated.profiles.linux" = {
-      zsh = {
-        path = "${pkgs.zsh}/bin/zsh";
-        args = ["-l"];
-      };
-    };
-    "editor.fontLigatures" = true;
-    "editor.formatOnSave" = true;
-    "cSpell.words" = [];
-    "[nix]" = {
-      "editor.defaultFormatter" = "jnoortheen.nix-ide";
-    };
-    "nix.formatterPath" = "alejandra";
-    "files.trimTrailingWhitespace" = true;
-    "files.insertFinalNewline" = true;
-    "git.autofetch" = true;
-  };
+  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
 in {
   _module.args.isWsl = true;
 
@@ -208,7 +188,7 @@ in {
       fi
     '';
 
-    file.".vscode-server/data/User/settings.json".text = builtins.toJSON vscodeUserSettings;
+    file.".vscode-server/data/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
 
     file.".vscode-server/data/Machine/settings.json".text = builtins.toJSON {
       "terminal.integrated.automationProfile.linux" = {

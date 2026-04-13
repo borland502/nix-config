@@ -10,10 +10,30 @@
   "nix.serverPath": "nixd",
   "nix.serverSettings": {
     "nixd": {
+      "nixpkgs": {
+        "expr": "import (builtins.getFlake (builtins.toString ./.)).inputs.nixpkgs { system = builtins.currentSystem; config.allowUnfree = true; config.allowUnfreePredicate = _: true; }"
+      },
       "formatting": {
         "command": [
           "alejandra"
         ]
+      },
+      "options": {
+        "nix-darwin": {
+          "expr": "(builtins.getFlake (builtins.toString ./.)).darwinConfigurations.darwin.options"
+        },
+        "nixos-linux": {
+          "expr": "(builtins.getFlake (builtins.toString ./.)).nixosConfigurations.linux.options"
+        },
+        "nixos-wsl": {
+          "expr": "(builtins.getFlake (builtins.toString ./.)).nixosConfigurations.wsl.options"
+        },
+        "home-manager-linux": {
+          "expr": "(builtins.getFlake (builtins.toString ./.)).homeConfigurations.\"jhettenh@linux\".options"
+        },
+        "home-manager-wsl": {
+          "expr": "(builtins.getFlake (builtins.toString ./.)).homeConfigurations.\"nixos@wsl\".options"
+        }
       }
     }
   },
