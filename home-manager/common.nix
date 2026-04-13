@@ -45,11 +45,34 @@
     dontCheckRuntimeDeps = true;
     pythonRelaxDeps = (old.pythonRelaxDeps or []) ++ ["click"];
   });
+  python3Patched =
+    pkgs.python3
+    // {
+      override = args:
+        pkgs.python3.override (args
+          // {
+            packageOverrides =
+              lib.composeExtensions
+              (args.packageOverrides or (_: _: {}))
+              (_: prev: {
+                imageio-ffmpeg = prev.imageio-ffmpeg.overridePythonAttrs (_: {
+                  doCheck = false;
+                });
+                imageio = prev.imageio.overridePythonAttrs (_: {
+                  doCheck = false;
+                });
+              });
+          });
+    };
+  checkovPatched = pkgs.callPackage (pkgs.path + "/pkgs/by-name/ch/checkov/package.nix") {
+    python3 = python3Patched;
+  };
   direnvPatched =
     if pkgs.stdenv.isDarwin
     then
       pkgs.direnv.overrideAttrs (old: {
         env = (old.env or {}) // {CGO_ENABLED = "1";};
+        doCheck = false;
       })
     else pkgs.direnv;
   commonPackages = with pkgs; [
@@ -69,7 +92,7 @@
     awscli2
     awslogs
     awsSamCliPatched
-    checkov
+    checkovPatched
     bun
 
     # Container and process tooling
