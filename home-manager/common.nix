@@ -1,11 +1,27 @@
 # Common home-manager configuration shared between Linux and Darwin
 {
+  config,
   pkgs,
   lib,
   isWsl ? false,
   ...
 }: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
+  inherit (config.home) homeDirectory;
+  xdgBinHome = "${homeDirectory}/.local/bin";
+  xdgCacheHome = "${homeDirectory}/.cache";
+  xdgConfigHome = "${homeDirectory}/.config";
+  xdgDataHome = "${homeDirectory}/.local/share";
+  xdgLibHome = "${homeDirectory}/.local/lib";
+  xdgStateHome = "${homeDirectory}/.local/state";
+  xdgDirectories = [
+    xdgBinHome
+    xdgCacheHome
+    xdgConfigHome
+    xdgDataHome
+    xdgLibHome
+    xdgStateHome
+  ];
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
   awsSamCliPatched = pkgs.aws-sam-cli.overridePythonAttrs (old: {
     # nixpkgs currently wires newer click and aws-lambda-builders versions than
@@ -125,9 +141,31 @@ in {
     ./starship.nix
   ];
 
+  xdg = {
+    enable = true;
+    cacheHome = xdgCacheHome;
+    configHome = xdgConfigHome;
+    dataHome = xdgDataHome;
+    stateHome = xdgStateHome;
+  };
+
   home = {
     # Ensure user-local binaries are found regardless of shell
-    sessionPath = lib.mkBefore ["$HOME/.local/bin"];
+    sessionPath = lib.mkBefore [xdgBinHome];
+
+    sessionVariables = {
+      GOBIN = xdgBinHome;
+      XDG_BIN_HOME = xdgBinHome;
+      XDG_CACHE_HOME = xdgCacheHome;
+      XDG_CONFIG_HOME = xdgConfigHome;
+      XDG_DATA_HOME = xdgDataHome;
+      XDG_LIB_HOME = xdgLibHome;
+      XDG_STATE_HOME = xdgStateHome;
+    };
+
+    activation.ensureXdgDirectories = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      ${pkgs.coreutils}/bin/mkdir -p ${lib.concatMapStringsSep " " lib.escapeShellArg xdgDirectories}
+    '';
 
     # Common packages shared across Linux, WSL, and macOS.
     packages = lib.filter availableOnHost commonPackages;

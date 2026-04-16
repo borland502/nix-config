@@ -166,7 +166,7 @@ _: {
       export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 
       # Ensure local user bin directory is available for tools like pipx
-      export PATH="$HOME/.local/bin:$PATH"
+      export PATH="$XDG_BIN_HOME:$PATH"
     '';
 
     history = {
