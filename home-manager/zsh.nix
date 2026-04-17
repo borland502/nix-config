@@ -138,6 +138,7 @@ _: {
           export XDG_DATA_HOME="''${XDG_DATA_HOME:-$HOME/.local/share}"
           export XDG_LIB_HOME="''${XDG_LIB_HOME:-$HOME/.local/lib}"
           export XDG_STATE_HOME="''${XDG_STATE_HOME:-$HOME/.local/state}"
+          export GOBIN="''${GOBIN:-$XDG_BIN_HOME}"
 
           # Development environment
           export CAN_USE_SUDO=1
