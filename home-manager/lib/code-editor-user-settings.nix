@@ -39,6 +39,7 @@
   "go.alternateTools" = {
     go = "${pkgs.go}/bin/go";
     gopls = "${pkgs.gopls}/bin/gopls";
+    govulncheck = "${pkgs.govulncheck}/bin/govulncheck";
     dlv = "${pkgs.delve}/bin/dlv";
   };
   "go.diagnostic.vulncheck" = "Off";

@@ -91,7 +91,7 @@ For Go projects that need GLFW, Fyne, or other CGO-backed X11/OpenGL dependencie
 nix develop .#go-gui
 ```
 
-This shell provides Go, gopls, pkg-config, and the required X11, Wayland, and OpenGL development headers and libraries.
+This shell provides Go, gopls, govulncheck, delve, pkg-config, and the required X11, Wayland, and OpenGL development headers and libraries.
 
 ### WSL Bootstrap
 

@@ -253,6 +253,8 @@
               [
                 go
                 gopls
+                govulncheck
+                delve
                 pkg-config
                 gcc
               ]

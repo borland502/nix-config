@@ -70,6 +70,7 @@
     gcc
     go
     gopls
+    govulncheck
     delve
     go-task
     pkg-config
