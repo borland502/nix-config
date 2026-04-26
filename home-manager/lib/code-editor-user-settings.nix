@@ -43,6 +43,8 @@
     dlv = "${pkgs.delve}/bin/dlv";
   };
   "go.diagnostic.vulncheck" = "Off";
+  "gopls.vulncheck" = "Off";
+  "gopls.ui.diagnostic.vulncheck" = "Off";
 
   # Java development
   "java.configuration.updateBuildConfiguration" = "automatic";

@@ -105,6 +105,73 @@ function Ensure-ScoopPackage {
   Invoke-Scoop -ScoopShim $ScoopShim install $PackageName | Out-Host
 }
 
+function Normalize-FontToken {
+  param(
+    [string]$FontName
+  )
+
+  if ([string]::IsNullOrWhiteSpace($FontName)) {
+    return ""
+  }
+
+  return (($FontName -replace "[^a-zA-Z0-9]", "").ToLowerInvariant())
+}
+
+function Resolve-TerminalFontFace {
+  param(
+    [string]$RequestedFontFace,
+    [string]$InstalledManifest
+  )
+
+  $requestedToken = Normalize-FontToken -FontName $RequestedFontFace
+  $monoTokens = @(
+    "firacodenerdfontmono",
+    "firacodenfmono"
+  )
+
+  if ($InstalledManifest -match "(?i)mono") {
+    if (-not [string]::IsNullOrWhiteSpace($RequestedFontFace)) {
+      return $RequestedFontFace
+    }
+    return "FiraCode Nerd Font Mono"
+  }
+
+  if ($monoTokens -contains $requestedToken) {
+    Write-Warning "Installed manifest '$InstalledManifest' does not provide the Mono family. Falling back to 'FiraCode Nerd Font'."
+    return "FiraCode Nerd Font"
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($RequestedFontFace)) {
+    return $RequestedFontFace
+  }
+
+  return "FiraCode Nerd Font"
+}
+
+function Should-UpdateFiraCodeFont {
+  param(
+    [AllowNull()]
+    [object]$CurrentValue
+  )
+
+  if ($null -eq $CurrentValue) {
+    return $false
+  }
+
+  $token = Normalize-FontToken -FontName ([string]$CurrentValue)
+  if ([string]::IsNullOrWhiteSpace($token)) {
+    return $false
+  }
+
+  return @(
+    "firacodenerdfontmono",
+    "firacodenerdfont",
+    "firacodenerdfontpropo",
+    "firacodenfmono",
+    "firacodenf"
+  ) -contains $token
+}
+
 function Set-WindowsTerminalFont {
   param(
     [string]$PackageFamily,
@@ -135,6 +202,27 @@ function Set-WindowsTerminalFont {
   }
 
   $fontObject | Add-Member -MemberType NoteProperty -Name face -Value $FontFace -Force
+  $settings.profiles.defaults | Add-Member -MemberType NoteProperty -Name fontFace -Value $FontFace -Force
+
+  $profilesList = $settings.profiles.list
+  if ($profilesList -is [System.Collections.IEnumerable]) {
+    foreach ($profile in $profilesList) {
+      if ($null -eq $profile) {
+        continue
+      }
+
+      if ($profile.PSObject.Properties.Match("fontFace").Count -gt 0 -and (Should-UpdateFiraCodeFont -CurrentValue $profile.fontFace)) {
+        $profile | Add-Member -MemberType NoteProperty -Name fontFace -Value $FontFace -Force
+      }
+
+      if ($profile.PSObject.Properties.Match("font").Count -gt 0 -and $profile.font -is [pscustomobject]) {
+        if ($profile.font.PSObject.Properties.Match("face").Count -gt 0 -and (Should-UpdateFiraCodeFont -CurrentValue $profile.font.face)) {
+          $profile.font | Add-Member -MemberType NoteProperty -Name face -Value $FontFace -Force
+        }
+      }
+    }
+  }
+
   $settings | ConvertTo-Json -Depth 100 | Set-Content -Path $settingsPath -Encoding utf8
   Write-Host "Set Windows Terminal default font to '$FontFace'"
 }
@@ -145,6 +233,7 @@ Ensure-ScoopBucket -ScoopShim $scoopShim -BucketName "nerd-fonts"
 
 $fontManifest = Resolve-FontManifest -ScoopShim $scoopShim
 Ensure-ScoopPackage -ScoopShim $scoopShim -PackageName $fontManifest
-Set-WindowsTerminalFont -PackageFamily $WindowsTerminalPackageFamily -FontFace $TerminalFontFace
+$resolvedTerminalFontFace = Resolve-TerminalFontFace -RequestedFontFace $TerminalFontFace -InstalledManifest $fontManifest
+Set-WindowsTerminalFont -PackageFamily $WindowsTerminalPackageFamily -FontFace $resolvedTerminalFontFace
 
 Write-Host "Windows bootstrap complete."
