@@ -219,6 +219,11 @@ tasks:
     cmd: |
       statix check .
       deadnix .
+      task check:copilot-instructions
+
+  check:copilot-instructions:
+    desc: Verify duplicated Copilot instruction files stay in sync
+    cmd: bash ./scripts/check-copilot-instructions-sync.sh
 
   dev:go-gui:
     desc: Enter the Go GUI development shell

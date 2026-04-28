@@ -205,11 +205,12 @@ The configuration uses Stylix for system-wide theming with the Monokai color sch
 - Run `task update && task switch` regularly to keep the system updated
 - Use `task gc` to clean up old generations
 - Use `task optimize` to optimize the Nix store
+- Use `task check:copilot-instructions` to verify the duplicated Copilot instruction files stay semantically aligned despite their expected frontmatter and markdown-formatting differences
 
 ## Git Hooks
 
 - Run `task hooks:install` once per clone to configure Git to use the tracked hooks in `.githooks/`.
-- The repository `pre-commit` hook runs `task lint:nix` inside `nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix` so it matches the CI lint environment more closely.
+- The repository `pre-commit` hook runs `task lint:nix` inside `nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix` so it matches the CI lint environment more closely, including the duplicated Copilot instruction sync check.
 - Hooks are local Git configuration, so they do not enable themselves automatically for other clones.
 
 ## Customization
