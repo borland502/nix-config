@@ -118,8 +118,10 @@
     tealdeer
     scrcpy
 
+    # Imperative dotfiles management
+    chezmoi
+
     # Basic utilities
-    cowsay
     file
     which
     tree

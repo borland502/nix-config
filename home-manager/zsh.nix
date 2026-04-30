@@ -139,6 +139,7 @@ _: {
           export XDG_LIB_HOME="''${XDG_LIB_HOME:-$HOME/.local/lib}"
           export XDG_STATE_HOME="''${XDG_STATE_HOME:-$HOME/.local/state}"
           export GOBIN="''${GOBIN:-$XDG_BIN_HOME}"
+          export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
 
           # Development environment
           export CAN_USE_SUDO=1

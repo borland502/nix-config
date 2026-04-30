@@ -185,34 +185,6 @@ in {
         fi
       '';
 
-      removeConfluenceCli = lib.hm.dag.entryAfter ["installNvmNode"] ''
-        install_env_path="${pkgs.curl}/bin:${pkgs.wget}/bin:${pkgs.coreutils}/bin:${pkgs.gawk}/bin:${pkgs.gnugrep}/bin:${pkgs.gnused}/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-        export PATH="$install_env_path"
-        export TERM=dumb
-        export NVM_DIR="$HOME/.nvm"
-
-        if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
-          set +u
-          . "/opt/homebrew/opt/nvm/nvm.sh"
-          export NVM_SYMLINK_CURRENT=true
-          if nvm use default >/dev/null 2>&1; then
-            if npm list -g confluence-cli --depth=0 >/dev/null 2>&1; then
-              echo "Removing confluence-cli from global npm packages"
-              if ! npm uninstall -g confluence-cli >/dev/null 2>&1; then
-                echo "npm uninstall for confluence-cli failed; leaving current install unchanged"
-              fi
-            else
-              echo "confluence-cli is not installed globally"
-            fi
-          else
-            echo "nvm default Node is unavailable; skipping confluence-cli removal"
-          fi
-          set -u
-        else
-          echo "Homebrew nvm is not installed; skipping confluence-cli removal"
-        fi
-      '';
-
       setDefaultBrowser = lib.hm.dag.entryAfter ["writeBoundary"] ''
         if [ -d "/Applications/Vivaldi.app" ]; then
           if ! ${setDefaultBrowser}/bin/set-default-browser com.vivaldi.Vivaldi; then
@@ -323,11 +295,6 @@ in {
 
       # Make sure locally installed CLI tools (pipx, npm, etc.) are reachable
       export PATH="$HOME/.local/bin:$PATH"
-
-      # Disable loading of old zsh configurations that might conflict
-      # This prevents zmodule errors from old Zim framework
-      unset ZIM_HOME
-      unset ZIM_CONFIG_FILE
 
       export SDKMAN_DIR="$HOME/.sdkman"
       if [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
