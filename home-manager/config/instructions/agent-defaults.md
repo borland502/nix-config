@@ -1,19 +1,13 @@
----
-description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."
-name: "Persistent Terminal Logging Defaults"
-applyTo: "**"
----
-
 # Persistent Terminal Defaults
 
 - Minimize use of interactive terminal flows that can mangle command output in the IDE.
 - If a shared shell shows prompt fragments, reused partial commands, or quote mangling, stop reusing it and rerun the workflow from an isolated shell.
-- When running terminal commands, also write the exact command and the resulting output to files under ~/.cache/copilot.
-- Ensure ~/.cache/copilot exists once per session before attempting to write logs there.
-- For helper scripts or long text payloads, write temporary Go, Python, shell, or data files to ~/.cache/copilot. Prefer this over inline heredocs or long inline command strings.
+- When running terminal commands, also write the exact command and the resulting output to files under ~/.cache/@@AGENT@@.
+- Ensure ~/.cache/@@AGENT@@ exists once per session before attempting to write logs there.
+- For helper scripts or long text payloads, write temporary Go, Python, shell, or data files to ~/.cache/@@AGENT@@. Prefer this over inline heredocs or long inline command strings.
 - Prefer file-editing tools for long text whenever possible; reserve shell text construction for short, stable snippets.
 - Use append-safe logging or timestamped files so earlier command logs are not lost unless replacement is explicitly intended.
-- When investigating tool or command failures, inspect relevant logs under ~/.cache/copilot first; use prior successful executions there as concrete examples before retrying or changing approach.
+- When investigating tool or command failures, inspect relevant logs under ~/.cache/@@AGENT@@ first; use prior successful executions there as concrete examples before retrying or changing approach.
 - When looking for tool credentials, auth state, or cached session data, examine ~/.cache first and then ~/.config.
 - For Jira and Confluence operations, prefer direct REST/API-spec requests with configured tokens over dedicated `jira-cli` or `confluence-cli` wrappers.
 - For GitHub repository, issue, release, and pull request operations, prefer GitHub's official MCP server when it is available.

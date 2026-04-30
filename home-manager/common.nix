@@ -129,7 +129,9 @@
     btop
     lsof
   ];
-  copilotDefaultsFile = ./config/copilot/copilot-defaults.instructions.md;
+  agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
+  copilotDefaultsFile = agentInstructions.copilot;
+  claudeDefaultsFile = agentInstructions.claude;
 in {
   nixpkgs.config = {
     allowUnfree = true;
@@ -175,11 +177,13 @@ in {
     stateVersion = "25.05";
 
     # Make Copilot defaults visible to desktop, remote, and shared IDE sessions.
+    # Deploy Claude Code global user instructions alongside the Copilot defaults.
     file = {
       ".config/Code/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
       ".vscode-server/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
       ".config/github-copilot/copilot-defaults.instructions.md".source = copilotDefaultsFile;
       ".config/github-copilot/intellij/global-copilot-instructions.md".source = copilotDefaultsFile;
+      ".claude/CLAUDE.md".source = claudeDefaultsFile;
     };
   };
 
