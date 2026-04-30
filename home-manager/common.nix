@@ -172,6 +172,22 @@ in {
       ${pkgs.coreutils}/bin/mkdir -p ${lib.concatMapStringsSep " " lib.escapeShellArg xdgDirectories}
     '';
 
+    # Configure chezmoi to use the nix-config repo as its source of truth.
+    # The repo path is recorded to ~/.local/state/chezmoi/nix-config-dir by
+    # the _record-nix-config-dir task whenever any switch task runs, so this
+    # wiring survives the repo being renamed or moved.
+    activation.configureChezmoi = lib.hm.dag.entryAfter ["ensureXdgDirectories"] ''
+      _cm_dir_file="${xdgStateHome}/chezmoi/nix-config-dir"
+      if [ -f "$_cm_dir_file" ]; then
+        _cm_nix_dir=$(${pkgs.coreutils}/bin/cat "$_cm_dir_file")
+        _cm_source="$_cm_nix_dir/chezmoi"
+        if [ -d "$_cm_source" ]; then
+          ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/chezmoi"
+          ${pkgs.coreutils}/bin/printf 'sourceDir = "%s"\n' "$_cm_source" > "${xdgConfigHome}/chezmoi/chezmoi.toml"
+        fi
+      fi
+    '';
+
     # Common packages shared across Linux, WSL, and macOS.
     packages = lib.filter availableOnHost commonPackages;
 

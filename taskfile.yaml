@@ -67,7 +67,48 @@ vars:
       fi
 
 tasks:
-  # chezmoi sync - Sync dotfiles to the home directory using chezmoi
+  # Internal helper — records $PWD so home-manager activation can wire chezmoi
+  # to the correct repo location regardless of what the directory is named.
+  _record-nix-config-dir:
+    internal: true
+    cmd: |
+      mkdir -p "$HOME/.local/state/chezmoi"
+      printf '%s\n' "$PWD" > "$HOME/.local/state/chezmoi/nix-config-dir"
+
+  # chezmoi — dotfile management backed by this repo
+  chezmoi-init:
+    desc: Point chezmoi at this repo (run once after cloning to a new path)
+    cmd: |
+      mkdir -p "$HOME/.local/state/chezmoi"
+      printf '%s\n' "$PWD" > "$HOME/.local/state/chezmoi/nix-config-dir"
+      mkdir -p "$HOME/.config/chezmoi"
+      printf 'sourceDir = "%s/chezmoi"\n' "$PWD" > "$HOME/.config/chezmoi/chezmoi.toml"
+
+  chezmoi-apply:
+    desc: Apply chezmoi dotfiles to the home directory
+    cmd: chezmoi apply
+
+  chezmoi-diff:
+    desc: Show pending chezmoi changes without applying them
+    cmd: chezmoi diff
+
+  chezmoi-status:
+    desc: Show chezmoi managed file status
+    cmd: chezmoi status
+
+  chezmoi-add:
+    desc: Add a file to the chezmoi source (FILE=<path>)
+    cmd: chezmoi add "{{.FILE}}"
+    preconditions:
+      - sh: '[[ -n "{{.FILE}}" ]]'
+        msg: 'Set FILE, for example: task chezmoi-add FILE=~/.bashrc'
+
+  chezmoi-edit:
+    desc: Edit a chezmoi-managed file (FILE=<path>)
+    cmd: chezmoi edit "{{.FILE}}"
+    preconditions:
+      - sh: '[[ -n "{{.FILE}}" ]]'
+        msg: 'Set FILE, for example: task chezmoi-edit FILE=~/.bashrc'
 
   # System management - Auto-detect platform
   build:
@@ -83,6 +124,7 @@ tasks:
 
   switch:
     desc: Build and switch to the system configuration
+    deps: [_record-nix-config-dir]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
@@ -106,6 +148,7 @@ tasks:
 
   darwin-switch:
     desc: Build and switch to the nix-darwin configuration
+    deps: [_record-nix-config-dir]
     cmd: sudo darwin-rebuild switch --flake .#{{.HOST}}
     preconditions:
       - sh: '[[ "$(uname)" == "Darwin" ]]'
@@ -123,6 +166,7 @@ tasks:
 
   nixos-switch:
     desc: Build and switch to the NixOS configuration
+    deps: [_record-nix-config-dir]
     cmd: '{{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ "$(uname)" == "Linux" ]]'
@@ -173,6 +217,7 @@ tasks:
 
   home-switch:
     desc: Switch home-manager configuration
+    deps: [_record-nix-config-dir]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
@@ -282,6 +327,7 @@ tasks:
 
   upgrade:
     desc: Update nixpkgs and rebuild the system
+    deps: [_record-nix-config-dir]
     cmd: |
       nix flake update
       {{if eq .IN_DEVCONTAINER "true"}}

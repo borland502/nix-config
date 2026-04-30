@@ -1,0 +1,6 @@
+# Files managed by home-manager — chezmoi should not touch these.
+# Add patterns here for anything nix manages declaratively.
+.nix-profile
+.nix-defexpr
+.nix-channels
+result
