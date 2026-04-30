@@ -67,6 +67,8 @@ vars:
       fi
 
 tasks:
+  # chezmoi sync - Sync dotfiles to the home directory using chezmoi
+
   # System management - Auto-detect platform
   build:
     desc: Build the system configuration
