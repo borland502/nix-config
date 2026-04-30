@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-source_file="$repo_root/home-manager/config/copilot/copilot-defaults.instructions.md"
+source_file="$repo_root/home-manager/config/instructions/agent-defaults.md"
 mirror_file="$repo_root/.github/copilot-instructions.md"
 tmp_dir=$(mktemp -d)
 
@@ -66,16 +66,19 @@ normalize() {
   ' "$1"
 }
 
+substituted_source="$tmp_dir/agent-defaults.copilot.md"
+sed 's|@@AGENT@@|copilot|g' "$source_file" > "$substituted_source"
+
 normalized_source="$tmp_dir/copilot-defaults.normalized.md"
 normalized_mirror="$tmp_dir/copilot-instructions.normalized.md"
 
-normalize "$source_file" > "$normalized_source"
+normalize "$substituted_source" > "$normalized_source"
 normalize "$mirror_file" > "$normalized_mirror"
 
 if ! cmp -s "$normalized_source" "$normalized_mirror"; then
   printf '%s\n' 'Normalized Copilot instruction content diverged:'
   diff -u \
-    -L 'home-manager/config/copilot/copilot-defaults.instructions.md (normalized)' "$normalized_source" \
+    -L 'home-manager/config/instructions/agent-defaults.md (normalized, copilot variant)' "$normalized_source" \
     -L '.github/copilot-instructions.md (normalized)' "$normalized_mirror" || true
   exit 1
 fi

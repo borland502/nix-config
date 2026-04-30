@@ -4,6 +4,7 @@
   ...
 }: let
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
+  agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
   vivaldiBrowserWrapper = pkgs.writeShellScriptBin "vivaldi" ''
     exec /usr/bin/open -a "Vivaldi" "$@"
   '';
@@ -222,6 +223,32 @@ in {
         fi
       '';
 
+      installClaudeExtension = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        stable_code="/opt/homebrew/bin/code"
+        insiders_code="/opt/homebrew/bin/code-insiders"
+        claude_ext="anthropic.claude-code"
+
+        if [ -x "$stable_code" ]; then
+          if ! "$stable_code" --list-extensions 2>/dev/null | grep -qi "^''${claude_ext}$"; then
+            echo "Installing Claude Code extension in VS Code stable"
+            "$stable_code" --install-extension "$claude_ext" >/dev/null 2>&1 \
+              || echo "Warning: failed to install ''${claude_ext} in VS Code stable"
+          fi
+        else
+          echo "Skipping Claude Code extension install for VS Code stable: code not found at $stable_code"
+        fi
+
+        if [ -x "$insiders_code" ]; then
+          if ! "$insiders_code" --list-extensions 2>/dev/null | grep -qi "^''${claude_ext}$"; then
+            echo "Installing Claude Code extension in VS Code Insiders"
+            "$insiders_code" --install-extension "$claude_ext" >/dev/null 2>&1 \
+              || echo "Warning: failed to install ''${claude_ext} in VS Code Insiders"
+          fi
+        else
+          echo "Skipping Claude Code extension install for VS Code Insiders: code-insiders not found at $insiders_code"
+        fi
+      '';
+
       syncCodeInsidersExtensions = lib.hm.dag.entryAfter ["writeBoundary"] ''
         stable_code="/opt/homebrew/bin/code"
         insiders_code="/opt/homebrew/bin/code-insiders"
@@ -266,8 +293,8 @@ in {
     # Install shared editor settings and Copilot defaults into the macOS
     # user configuration directories for the stable and Insiders VS Code apps.
     file = {
-      "Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = ./config/copilot/copilot-defaults.instructions.md;
-      "Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md".source = ./config/copilot/copilot-defaults.instructions.md;
+      "Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = agentInstructions.copilot;
+      "Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md".source = agentInstructions.copilot;
       "Library/Application Support/Code - Insiders/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
     };
   };

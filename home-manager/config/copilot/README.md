@@ -1,19 +1,37 @@
 # Copilot Defaults
 
-This directory contains the tracked source file used by Home Manager to install
-Copilot defaults across editors:
+The Copilot defaults are now federated from a shared markdown source that also
+produces the Claude `CLAUDE.md`. The source lives at:
 
-- `copilot-defaults.instructions.md`
+```text
+home-manager/config/instructions/agent-defaults.md
+```
 
-If you are not using Home Manager, you can manually copy or symlink that file
-into the same user-level locations to get the equivalent behavior.
+It uses the literal placeholder `@@AGENT@@` wherever the agent name should
+appear (e.g. in `~/.cache/@@AGENT@@`). Home Manager renders two derivations
+from it via `home-manager/lib/agent-instructions.nix`:
+
+- `copilot-defaults.instructions.md` — placeholder replaced with `copilot`,
+  Copilot YAML frontmatter prepended.
+- `CLAUDE.md` — placeholder replaced with `claude`, no frontmatter.
+
+If you are not using Home Manager, you can produce a directly-usable Copilot
+file by substituting the placeholder yourself:
+
+```sh
+sed 's/@@AGENT@@/copilot/g' \
+  home-manager/config/instructions/agent-defaults.md \
+  > /tmp/copilot-defaults.instructions.md
+# then prepend the Copilot frontmatter (see lib/agent-instructions.nix) and
+# copy or symlink the result into the locations below.
+```
 
 ## Source File
 
 Use this file as the source of truth:
 
 ```text
-home-manager/config/copilot/copilot-defaults.instructions.md
+home-manager/config/instructions/agent-defaults.md
 ```
 
 ## VS Code Targets
