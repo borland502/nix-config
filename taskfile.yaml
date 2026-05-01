@@ -2,75 +2,96 @@
 version: '3'
 
 vars:
+  IS_WINDOWS: '{{eq OS "windows"}}'
+  IS_LINUX: '{{eq OS "linux"}}'
+  IS_DARWIN: '{{eq OS "darwin"}}'
+
   # Auto-detect host based on hostname or allow override.
   # The generic names in this repo are placeholder install targets for new systems.
   DETECTED_HOST:
     sh: |
+      {{if eq OS "windows"}}echo linux{{else}}
       os=$(uname)
       hostname=$(hostname)
       case "$os:$hostname" in
         "Darwin:"*) echo "darwin" ;;
         "Linux:nixos"|"Linux:wsl") echo "wsl" ;;
         "Linux:linux") echo "linux" ;;
-        *) echo "linux" ;;  # Default to the Linux install target for unknown Linux hosts
+        *) echo "linux" ;;
       esac
+      {{end}}
   HOST: '{{.HOST | default .DETECTED_HOST}}'
   HOME_ATTR:
     sh: |
+      {{if eq OS "windows"}}echo windows{{else}}
       case "{{.HOST | default .DETECTED_HOST}}" in
         "wsl") echo "nixos@wsl" ;;
         *) echo "jhettenh@{{.HOST | default .DETECTED_HOST}}" ;;
       esac
+      {{end}}
   SYSTEM_FLAKE:
     sh: |
+      {{if eq OS "windows"}}echo .{{else}}
       case "{{.HOST | default .DETECTED_HOST}}" in
         "wsl") printf 'path:%s#wsl\n' "$PWD" ;;
         *) printf '.#%s\n' "{{.HOST | default .DETECTED_HOST}}" ;;
       esac
+      {{end}}
   HOME_FLAKE:
     sh: |
+      {{if eq OS "windows"}}echo .{{else}}
       case "{{.HOST | default .DETECTED_HOST}}" in
         "wsl") printf 'path:%s#nixos@wsl\n' "$PWD" ;;
         *) printf '.#%s\n' "{{.HOME_ATTR}}" ;;
       esac
+      {{end}}
   HOME_MANAGER_APP:
     sh: |
+      {{if eq OS "windows"}}echo .{{else}}
       case "{{.HOST | default .DETECTED_HOST}}" in
         "wsl") printf 'path:%s#home-manager\n' "$PWD" ;;
         *) printf '.#home-manager\n' ;;
       esac
+      {{end}}
   NIX_CONFIG_PREFIX:
     sh: |
+      {{if eq OS "windows"}}echo{{else}}
       case "{{.HOST | default .DETECTED_HOST}}" in
         "wsl") printf 'NIX_CONFIG="experimental-features = nix-command flakes" ' ;;
         *) printf '' ;;
       esac
+      {{end}}
   ROOT_CMD:
     sh: |
+      {{if eq OS "windows"}}echo sudo{{else}}
       if [[ "$(uname)" == "Linux" && -x /run/wrappers/bin/sudo ]]; then
         printf '/run/wrappers/bin/sudo\n'
       else
         printf 'sudo\n'
       fi
-  # Detect if we're on macOS or Linux
-  IS_DARWIN:
-    sh: '[[ "$(uname)" == "Darwin" ]] && echo "true" || echo "false"'
+      {{end}}
   IN_DEVCONTAINER:
-    sh: '[[ -n "${INSIDE_DEVCONTAINER:-}" ]] && echo "true" || echo "false"'
+    sh: |
+      {{if eq OS "windows"}}echo false{{else}}
+      [[ -n "${INSIDE_DEVCONTAINER:-}" ]] && echo "true" || echo "false"
+      {{end}}
   DEVCONTAINER_ATTR:
     sh: |
+      {{if eq OS "windows"}}echo "vscode@devcontainer"{{else}}
       arch=$(uname -m)
       if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
         echo "vscode@devcontainer-aarch64"
       else
         echo "vscode@devcontainer"
       fi
+      {{end}}
 
 tasks:
   # Internal helper — records $PWD so home-manager activation can wire chezmoi
   # to the correct repo location regardless of what the directory is named.
   _record-nix-config-dir:
     internal: true
+    platforms: [linux, darwin]
     cmd: |
       mkdir -p "$HOME/.local/state/chezmoi"
       printf '%s\n' "$PWD" > "$HOME/.local/state/chezmoi/nix-config-dir"
@@ -78,11 +99,15 @@ tasks:
   # chezmoi — dotfile management backed by this repo
   chezmoi-init:
     desc: Point chezmoi at this repo (run once after cloning to a new path)
-    cmd: |
-      mkdir -p "$HOME/.local/state/chezmoi"
-      printf '%s\n' "$PWD" > "$HOME/.local/state/chezmoi/nix-config-dir"
-      mkdir -p "$HOME/.config/chezmoi"
-      printf 'sourceDir = "%s/chezmoi"\n' "$PWD" > "$HOME/.config/chezmoi/chezmoi.toml"
+    cmds:
+      - cmd: |
+          mkdir -p "$HOME/.local/state/chezmoi"
+          printf '%s\n' "$PWD" > "$HOME/.local/state/chezmoi/nix-config-dir"
+        platforms: [linux, darwin]
+      - |
+        mkdir -p "$HOME/.config/chezmoi"
+        _src=$(printf '%s/chezmoi' "$PWD" | tr '\\' '/')
+        printf 'sourceDir = "%s"\n' "$_src" > "$HOME/.config/chezmoi/chezmoi.toml"
 
   chezmoi-apply:
     desc: Apply chezmoi dotfiles to the home directory
@@ -99,20 +124,19 @@ tasks:
   chezmoi-add:
     desc: Add a file to the chezmoi source (FILE=<path>)
     cmd: chezmoi add "{{.FILE}}"
-    preconditions:
-      - sh: '[[ -n "{{.FILE}}" ]]'
-        msg: 'Set FILE, for example: task chezmoi-add FILE=~/.bashrc'
+    requires:
+      vars: [FILE]
 
   chezmoi-edit:
     desc: Edit a chezmoi-managed file (FILE=<path>)
     cmd: chezmoi edit "{{.FILE}}"
-    preconditions:
-      - sh: '[[ -n "{{.FILE}}" ]]'
-        msg: 'Set FILE, for example: task chezmoi-edit FILE=~/.bashrc'
+    requires:
+      vars: [FILE]
 
   # System management - Auto-detect platform
   build:
     desc: Build the system configuration
+    platforms: [linux, darwin]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage
@@ -124,6 +148,7 @@ tasks:
 
   switch:
     desc: Build and switch to the system configuration
+    platforms: [linux, darwin]
     deps: [_record-nix-config-dir]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
@@ -137,63 +162,57 @@ tasks:
   # Darwin-specific tasks
   darwin:
     desc: Switch to the Darwin configuration
+    platforms: [darwin]
     cmd: task switch HOST=darwin
 
   darwin-build:
     desc: Build the nix-darwin configuration
+    platforms: [darwin]
     cmd: darwin-rebuild build --flake .#{{.HOST}}
-    preconditions:
-      - sh: '[[ "$(uname)" == "Darwin" ]]'
-        msg: 'This task can only be run on macOS'
 
   darwin-switch:
     desc: Build and switch to the nix-darwin configuration
+    platforms: [darwin]
     deps: [_record-nix-config-dir]
     cmd: sudo darwin-rebuild switch --flake .#{{.HOST}}
-    preconditions:
-      - sh: '[[ "$(uname)" == "Darwin" ]]'
-        msg: 'This task can only be run on macOS'
 
   # NixOS-specific tasks (kept for Linux systems)
   nixos-build:
     desc: Build the NixOS configuration
+    platforms: [linux]
     cmd: '{{.NIX_CONFIG_PREFIX}}nixos-rebuild build --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
-      - sh: '[[ "$(uname)" == "Linux" ]]'
-        msg: 'This task can only be run on Linux'
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'This task is unavailable inside the devcontainer'
 
   nixos-switch:
     desc: Build and switch to the NixOS configuration
+    platforms: [linux]
     deps: [_record-nix-config-dir]
     cmd: '{{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
-      - sh: '[[ "$(uname)" == "Linux" ]]'
-        msg: 'This task can only be run on Linux'
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'This task is unavailable inside the devcontainer'
 
   boot:
     desc: Build and boot the NixOS configuration (for testing)
+    platforms: [linux]
     cmd: '{{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild boot --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
-      - sh: '[[ "$(uname)" == "Linux" ]]'
-        msg: 'This task can only be run on Linux'
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'This task is unavailable inside the devcontainer'
 
   test:
     desc: Test the NixOS configuration
+    platforms: [linux]
     cmd: '{{.NIX_CONFIG_PREFIX}}nixos-rebuild test --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
-      - sh: '[[ "$(uname)" == "Linux" ]]'
-        msg: 'This task can only be run on Linux'
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'This task is unavailable inside the devcontainer'
 
   dry-build:
     desc: Perform a dry build to check for errors without applying changes
+    platforms: [linux, darwin]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage --dry-run
@@ -206,6 +225,7 @@ tasks:
   # Home Manager
   home-build:
     desc: Build home-manager configuration
+    platforms: [linux, darwin]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage
@@ -217,6 +237,7 @@ tasks:
 
   home-switch:
     desc: Switch home-manager configuration
+    platforms: [linux, darwin]
     deps: [_record-nix-config-dir]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
@@ -230,10 +251,12 @@ tasks:
   # Maintenance
   update:
     desc: Update flake inputs
+    platforms: [linux, darwin]
     cmd: nix flake update
 
   gc:
     desc: Garbage collect old generations
+    platforms: [linux, darwin]
     cmd: |
       nix-collect-garbage -d
       {{if ne .IN_DEVCONTAINER "true"}}
@@ -242,6 +265,7 @@ tasks:
 
   optimize:
     desc: Optimize nix store
+    platforms: [linux, darwin]
     cmd: nix-store --optimise
 
   hooks:install:
@@ -251,18 +275,22 @@ tasks:
   # Development
   check:
     desc: Check flake for errors
+    platforms: [linux, darwin]
     cmd: '{{.NIX_CONFIG_PREFIX}}nix flake check "path:$PWD"'
 
   fmt:
     desc: Format nix files
+    platforms: [linux, darwin]
     cmd: alejandra .
 
   fmt:check:
     desc: Check nix file formatting
+    platforms: [linux, darwin]
     cmd: alejandra --check .
 
   lint:nix:
     desc: Lint nix files
+    platforms: [linux, darwin]
     cmd: |
       statix check .
       deadnix .
@@ -274,59 +302,68 @@ tasks:
 
   dev:go-gui:
     desc: Enter the Go GUI development shell
+    platforms: [linux]
     cmd: 'nix develop "path:$PWD#go-gui"'
-    preconditions:
-      - sh: '[[ "$(uname)" == "Linux" ]]'
-        msg: 'The go-gui dev shell is only defined for Linux systems'
 
   repl:
     desc: Start nix repl with flake
+    platforms: [linux, darwin]
     cmd: nix repl --expr 'builtins.getFlake "."'
 
   # Platform-specific shortcuts
   linux:
     desc: Switch to the Linux configuration
+    platforms: [linux]
     cmd: task switch HOST=linux
 
   wsl:
     desc: Switch to wsl configuration
+    platforms: [linux]
     cmd: task switch HOST=wsl
 
   wsl-bootstrap-windows:
     desc: Bootstrap Windows tools and fonts from the WSL host
+    platforms: [linux]
     cmd: ./scripts/wsl/bootstrap-windows.sh
     preconditions:
-      - sh: '[[ "$(uname)" == "Linux" ]]'
-        msg: 'This task can only be run from WSL/Linux'
       - sh: '[[ -x /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe ]]'
         msg: 'Windows PowerShell is unavailable from this environment'
+
+  windows-bootstrap:
+    desc: Bootstrap Windows tools, fonts, and environment (run natively on Windows)
+    platforms: [windows]
+    cmd: powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/wsl/bootstrap-windows.ps1"
 
   # Service management
   service-status:
     desc: Check status of a specific user service
+    platforms: [linux]
     cmd: systemctl --user status -- "{{.SERVICE}}"
+    requires:
+      vars: [SERVICE]
     preconditions:
-      - sh: '[[ -n "{{.SERVICE}}" ]]'
-        msg: 'Set SERVICE, for example: task service-status SERVICE=pipewire.service'
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'User systemd is unavailable inside the devcontainer'
 
   logs:
     desc: Show logs for a specific service
+    platforms: [linux]
     cmd: journalctl --user --follow --unit "{{.SERVICE}}"
+    requires:
+      vars: [SERVICE]
     preconditions:
-      - sh: '[[ -n "{{.SERVICE}}" ]]'
-        msg: 'Set SERVICE, for example: task logs SERVICE=pipewire.service'
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'journald is unavailable inside the devcontainer'
 
   # Quick actions
   edit:
     desc: Open the NixOS configuration in VS Code
+    platforms: [linux, darwin]
     cmd: code ~/.config/nix
 
   upgrade:
     desc: Update nixpkgs and rebuild the system
+    platforms: [linux, darwin]
     deps: [_record-nix-config-dir]
     cmd: |
       nix flake update

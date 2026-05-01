@@ -105,6 +105,26 @@ function Ensure-ScoopPackage {
   Invoke-Scoop -ScoopShim $ScoopShim install $PackageName | Out-Host
 }
 
+function Ensure-XdgDirectories {
+  $xdgDirs = @(
+    "$env:USERPROFILE\.local\bin",
+    "$env:USERPROFILE\.local\lib",
+    "$env:USERPROFILE\.local\share",
+    "$env:USERPROFILE\.local\state",
+    "$env:USERPROFILE\.config",
+    "$env:USERPROFILE\.cache"
+  )
+
+  foreach ($dir in $xdgDirs) {
+    if (Test-Path $dir) {
+      Write-Host "XDG directory already exists: $dir"
+    } else {
+      New-Item -ItemType Directory -Path $dir -Force | Out-Null
+      Write-Host "Created XDG directory: $dir"
+    }
+  }
+}
+
 function Normalize-FontToken {
   param(
     [string]$FontName
@@ -227,6 +247,34 @@ function Set-WindowsTerminalFont {
   Write-Host "Set Windows Terminal default font to '$FontFace'"
 }
 
+function Ensure-Packages {
+  $ScoopPackages = @(
+    "7zip",
+    "bat",
+    "chezmoi",
+    "curl",
+    "direnv",
+    "fd",
+    "fzf",
+    "gh",
+    "git",
+    "go",
+    "jq",
+    "neovim",
+    "python",
+    "ripgrep",
+    "task",
+    "wget"
+  )
+
+  foreach ($pkg in $ScoopPackages) {
+    Ensure-ScoopPackage -ScoopShim $scoopShim -PackageName $pkg
+  }
+
+}
+
+Ensure-XdgDirectories
+
 $scoopShim = Ensure-Scoop
 Ensure-ScoopBucket -ScoopShim $scoopShim -BucketName "extras"
 Ensure-ScoopBucket -ScoopShim $scoopShim -BucketName "nerd-fonts"
@@ -235,5 +283,7 @@ $fontManifest = Resolve-FontManifest -ScoopShim $scoopShim
 Ensure-ScoopPackage -ScoopShim $scoopShim -PackageName $fontManifest
 $resolvedTerminalFontFace = Resolve-TerminalFontFace -RequestedFontFace $TerminalFontFace -InstalledManifest $fontManifest
 Set-WindowsTerminalFont -PackageFamily $WindowsTerminalPackageFamily -FontFace $resolvedTerminalFontFace
+
+Ensure-Packages
 
 Write-Host "Windows bootstrap complete."
