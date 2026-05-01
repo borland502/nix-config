@@ -295,10 +295,64 @@ tasks:
       statix check .
       deadnix .
       task check:copilot-instructions
+      task check:agent-instructions
 
   check:copilot-instructions:
     desc: Verify duplicated Copilot instruction files stay in sync
     cmd: bash ./scripts/check-copilot-instructions-sync.sh
+
+  generate:agent-instructions:
+    desc: Render agent-defaults.md into chezmoi-managed files for Windows deployment
+    platforms: [linux, darwin]
+    cmd: |
+      src="home-manager/config/instructions/agent-defaults.md"
+
+      mkdir -p chezmoi/dot_claude
+      sed 's|@@AGENT@@|claude|g' "$src" > chezmoi/dot_claude/CLAUDE.md
+
+      mkdir -p chezmoi/dot_config/github-copilot/intellij
+      mkdir -p "chezmoi/dot_config/Code/User/prompts"
+      {
+        printf -- '---\n'
+        printf 'description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."\n'
+        printf 'name: "Persistent Terminal Logging Defaults"\n'
+        printf 'applyTo: "**"\n'
+        printf -- '---\n\n'
+        sed 's|@@AGENT@@|copilot|g' "$src"
+      } > chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md
+      cp chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md \
+         "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md"
+      cp chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md \
+         chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md
+
+  check:agent-instructions:
+    desc: Verify chezmoi agent instruction files match the rendered source
+    platforms: [linux, darwin]
+    cmd: |
+      src="home-manager/config/instructions/agent-defaults.md"
+      tmp=$(mktemp -d)
+      trap 'rm -rf "$tmp"' EXIT
+
+      sed 's|@@AGENT@@|claude|g' "$src" > "$tmp/CLAUDE.md"
+      {
+        printf -- '---\n'
+        printf 'description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."\n'
+        printf 'name: "Persistent Terminal Logging Defaults"\n'
+        printf 'applyTo: "**"\n'
+        printf -- '---\n\n'
+        sed 's|@@AGENT@@|copilot|g' "$src"
+      } > "$tmp/copilot.md"
+
+      fail=0
+      diff -u "$tmp/CLAUDE.md" chezmoi/dot_claude/CLAUDE.md || fail=1
+      diff -u "$tmp/copilot.md" chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md || fail=1
+      diff -u "$tmp/copilot.md" "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" || fail=1
+      diff -u "$tmp/copilot.md" chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md || fail=1
+
+      if [ "$fail" -ne 0 ]; then
+        printf '%s\n' 'Stale chezmoi agent instructions. Run: task generate:agent-instructions' >&2
+        exit 1
+      fi
 
   dev:go-gui:
     desc: Enter the Go GUI development shell
