@@ -1,143 +1,257 @@
 # Nix Configuration
 
-Jeremy's personal Nix configuration with modular organization for NixOS, WSL, and macOS via Home Manager, NixOS-WSL, and nix-darwin.
+Jeremy's personal Nix configuration with modular organization for NixOS, WSL, and macOS via Home Manager, NixOS-WSL, and nix-darwin. Dotfiles for all platforms (including Windows-native) are managed through chezmoi, backed by this same repository.
 
 ## Structure
 
 ```text
-├── flake.nix                         # Flake inputs and platform outputs
-├── flake.lock                        # Locked flake input revisions
+├── flake.nix                               # Flake inputs and platform outputs
+├── flake.lock                              # Locked flake input revisions
+├── taskfile.yaml                           # Common build, switch, and maintenance tasks
 ├── scripts/
+│   ├── check-copilot-instructions-sync.sh  # CI check: .github/copilot-instructions.md in sync
 │   └── wsl/
-│       ├── bootstrap-windows.sh      # WSL entrypoint for Windows bootstrap
-│       └── bootstrap-windows.ps1     # Windows-side Scoop/font/bootstrap logic
-├── taskfile.yaml                     # Common build, switch, and maintenance tasks
-├── hosts/                            # System-level host definitions
-│   ├── darwin/default.nix            # nix-darwin system configuration
-│   ├── linux/default.nix             # NixOS module for the linux target
+│       ├── bootstrap-windows.sh            # WSL entrypoint for Windows bootstrap
+│       └── bootstrap-windows.ps1           # Windows-side Scoop/font/package bootstrap
+├── chezmoi/                                # Chezmoi-managed dotfiles (all platforms)
+│   ├── .chezmoiignore.tmpl                 # Platform-conditional ignore rules
+│   ├── dot_claude/CLAUDE.md                # Claude Code agent instructions
+│   ├── dot_config/
+│   │   ├── github-copilot/                 # Copilot instructions (VS Code, IntelliJ)
+│   │   └── Code/User/prompts/              # VS Code Copilot prompt files
+│   ├── dot_local/bin/                      # User scripts deployed to ~/.local/bin
+│   └── run_onchange_deploy-vscode-instructions.ps1.tmpl  # Windows APPDATA sync
+├── hosts/                                  # System-level host definitions
+│   ├── darwin/default.nix                  # nix-darwin system configuration
+│   ├── linux/default.nix                   # NixOS module for the linux target
 │   ├── linux/hardware-configuration.nix
-│   └── wsl/default.nix               # NixOS-WSL host configuration
+│   └── wsl/default.nix                     # NixOS-WSL host configuration
 ├── modules/
-│   └── audio/pulseaudio.nix          # Shared audio/PipeWire module
+│   └── audio/pulseaudio.nix               # Shared audio/PipeWire module
 ├── home-manager/
-│   ├── common.nix                    # Shared Home Manager base config
-│   ├── home.nix                      # Linux Home Manager entrypoint
-│   ├── home-darwin.nix               # macOS Home Manager entrypoint
-│   ├── home-wsl.nix                  # WSL Home Manager entrypoint
-│   ├── zsh.nix                       # Shared shell configuration
-│   ├── starship.nix                  # Shared prompt configuration
+│   ├── common.nix                          # Shared Home Manager base config
+│   ├── home.nix                            # Linux Home Manager entrypoint
+│   ├── home-darwin.nix                     # macOS Home Manager entrypoint
+│   ├── home-wsl.nix                        # WSL Home Manager entrypoint
+│   ├── zsh.nix                             # Shared shell configuration
+│   ├── starship.nix                        # Shared prompt configuration
+│   ├── lib/
+│   │   ├── agent-instructions.nix          # Renders agent-defaults.md per agent
+│   │   ├── code-editor-user-settings.nix   # Shared VS Code user settings
+│   │   └── starship-settings.nix
 │   ├── profiles/
-│   │   ├── development-linux.nix     # Linux development packages
-│   │   └── desktop-linux.nix         # Linux desktop packages
+│   │   ├── development-linux.nix           # Linux development packages
+│   │   └── desktop-linux.nix              # Linux desktop packages
 │   └── config/
 │       ├── colors/monokai.base24.yaml
+│       ├── instructions/agent-defaults.md  # Single source for all agent instructions
 │       ├── copilot/
 │       └── kitty/kitty.conf
-├── .devcontainer/devcontainer.json   # Devcontainer bootstrap for Home Manager outputs
-├── .github/workflows/nix-validation.yml
-└── .vscode/                          # Repo-local VS Code recommendations/settings
+├── .devcontainer/devcontainer.json         # Devcontainer bootstrap for Home Manager outputs
+├── .github/
+│   ├── copilot-instructions.md             # Mirror of agent-defaults.md for GitHub Copilot
+│   └── workflows/nix-validation.yml
+└── .vscode/                                # Repo-local VS Code recommendations/settings
 ```
 
 ## Quick Start
 
-### Initial Setup
+### Platform Auto-Detection
 
-1. Clone this repository to `~/.config/nix`
-2. Update the host-specific settings for your machine
-3. Apply the matching system or home configuration for your platform
+The taskfile detects the host platform at runtime and routes to the correct configuration automatically:
+
+| Condition | Detected host |
+|---|---|
+| macOS (`uname` = Darwin) | `darwin` |
+| Linux with hostname `nixos` or `wsl` | `wsl` |
+| Linux with hostname `linux` | `linux` |
+| Fallback | `linux` |
+
+Override detection with `HOST=<target>` on any task: `task switch HOST=linux`.
 
 ### Building and Switching
 
-Use the included taskfile for common operations:
-
 ```bash
-# Build the configuration
+# Auto-detect platform and build/switch
 task build
-
-# Build and switch to the configuration
 task switch
 
-# Build for the Linux target explicitly
+# Explicit platform targets
 task switch HOST=linux
+task switch HOST=darwin
+task switch HOST=wsl
 
-# Update flake inputs
+# Platform-specific shortcuts
+task linux          # equivalent to task switch HOST=linux
+task darwin         # equivalent to task switch HOST=darwin
+task wsl            # equivalent to task switch HOST=wsl
+
+# Home Manager only (without NixOS system rebuild)
+task home-switch
+
+# Update flake inputs and rebuild
+task upgrade
+
+# Update flake inputs only
 task update
 
 # Garbage collect old generations
 task gc
 
+# Optimize the Nix store
+task optimize
+
 # Format nix files
 task fmt
 
-# Check for errors
+# Check flake for errors
 task check
 ```
 
-### Repository Dev Shell
+### Initial Chezmoi Setup
 
-For repo-local editing tools such as `alejandra`, `nixd`, `statix`, `deadnix`, and `task`, enter the default flake dev shell:
-
-```bash
-nix develop
-```
-
-If you use the `arrterian.nix-env-selector` VS Code extension, the workspace settings point it at this default flake shell.
-
-### Go GUI Dev Shell
-
-For Go projects that need GLFW, Fyne, or other CGO-backed X11/OpenGL dependencies, enter the dedicated development shell:
+After cloning the repo, run once to point chezmoi at this repo as its source directory:
 
 ```bash
-nix develop .#go-gui
+task chezmoi-init
 ```
 
-This shell provides Go, gopls, govulncheck, delve, pkg-config, and the required X11, Wayland, and OpenGL development headers and libraries.
+Then apply dotfiles to your home directory:
+
+```bash
+task chezmoi-apply
+```
+
+To add a new file to chezmoi management:
+
+```bash
+task chezmoi-add FILE=~/.somerc
+```
+
+On Linux and macOS, home-manager manages the agent instruction files and chezmoi ignores them (via `.chezmoiignore.tmpl`). On Windows, chezmoi deploys them directly.
+
+### Windows Bootstrap
+
+To set up a Windows machine without WSL, run natively in PowerShell from the repo root:
+
+```powershell
+task windows-bootstrap
+```
+
+This installs Scoop, creates standard XDG directories (`~/.local/bin`, `~/.config`, `~/.cache`, etc.), installs a curated package set (git, chezmoi, task, ripgrep, fzf, fd, bat, go, jq, neovim, and others), installs the FiraCode Nerd Font, and configures Windows Terminal to use it.
+
+After bootstrap, run `task chezmoi-init` and `task chezmoi-apply` to deploy dotfiles.
 
 ### WSL Bootstrap
 
-If WSL is not yet running this configuration, use a path-based flake reference for the first switch so newly added local files are included even before they are tracked by Git:
+On a fresh NixOS-WSL instance, use a path-based flake reference for the first switch so newly added local files are included before they are tracked by Git:
 
 ```bash
 cd ~/nix-config
 NIX_CONFIG="experimental-features = nix-command flakes" sudo nixos-rebuild switch --flake "path:$PWD#wsl"
 ```
 
-After the initial switch, you can continue using the WSL task alias:
+After the initial switch, use the task aliases:
 
 ```bash
 task wsl
-task home-switch HOST=wsl
-task wsl-bootstrap-windows
+task home-switch
+task wsl-bootstrap-windows   # bootstrap Windows-side tools from WSL
 ```
 
 ### macOS Setup
 
-For macOS, this repo uses `nix-darwin` plus Home Manager. The primary Darwin target in this repo is `darwin`.
-
-Use the platform-aware tasks or the Darwin-specific aliases:
-
 ```bash
 task build
 task switch
-task switch HOST=darwin
 task darwin-build
 task darwin-switch
 ```
 
-The macOS setup in this repo includes:
+### Repository Dev Shell
 
-- A dedicated Darwin host at `hosts/darwin/default.nix`
-- A dedicated Home Manager profile at `home-manager/home-darwin.nix`
-- Shared shell and prompt configuration through Zsh and Starship
-- nix-darwin and Home Manager integration through the flake
+For repo-local editing tools (`alejandra`, `nixd`, `statix`, `deadnix`, `task`):
 
-### Available Hosts
+```bash
+nix develop
+```
 
-These host names are starter placeholders for new installs. They are intentionally generic so the initial flake and task workflow works out of the box; rename the target names and underlying `networking.hostName` values later if you want machine-specific identities. The older machine-specific macOS target `ICFGG241C3Y03` remains as a compatibility alias to the same Darwin configuration.
+### Go GUI Dev Shell
 
-- **darwin**: Primary macOS configuration using nix-darwin and Home Manager
-- **linux**: Primary Linux configuration with KDE Plasma, development tooling, virtualization, and desktop packages
-- **wsl**: WSL configuration using NixOS-WSL
+For Go projects that need GLFW, Fyne, or other CGO-backed X11/OpenGL dependencies:
+
+```bash
+nix develop .#go-gui
+```
+
+Provides Go, gopls, govulncheck, delve, pkg-config, and the required X11, Wayland, and OpenGL development headers and libraries.
+
+## Available Hosts
+
+- **darwin**: macOS configuration using nix-darwin and Home Manager. The alias `ICFGG241C3Y03` points to the same Darwin configuration for backwards compatibility.
+- **linux**: NixOS with KDE Plasma, development tooling, and desktop packages.
+- **wsl**: NixOS-WSL. Hostname is set to `wsl` by `hosts/wsl/default.nix` so platform auto-detection works after first switch.
+
+## Chezmoi Dotfile Management
+
+Chezmoi source directory is `chezmoi/` in this repo. The `chezmoi-init` task writes `~/.config/chezmoi/chezmoi.toml` pointing there; home-manager activation does the same automatically on Linux and macOS after any `task switch`.
+
+`.chezmoiignore.tmpl` is a Go template that conditionally ignores files based on platform:
+
+- **Linux / macOS**: agent instruction paths are ignored — home-manager owns them via Nix store symlinks.
+- **Windows**: all chezmoi-managed files are deployed, including `~/.claude/CLAUDE.md`, Copilot instruction files, and `~/.local/bin` scripts.
+
+The `run_onchange_deploy-vscode-instructions.ps1.tmpl` script (Windows-only, skipped elsewhere via empty template body) additionally copies the Copilot instructions from the chezmoi-managed XDG path to `%APPDATA%\Code\User\prompts\`, which is where Windows-native VS Code reads them.
+
+## Agent Instructions
+
+All agent instructions derive from a single source file:
+
+```
+home-manager/config/instructions/agent-defaults.md
+```
+
+The `@@AGENT@@` placeholder is substituted per agent at render time.
+
+| Platform | Renderer | Deployed paths |
+|---|---|---|
+| Linux / macOS / WSL | `home-manager/lib/agent-instructions.nix` via `pkgs.writeText` | `~/.claude/CLAUDE.md`, `~/.config/github-copilot/…`, `~/.config/Code/User/prompts/…`, `~/.vscode-server/…` |
+| Windows | chezmoi (pre-rendered files committed to `chezmoi/`) | same XDG paths + `%APPDATA%\Code\User\prompts\…` via run script |
+
+When you edit `agent-defaults.md`, regenerate the chezmoi files and commit them together:
+
+```bash
+task generate:agent-instructions
+```
+
+The pre-commit hook and CI catch drift automatically via `task check:agent-instructions`.
+
+## Home Manager Profiles
+
+### Development Profile (`profiles/development-linux.nix`)
+
+- Editors: Neovim, VS Code (non-WSL only) with Python, GitLens, Material Icon Theme, Tailwind CSS, Prettier, and Live Server extensions
+- Build tools: gnumake, cmake
+- Runtimes: Node.js
+- Cloud: kubectl
+
+### Desktop Profile (`profiles/desktop-linux.nix`)
+
+- Browsers: Firefox, Vivaldi (default)
+- Media: VLC, mpv
+- Communication: Discord, Slack
+- Productivity: LibreOffice, Obsidian, KeePassXC
+- Graphics: GIMP, Inkscape, Flameshot
+
+Common development tools (`git`, `gh`, `go`, `ripgrep`, `fzf`, `jq`, `docker`, `awscli2`, and many others) live in `common.nix` and are shared across all platforms.
+
+## Editor Configuration
+
+- `home-manager/lib/code-editor-user-settings.nix` is the shared source for VS Code user settings.
+- `common.nix` and `home-darwin.nix` install those settings and Copilot prompt files into each editor's user config directory.
+- `.devcontainer/devcontainer.json` is the bootstrap layer for container sessions before the Home Manager profile is applied.
+- `.vscode/settings.json` and `.vscode/extensions.json` are repo-workspace-specific and should stay focused on the Nix formatter, language server, and extension recommendations.
+- If a setting should follow you across machines, keep it in Home Manager. If it applies only to this repository, keep it in `.vscode`.
 
 ## Modules
 
@@ -145,110 +259,66 @@ These host names are starter placeholders for new installs. They are intentional
 
 Disables legacy PulseAudio and enables PipeWire with ALSA, PulseAudio compatibility, and Real-Time Kit support.
 
-## Home Manager Profiles
+## Theming
 
-### Development Profile
-
-Includes:
-
-- Development tools (VS Code, Neovim, Git)
-- Programming languages (Python, Node.js, Go, Rust)
-- Container tools (Docker, Podman)
-- Cloud tools (kubectl, Terraform, AWS CLI)
-
-### Desktop Profile
-
-Includes:
-
-- Web browsers and GUI tools
-- Media applications (VLC, mpv)
-- Communication tools (Discord, Slack)
-- Productivity software (LibreOffice, Obsidian)
-
-## Editor Configuration
-
-- `home-manager/lib/code-editor-user-settings.nix` is the shared source for persistent VS Code and VS Code Insiders user settings.
-- `home-manager/common.nix` and `home-manager/home-darwin.nix` install those settings and Copilot prompt files into each editor's user config directory.
-- `.devcontainer/devcontainer.json` is only the bootstrap layer for container sessions before the Home Manager profile is applied.
-- `.vscode/settings.json` and `.vscode/extensions.json` are the repository-specific layer and should stay focused on workspace behavior such as the Nix formatter, language server, flake-pinned `nixd` evaluation, and extension recommendations for VS Code-compatible editors, including VS Code Insiders.
-- If a setting should follow you across machines, keep it in Home Manager. If it should apply only to this repository, keep it in `.vscode`.
+System-wide theming via Stylix using the Monokai color scheme (`home-manager/config/colors/monokai.base24.yaml`). Targets include bat, btop, fzf, kitty, Starship, Vim, VS Code, GTK, and KDE.
 
 ## Service Tasks
 
-- `task service-status SERVICE=pipewire.service` checks a specific user service.
-- `task logs SERVICE=pipewire.service` tails logs for a specific service.
-- These tasks are generic wrappers around `systemctl --user` and `journalctl`; they are not specific to rclone.
+```bash
+task service-status SERVICE=pipewire.service   # check a user service via systemctl --user
+task logs SERVICE=pipewire.service             # tail logs via journalctl --user
+```
 
-## Theming
+## Maintenance
 
-The configuration uses Stylix for system-wide theming with the Monokai color scheme.
+```bash
+task update && task switch          # keep the system updated
+task gc                             # clean up old generations
+task optimize                       # optimize the Nix store
+task generate:agent-instructions    # re-render agent-defaults.md into chezmoi files
+task check:agent-instructions       # verify chezmoi files match the source (also in CI)
+task check:copilot-instructions     # verify .github/copilot-instructions.md stays in sync
+```
+
+## Git Hooks
+
+- Run `task hooks:install` once per clone to configure Git to use the tracked hooks in `.githooks/`.
+- The pre-commit hook runs `task lint:nix` inside `nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix`, which includes `check:copilot-instructions` and `check:agent-instructions`.
+- Hooks are local Git configuration and do not enable themselves automatically for other clones.
 
 ## Platform Notes
 
 ### macOS
 
-- Uses `nix-darwin` for system settings and Home Manager for user configuration
-- Shell configuration is shared with Linux where possible, with Darwin-specific overrides in `home-manager/home-darwin.nix`
-- Determinate Nix compatibility is handled in the Darwin configuration
+- Uses `nix-darwin` for system settings and Home Manager for user configuration.
+- Shell configuration is shared with Linux where possible, with Darwin-specific overrides in `home-manager/home-darwin.nix`.
+- Firefox is installed via Homebrew casks in `hosts/darwin/default.nix`; the Stylix Firefox target is disabled on macOS.
 
 ### WSL
 
-- Uses `NixOS-WSL` as the base system module
-- Uses a dedicated WSL Home Manager profile at `home-manager/home-wsl.nix`
-- Enables `programs.nix-ld` on the WSL host so VS Code Remote / `.vscode-server` binaries have a more compatible runtime on NixOS
-- First-time switch commands should use a path-based flake reference until all new files are tracked by Git
-- The WSL profile also bridges shared prompt config into Windows by writing PowerShell profiles and a Windows `starship.toml`, then bootstrapping `starship` and PowerShell 7 with `winget` when available
-- `task wsl-bootstrap-windows` bootstraps Windows-side Scoop buckets, installs the configured Nerd Font, and updates Windows Terminal to use the same font
+- Uses `NixOS-WSL` as the base system module.
+- `programs.nix-ld` is enabled on the WSL host so VS Code Remote / `.vscode-server` binaries have a compatible runtime on NixOS.
+- The WSL Home Manager profile bridges shared configuration to Windows: writes PowerShell profiles and a Windows `starship.toml`, then bootstraps `starship` and PowerShell 7 via `winget`.
+- `task wsl-bootstrap-windows` bootstraps Windows-side Scoop buckets, installs the configured Nerd Font, and updates Windows Terminal to use the same font.
+- First-time switches should use a path-based flake reference (`path:$PWD#wsl`) until all new files are tracked by Git.
 
-## Maintenance
+### Windows (native)
 
-- Run `task update && task switch` regularly to keep the system updated
-- Use `task gc` to clean up old generations
-- Use `task optimize` to optimize the Nix store
-- Use `task check:copilot-instructions` to verify the duplicated Copilot instruction files stay semantically aligned despite their expected frontmatter and markdown-formatting differences
-
-## Git Hooks
-
-- Run `task hooks:install` once per clone to configure Git to use the tracked hooks in `.githooks/`.
-- The repository `pre-commit` hook runs `task lint:nix` inside `nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix` so it matches the CI lint environment more closely, including the duplicated Copilot instruction sync check.
-- Hooks are local Git configuration, so they do not enable themselves automatically for other clones.
+- `task windows-bootstrap` is the native Windows entry point (runs via PowerShell, no WSL required).
+- After bootstrap, use `task chezmoi-init` and `task chezmoi-apply` to deploy dotfiles.
+- chezmoi manages agent instructions, `~/.local/bin` scripts, and other dotfiles on Windows since home-manager is unavailable.
 
 ## Customization
 
-To customize for your setup:
+1. Update user information in the relevant host or Home Manager profile.
+2. Add or remove packages in `home-manager/common.nix` (shared) or the appropriate profile.
+3. Edit `home-manager/config/instructions/agent-defaults.md` for agent instruction changes, then run `task generate:agent-instructions` and commit the result.
+4. Adjust module configurations as needed.
 
-1. Update user information in the relevant host or Home Manager profile
-2. Update the user and shell settings in the relevant host or home-manager profile
-3. Add or remove packages in the appropriate profile
-4. Adjust module configurations as needed
+## GitHub Actions CI
 
-## Migration from Old Structure
-
-If migrating from the old monolithic configuration:
-
-1. Backup your current configuration
-2. Copy host-specific settings to the new structure
-3. Test the build with `task check` and `task build`
-4. Switch when ready with `task switch`
-
-## macOS Notes
-
-- Firefox is installed on macOS via Homebrew casks in `hosts/darwin/default.nix`.
-- The Stylix Firefox target remains disabled in `home-manager/home-darwin.nix`, so Firefox theming integration is intentionally off on macOS for now.
-- `ncdu` is not currently included in the shared package list in `home-manager/common.nix`.
-- The previous LLVM/Zig build warning from 2025 is no longer confirmed by current dry-run checks: on 2026-03-20, `nix build nixpkgs#ncdu --dry-run` resolved via fetchable artifacts, and `nix build nixpkgs#firefox --dry-run` resolved to fetched artifacts plus small wrapper derivations rather than the older large local toolchain build pattern.
-
-## Validation Notes
-
-### Darwin Validation
-
-- `darwin-rebuild` is expected to be available from the active system profile
-- Platform-aware tasks in `taskfile.yaml` detect Darwin and route to `darwin-rebuild`
-- Home Manager is integrated into the Darwin flake output rather than managed separately
-
-### GitHub Actions CI
-
-- GitHub Actions can validate Linux and macOS targets directly by building flake outputs.
-- The WSL target can be validated in CI by building `nixosConfigurations.wsl`, which checks the NixOS-WSL configuration itself.
-- GitHub-hosted runners do not provide a real WSL2 runtime session, so end-to-end WSL boot or runtime tests require a self-hosted Windows runner with WSL2 enabled.
-- The workflow for this repository lives at `.github/workflows/nix-validation.yml`.
+- GitHub Actions validates Linux and macOS targets by building flake outputs.
+- The WSL target is validated by building `nixosConfigurations.wsl`.
+- GitHub-hosted runners do not provide a real WSL2 runtime, so end-to-end WSL boot tests require a self-hosted Windows runner with WSL2 enabled.
+- The workflow lives at `.github/workflows/nix-validation.yml`.
