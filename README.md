@@ -142,6 +142,8 @@ This installs Scoop, creates standard XDG directories (`~/.local/bin`, `~/.confi
 
 After bootstrap, run `task chezmoi-init` and `task chezmoi-apply` to deploy dotfiles.
 
+> Note: Windows support is nothing fancy, mostly a bunch of helper scripts after an initial run by WSL
+
 ### WSL Bootstrap
 
 On a fresh NixOS-WSL instance, use a path-based flake reference for the first switch so newly added local files are included before they are tracked by Git:

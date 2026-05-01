@@ -118,6 +118,10 @@
     tealdeer
     scrcpy
 
+    # AI development tools
+    claude-code
+    github-copilot-cli
+
     # Imperative dotfiles management
     chezmoi
 
