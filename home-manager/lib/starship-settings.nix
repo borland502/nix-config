@@ -1,7 +1,9 @@
-{
+let
+  c = import ./colors.nix;
+in {
   add_newline = true;
   command_timeout = 500;
-  continuation_prompt = "[∙](#bab6c0) ";
+  continuation_prompt = "[∙](${c.base05}) ";
   format = "$os$username$hostname$directory$git_branch$git_status$package$nix_shell$nodejs$python$rust$golang$docker_context$kubernetes$aws$cmd_duration$line_break$time$character";
   right_format = "";
   scan_timeout = 30;
@@ -9,7 +11,7 @@
   aws = {
     format = "[$symbol($profile )(($region) )]($style)";
     symbol = "🅰 ";
-    style = "bold #FCE566";
+    style = "bold ${c.base0A}";
     disabled = false;
     expiration_symbol = "X";
     force_display = false;
@@ -18,10 +20,10 @@
   os = {
     disabled = false;
     format = "[$symbol]($style) ";
-    style = "#7BD88F bold";
+    style = "${c.base0B} bold";
     symbols = {
       Macos = "󰀵 ";
-      NixOS = " ";
+      NixOS = " ";
       Ubuntu = "󰕈 ";
       Debian = "󰣚 ";
       Fedora = "󰣛 ";
@@ -34,14 +36,14 @@
   character = {
     format = "$symbol ";
     disabled = false;
-    success_symbol = "[](#7BD88F) ";
-    error_symbol = "[](#FC618D)";
+    success_symbol = "[](${c.base0B}) ";
+    error_symbol = "[](${c.base08})";
   };
 
   cmd_duration = {
     min_time = 2000;
     format = "⏱ [$duration]($style) ";
-    style = "#FCE566 bold";
+    style = "${c.base0A} bold";
     show_milliseconds = false;
     disabled = false;
     show_notifications = false;
@@ -52,10 +54,10 @@
     truncation_length = 2;
     truncate_to_repo = true;
     format = "[$path]($style)[$read_only]($read_only_style) ";
-    style = "#5AD4E6";
+    style = "${c.base0C}";
     disabled = false;
     read_only = "🔒";
-    read_only_style = "#FC618D";
+    read_only_style = "${c.base08}";
     truncation_symbol = "…/";
     home_symbol = "~";
     use_os_path_sep = true;
@@ -69,8 +71,8 @@
 
   docker_context = {
     format = "[$symbol\\[$context\\]]($style) ";
-    style = "#5AD4E6";
-    symbol = " ";
+    style = "${c.base0C}";
+    symbol = " ";
     only_with_files = true;
     disabled = false;
     detect_extensions = [];
@@ -84,8 +86,8 @@
 
   git_branch = {
     format = "[$symbol$branch(:$remote_branch)]($style) ";
-    symbol = " ";
-    style = "#AB9DF2";
+    symbol = " ";
+    style = "${c.extras.lavender}";
     truncation_length = 9223372036854775807;
     truncation_symbol = "…";
     only_attached = false;
@@ -96,7 +98,7 @@
 
   git_status = {
     format = "([\\[$all_status$ahead_behind\\]]($style)) ";
-    style = "#FC618D";
+    style = "${c.base08}";
     stashed = "≡";
     ahead = "⇡";
     behind = "⇣";
@@ -115,14 +117,14 @@
   hostname = {
     ssh_only = false;
     format = "[@$hostname]($style) ";
-    style = "#fd9353 bold";
+    style = "${c.base09} bold";
     disabled = false;
   };
 
   nix_shell = {
     format = "[$symbol$state( \\($name\\))]($style) ";
     symbol = "❄️ ";
-    style = "#5AD4E6 bold";
+    style = "${c.base0C} bold";
     impure_msg = "[impure shell](bold red)";
     pure_msg = "[pure shell](bold green)";
     disabled = false;
@@ -131,7 +133,7 @@
   package = {
     format = "[$symbol$version]($style) ";
     symbol = "📦 ";
-    style = "#7BD88F bold";
+    style = "${c.base0B} bold";
     display_private = false;
     disabled = false;
   };
@@ -140,7 +142,7 @@
     format = "[$symbol($version )]($style)";
     version_format = "v\${raw}";
     symbol = " ";
-    style = "#7BD88F bold";
+    style = "${c.base0B} bold";
     disabled = false;
     detect_extensions = ["js" "mjs" "cjs" "ts" "mts" "cts"];
     detect_files = ["package.json" ".nvmrc"];
@@ -151,7 +153,7 @@
     format = "[(\${symbol}\${pyenv_prefix}(\${version} )(\\($virtualenv\\) ))]($style)";
     version_format = "v\${raw}";
     symbol = " ";
-    style = "#FCE566 bold";
+    style = "${c.base0A} bold";
     pyenv_version_name = false;
     pyenv_prefix = "pyenv ";
     python_binary = ["python" "python3" "python2"];
@@ -165,7 +167,7 @@
     format = "[$symbol($version )]($style)";
     version_format = "v\${raw}";
     symbol = " ";
-    style = "#fd9353 bold";
+    style = "${c.base09} bold";
     disabled = false;
     detect_extensions = ["rs"];
     detect_files = ["Cargo.toml"];
@@ -175,7 +177,7 @@
   time = {
     disabled = false;
     format = "[🕒 $time]($style) ";
-    style = "#bab6c0 bold";
+    style = "${c.base05} bold";
     time_format = "%R";
     use_12hr = false;
     utc_time_offset = "local";
@@ -185,7 +187,7 @@
     format = "[$symbol($version )]($style)";
     version_format = "v\${raw}";
     symbol = " ";
-    style = "#5AD4E6 bold";
+    style = "${c.base0C} bold";
     disabled = false;
     detect_extensions = ["go"];
     detect_files = ["go.mod" "go.sum" "glide.yaml" "Gopkg.yml" "Gopkg.lock" ".go-version"];
@@ -195,13 +197,13 @@
   kubernetes = {
     format = "[$symbol$context( \\($namespace\\))]($style) ";
     symbol = "☸ ";
-    style = "#5AD4E6 bold";
+    style = "${c.base0C} bold";
     disabled = true;
   };
 
   username = {
-    style_root = "#FC618D";
-    style_user = "#948ae3";
+    style_root = "${c.base08}";
+    style_user = "${c.base0D}";
     format = "[$user]($style)";
     disabled = false;
     show_always = false;

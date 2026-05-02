@@ -118,6 +118,13 @@
     tealdeer
     scrcpy
 
+    # AI development tools
+    claude-code
+    github-copilot-cli
+
+    # Secret management
+    sops
+
     # Imperative dotfiles management
     chezmoi
 
@@ -144,6 +151,7 @@ in {
   imports = [
     ./zsh.nix
     ./starship.nix
+    ./modules/sops.nix
   ];
 
   xdg = {
@@ -182,12 +190,19 @@ in {
     # wiring survives the repo being renamed or moved.
     activation.configureChezmoi = lib.hm.dag.entryAfter ["ensureXdgDirectories"] ''
       _cm_dir_file="${xdgStateHome}/chezmoi/nix-config-dir"
+      _cm_age_key="${homeDirectory}/.config/sops/age/keys.txt"
       if [ -f "$_cm_dir_file" ]; then
         _cm_nix_dir=$(${pkgs.coreutils}/bin/cat "$_cm_dir_file")
         _cm_source="$_cm_nix_dir/chezmoi"
         if [ -d "$_cm_source" ]; then
           ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/chezmoi"
-          ${pkgs.coreutils}/bin/printf 'sourceDir = "%s"\n' "$_cm_source" > "${xdgConfigHome}/chezmoi/chezmoi.toml"
+          {
+            ${pkgs.coreutils}/bin/printf 'sourceDir = "%s"\n' "$_cm_source"
+            if [ -f "$_cm_age_key" ]; then
+              ${pkgs.coreutils}/bin/printf '\n[age]\n'
+              ${pkgs.coreutils}/bin/printf '  identity = "%s"\n' "$_cm_age_key"
+            fi
+          } > "${xdgConfigHome}/chezmoi/chezmoi.toml"
         fi
       fi
     '';

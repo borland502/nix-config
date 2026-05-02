@@ -1,0 +1,13 @@
+# Files managed by home-manager — chezmoi should not touch these.
+# Add patterns here for anything nix manages declaratively.
+.nix-profile
+.nix-defexpr
+.nix-channels
+result
+{{ if ne .chezmoi.os "windows" -}}
+# Agent instructions managed by home-manager on Linux/macOS; chezmoi owns them on Windows only.
+.claude/CLAUDE.md
+.config/github-copilot/copilot-defaults.instructions.md
+.config/github-copilot/intellij/global-copilot-instructions.md
+.config/Code/User/prompts/copilot-defaults.instructions.md
+{{ end -}}

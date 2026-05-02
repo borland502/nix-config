@@ -30,6 +30,10 @@
       url = "github:danth/stylix/release-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
@@ -39,6 +43,7 @@
     home-manager,
     plasma-manager,
     stylix,
+    sops-nix,
     ...
   }: let
     systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin"];
@@ -87,6 +92,7 @@
       ./hosts/darwin
 
       stylix.darwinModules.stylix
+      sops-nix.darwinModules.default
 
       # Enable home-manager for nix-darwin
       home-manager.darwinModules.home-manager
@@ -97,6 +103,7 @@
           backupFileExtension = ".bak0809-1320";
           sharedModules = [
             stylix.homeModules.stylix
+            sops-nix.homeManagerModules.sops
           ];
 
           users."42245" = import ./home-manager/home-darwin.nix;
@@ -135,6 +142,7 @@
         modules = [
           plasma-manager.homeModules.plasma-manager
           stylix.homeModules.stylix
+          sops-nix.homeManagerModules.sops
           ./home-manager/home.nix
           ({lib, ...}: {
             home = {
@@ -158,6 +166,7 @@
           ./hosts/linux
 
           stylix.nixosModules.stylix
+          sops-nix.nixosModules.sops
 
           # make home-manager as a module of nixos
           # so that home-manager configuration will be deployed automatically when executing `nixos-rebuild switch`
@@ -171,6 +180,7 @@
                 # Import the plasma-manager module
                 plasma-manager.homeModules.plasma-manager
                 stylix.homeModules.stylix
+                sops-nix.homeManagerModules.sops
               ];
 
               users.jhettenh = import ./home-manager/home.nix;
@@ -186,6 +196,7 @@
         modules = [
           nixos-wsl.nixosModules.default
           home-manager.nixosModules.home-manager
+          sops-nix.nixosModules.sops
           ./hosts/wsl
           {
             home-manager = {
@@ -194,6 +205,7 @@
               backupFileExtension = ".bak0809-1320";
               sharedModules = [
                 stylix.homeModules.stylix
+                sops-nix.homeManagerModules.sops
               ];
 
               users.nixos = import ./home-manager/home-wsl.nix;
@@ -209,6 +221,7 @@
         modules = [
           plasma-manager.homeModules.plasma-manager
           stylix.homeModules.stylix
+          sops-nix.homeManagerModules.sops
           ./home-manager/home.nix
         ];
       };
@@ -217,6 +230,7 @@
         pkgs = pkgsFor "x86_64-linux";
         modules = [
           stylix.homeModules.stylix
+          sops-nix.homeManagerModules.sops
           ./home-manager/home-wsl.nix
         ];
       };

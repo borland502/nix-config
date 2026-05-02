@@ -3,6 +3,7 @@
   lib,
   ...
 }: let
+  colors = import ./lib/colors.nix;
   starshipSettings = import ./lib/starship-settings.nix;
   windowsBootstrap = {
     # Set these explicitly if Windows path discovery is unreliable on a given host.
@@ -213,22 +214,12 @@ in {
   programs.starship.settings = {
     format = lib.mkForce "$os$username$hostname$directory$git_branch$git_status$nix_shell$nodejs$python$rust$golang$docker_context$aws$cmd_duration$line_break$character";
 
-    os = {
-      disabled = false;
-      format = "[$symbol]($style) ";
-      style = "#7BD88F bold";
-      symbols = {
-        NixOS = " ";
-        Windows = "󰍲 ";
-      };
-    };
-
     username.show_always = lib.mkForce true;
 
     hostname = {
       ssh_only = lib.mkForce false;
       format = lib.mkForce "[wsl@$hostname]($style) ";
-      style = lib.mkForce "#fd9353 bold";
+      style = lib.mkForce "${colors.base09} bold";
     };
 
     directory.truncation_length = lib.mkForce 5;

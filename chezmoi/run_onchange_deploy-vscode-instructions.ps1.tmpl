@@ -1,0 +1,10 @@
+{{- if eq .chezmoi.os "windows" -}}
+# Source hash: {{ include "dot_config/Code/User/prompts/copilot-defaults.instructions.md" | sha256sum }}
+# Copies the chezmoi-managed Copilot instructions to the Windows VS Code AppData location,
+# which is separate from the XDG ~/.config path chezmoi targets directly.
+$src = Join-Path $HOME ".config\Code\User\prompts\copilot-defaults.instructions.md"
+$dst = Join-Path $env:APPDATA "Code\User\prompts\copilot-defaults.instructions.md"
+New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
+Copy-Item $src $dst -Force
+Write-Host "chezmoi: deployed Copilot instructions to $dst"
+{{- end -}}
