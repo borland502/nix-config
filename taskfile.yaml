@@ -149,7 +149,7 @@ tasks:
   switch:
     desc: Build and switch to the system configuration
     platforms: [linux, darwin]
-    deps: [_record-nix-config-dir]
+    deps: [_record-nix-config-dir,fmt, generate:agent-instructions]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
@@ -418,7 +418,7 @@ tasks:
   upgrade:
     desc: Update nixpkgs and rebuild the system
     platforms: [linux, darwin]
-    deps: [_record-nix-config-dir]
+    deps: [_record-nix-config-dir,fmt, generate:agent-instructions]
     cmd: |
       nix flake update
       {{if eq .IN_DEVCONTAINER "true"}}
