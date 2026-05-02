@@ -305,5 +305,32 @@ in {
   };
   xdg.configFile."flameshot/flameshot.ini".source = ./config/flameshot/flameshot.ini;
   # Kitty terminal configuration
-  xdg.configFile."kitty/kitty.conf".source = ./config/kitty/kitty.conf;
+  xdg.configFile."kitty/kitty.conf".text = let
+    c = import ./lib/colors.nix;
+    baseCfg = builtins.readFile ./config/kitty/kitty.conf;
+  in baseCfg + ''
+
+    # Theme: Monokai Spectrumish
+    # Source: config/colors/monokai.base24.yaml
+    foreground ${c.base05}
+    background ${c.base00}
+    cursor     ${c.base05}
+
+    color0  ${c.base00}
+    color8  ${c.base03}
+    color1  ${c.base08}
+    color9  ${c.base12}
+    color2  ${c.base0B}
+    color10 ${c.base14}
+    color3  ${c.base0A}
+    color11 ${c.base13}
+    color4  ${c.base0D}
+    color12 ${c.base16}
+    color5  ${c.base0E}
+    color13 ${c.base0E}
+    color6  ${c.base0C}
+    color14 ${c.base15}
+    color7  ${c.base05}
+    color15 ${c.base07}
+  '';
 }

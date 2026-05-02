@@ -1,4 +1,6 @@
-_: {
+_: let
+  c = import ./lib/colors.nix;
+in {
   programs.zsh = {
     enable = true;
     enableCompletion = true;
@@ -93,38 +95,38 @@ _: {
             export PATH="/run/current-system/sw/bin:$PATH"
           fi
 
-          # Color scheme exports
-          export base00="#222222"
-          export base01="#363537"
-          export base02="#525053"
-          export base03="#69676c"
-          export base04="#8b888f"
-          export base05="#bab6c0"
-          export base07="#f7f1ff"
-          export base06="#fbf8ff"
-          export base08="#FC618D"
-          export base09="#fd9353"
-          export base0a="#FCE566"
-          export base0b="#7BD88F"
-          export base0c="#5AD4E6"
-          export base0d="#948ae3"
-          export base0e="#fc618d"
-          export base0f="#fef20a"
-          export base10="#191919"
-          export base11="#222222"
-          export base12="#FC618D"
-          export base13="#FCE566"
-          export base14="#7BD88F"
-          export base15="#5AD4E6"
-          export base16="#948AE3"
-          export base17="#FD9353"
-          export base8x0c="#2b2b2b"
-          export blue="#5ad4e6"
-          export green="#7bd88f"
-          export orange="#fd9353"
-          export purple="#948ae3"
-          export red="#fc618d"
-          export yellow="#fcd566"
+          # Color scheme exports — values sourced from lib/colors.nix
+          export base00="${c.base00}"
+          export base01="${c.base01}"
+          export base02="${c.base02}"
+          export base03="${c.base03}"
+          export base04="${c.base04}"
+          export base05="${c.base05}"
+          export base06="${c.base06}"
+          export base07="${c.base07}"
+          export base08="${c.base08}"
+          export base09="${c.base09}"
+          export base0a="${c.base0A}"
+          export base0b="${c.base0B}"
+          export base0c="${c.base0C}"
+          export base0d="${c.base0D}"
+          export base0e="${c.base0E}"
+          export base0f="${c.base0F}"
+          export base10="${c.base10}"
+          export base11="${c.base11}"
+          export base12="${c.base12}"
+          export base13="${c.base13}"
+          export base14="${c.base14}"
+          export base15="${c.base15}"
+          export base16="${c.base16}"
+          export base17="${c.base17}"
+          export base8x0c="${c.extras.darkMidtone}"
+          export blue="${c.base0C}"
+          export green="${c.base0B}"
+          export orange="${c.base09}"
+          export purple="${c.base0D}"
+          export red="${c.base08}"
+          export yellow="${c.extras.yellowDim}"
 
           # Terminal and editor configuration
           export EDITOR="vim"

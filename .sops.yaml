@@ -1,0 +1,32 @@
+# sops configuration for this repository
+#
+# Setup (run once per machine):
+#   1. Generate an age key:
+#        age-keygen -o ~/.config/sops/age/keys.txt
+#      The public key (age1...) is printed to stdout — copy it.
+#   2. Replace the placeholder below with that public key.
+#   3. Run `sops updatekeys secrets/example.yaml` after adding a new recipient.
+#
+# To create a new secret file:
+#   sops secrets/my-secret.yaml
+#
+# For NixOS hosts you can also derive an age recipient from the SSH host key:
+#   ssh-to-age < /etc/ssh/ssh_host_ed25519_key.pub
+# Add the resulting age1... value as an additional recipient in creation_rules.
+
+keys:
+  # User age public key (jhettenh)
+  - &user_jhettenh age19vlys87e2zs36pv4aq2m026qrxxk4e0wh44gxr3y98shrpnamvsqm7mgpk
+
+creation_rules:
+  # Repository-level secrets shared across all hosts
+  - path_regex: secrets/.*\.(yaml|json|env|ini)$
+    key_groups:
+      - age:
+          - *user_jhettenh
+
+  # Per-host secrets under hosts/<name>/secrets/
+  - path_regex: hosts/[^/]+/secrets/.*\.(yaml|json|env|ini)$
+    key_groups:
+      - age:
+          - *user_jhettenh
