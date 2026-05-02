@@ -36,12 +36,11 @@ let
   # Extra colours used in this config that fall outside the base24 spec.
   extras = {
     # Lighter lavender — used as git branch colour in Starship
-    lavender    = "#AB9DF2";
+    lavender = "#AB9DF2";
     # Dim yellow — exported as the $yellow shell alias (intentionally distinct from base0A)
-    yellowDim   = "#fcd566";
+    yellowDim = "#fcd566";
     # Extra dark midtone — exported as the $base8x0c shell alias
     darkMidtone = "#2b2b2b";
   };
-
 in
-  palette // { inherit extras; }
+  palette // {inherit extras;}
