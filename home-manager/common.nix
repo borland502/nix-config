@@ -160,6 +160,10 @@ in {
     configHome = xdgConfigHome;
     dataHome = xdgDataHome;
     stateHome = xdgStateHome;
+
+    # Deploy Claude Code global user instructions under XDG so they track
+    # the CLAUDE_CONFIG_DIR exported in zsh.nix ($XDG_CONFIG_HOME/claude).
+    configFile."claude/CLAUDE.md".source = claudeDefaultsFile;
   };
 
   home = {
@@ -210,13 +214,11 @@ in {
     stateVersion = "25.05";
 
     # Make Copilot defaults visible to desktop, remote, and shared IDE sessions.
-    # Deploy Claude Code global user instructions alongside the Copilot defaults.
     file = {
       ".config/Code/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
       ".vscode-server/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
       ".config/github-copilot/copilot-defaults.instructions.md".source = copilotDefaultsFile;
       ".config/github-copilot/intellij/global-copilot-instructions.md".source = copilotDefaultsFile;
-      ".claude/CLAUDE.md".source = claudeDefaultsFile;
     };
   };
 
