@@ -1,10 +1,7 @@
-﻿---
-description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."
+--description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."
 name: "Persistent Terminal Logging Defaults"
 applyTo: "**"
----
-
-# Persistent Terminal Defaults
+--# Persistent Terminal Defaults
 
 - Minimize use of interactive terminal flows that can mangle command output in the IDE.
 - If a shared shell shows prompt fragments, reused partial commands, or quote mangling, stop reusing it and rerun the workflow from an isolated shell.
