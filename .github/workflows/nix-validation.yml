@@ -42,7 +42,7 @@ jobs:
           - name: WSL System Build
             build_command: nix build .#nixosConfigurations.wsl.config.system.build.toplevel --print-build-logs
           - name: WSL Home Manager Build
-            build_command: nix build '.#homeConfigurations."nixos@wsl".activationPackage' --print-build-logs
+            build_command: nix build '.#homeConfigurations."jhettenh@nixos-wsl".activationPackage' --print-build-logs
           - name: Devcontainer Home Build
             build_command: nix build '.#homeConfigurations."vscode@devcontainer".activationPackage' --print-build-logs
 
