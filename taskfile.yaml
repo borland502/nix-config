@@ -319,7 +319,7 @@ tasks:
       src="home-manager/config/instructions/agent-defaults.md"
 
       mkdir -p chezmoi/dot_claude
-      sed 's|@@AGENT@@|claude|g' "$src" > chezmoi/dot_claude/CLAUDE.md
+      sed 's|@@AGENT@@|claude|g' "$src" > chezmoi/dot_config/claude/CLAUDE.md
 
       mkdir -p chezmoi/dot_config/github-copilot/intellij
       mkdir -p "chezmoi/dot_config/Code/User/prompts"
