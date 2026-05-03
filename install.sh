@@ -46,8 +46,17 @@ else
   echo "==> direnv already installed ($(direnv version))"
 fi
 
-# ── 3. Allow the .envrc ───────────────────────────────────────────────────────
+# ── 3. Bootstrap configuration via go-task ────────────────────────────────────
+echo "==> Applying configuration via go-task..."
 cd "$SCRIPT_DIR"
+
+nix shell nixpkgs#go-task --command bash -euo pipefail -c '
+  task chezmoi-init
+  task chezmoi-apply
+  task home-switch
+'
+
+# ── 4. Allow the .envrc ───────────────────────────────────────────────────────
 direnv allow .
 
 echo ""
