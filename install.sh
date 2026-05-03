@@ -62,8 +62,12 @@ direnv allow .
 # ── 5. Source the home-manager session so this shell is fully provisioned ─────
 _hm_vars="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
 if [[ -f "$_hm_vars" ]]; then
+  # hm-session-vars.sh references __HM_SESS_VARS_SOURCED without a default, so
+  # temporarily suspend -u to avoid "unbound variable" under set -euo pipefail.
+  set +u
   # shellcheck disable=SC1090
   . "$_hm_vars"
+  set -u
   echo "==> Sourced home-manager session vars."
 else
   echo "==> home-manager profile not found at $_hm_vars; open a new shell to pick up the full environment."
@@ -88,4 +92,4 @@ else
 fi
 
 echo ""
-echo "==> Setup complete."
+echo "==> Setup complete.  Please run wsl --shutdown and start a new WSL session to ensure all changes take effect."
