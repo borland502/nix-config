@@ -50,7 +50,7 @@ fi
 echo "==> Applying configuration via go-task..."
 cd "$SCRIPT_DIR"
 
-nix shell nixpkgs#go-task --command bash -euo pipefail -c '
+nix shell nixpkgs#go-task nixpkgs#chezmoi --command bash -euo pipefail -c '
   task chezmoi-init
   task chezmoi-apply
   task home-switch
@@ -59,6 +59,15 @@ nix shell nixpkgs#go-task --command bash -euo pipefail -c '
 # ── 4. Allow the .envrc ───────────────────────────────────────────────────────
 direnv allow .
 
+# ── 5. Source the home-manager session so this shell is fully provisioned ─────
+_hm_vars="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
+if [[ -f "$_hm_vars" ]]; then
+  # shellcheck disable=SC1090
+  . "$_hm_vars"
+  echo "==> Sourced home-manager session vars — shell is fully provisioned."
+else
+  echo "==> home-manager profile not found at $_hm_vars; open a new shell to pick up the full environment."
+fi
+
 echo ""
 echo "==> Setup complete."
-echo "    Start a new shell (or run 'direnv reload') in this directory to activate the environment."
