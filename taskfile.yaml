@@ -87,6 +87,11 @@ vars:
       {{if eq OS "windows"}}echo false{{else}}
       [[ -n "${INSIDE_DEVCONTAINER:-}" ]] && echo "true" || echo "false"
       {{end}}
+  IS_NIXOS:
+    sh: |
+      {{if eq OS "windows"}}echo false{{else}}
+      command -v nixos-rebuild > /dev/null 2>&1 && echo "true" || echo "false"
+      {{end}}
   DEVCONTAINER_ATTR:
     sh: |
       {{if eq OS "windows"}}echo "vscode@devcontainer"{{else}}
@@ -153,8 +158,10 @@ tasks:
         nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage
       {{else if eq .IS_DARWIN "true"}}
         darwin-rebuild build --flake .#{{.HOST}}
-      {{else}}
+      {{else if eq .IS_NIXOS "true"}}
         {{.NIX_CONFIG_PREFIX}}nixos-rebuild build --flake "{{.SYSTEM_FLAKE}}"
+      {{else}}
+        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- build --flake "{{.HOME_FLAKE}}"
       {{end}}
 
   switch:
@@ -166,8 +173,10 @@ tasks:
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
-      {{else}}
+      {{else if eq .IS_NIXOS "true"}}
         {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
+      {{else}}
+        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
       {{end}}
 
   # Darwin-specific tasks
@@ -229,8 +238,10 @@ tasks:
         nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage --dry-run
       {{else if eq .IS_DARWIN "true"}}
         darwin-rebuild build --dry-run --flake .#{{.HOST}}
-      {{else}}
+      {{else if eq .IS_NIXOS "true"}}
         {{.NIX_CONFIG_PREFIX}}nixos-rebuild dry-build --flake "{{.SYSTEM_FLAKE}}"
+      {{else}}
+        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- build --flake "{{.HOME_FLAKE}}"
       {{end}}
 
   # Home Manager
@@ -436,6 +447,8 @@ tasks:
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
-      {{else}}
+      {{else if eq .IS_NIXOS "true"}}
         {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
+      {{else}}
+        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
       {{end}}

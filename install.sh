@@ -64,9 +64,27 @@ _hm_vars="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
 if [[ -f "$_hm_vars" ]]; then
   # shellcheck disable=SC1090
   . "$_hm_vars"
-  echo "==> Sourced home-manager session vars — shell is fully provisioned."
+  echo "==> Sourced home-manager session vars."
 else
   echo "==> home-manager profile not found at $_hm_vars; open a new shell to pick up the full environment."
+fi
+
+# ── 6. Set zsh as the default login shell ─────────────────────────────────────
+_zsh_path="$HOME/.nix-profile/bin/zsh"
+if [[ -x "$_zsh_path" ]]; then
+  if [[ "$SHELL" != "$_zsh_path" ]]; then
+    echo "==> Registering $_zsh_path as a valid login shell..."
+    if ! grep -qxF "$_zsh_path" /etc/shells 2>/dev/null; then
+      echo "$_zsh_path" | sudo tee -a /etc/shells > /dev/null
+    fi
+    echo "==> Setting zsh as your default login shell..."
+    chsh -s "$_zsh_path"
+  fi
+  echo ""
+  echo "==> Open a new terminal (or run 'exec \$HOME/.nix-profile/bin/zsh -l') to start using zsh + starship."
+else
+  echo ""
+  echo "==> Zsh not found at $_zsh_path — open a new shell to pick up the full environment."
 fi
 
 echo ""
