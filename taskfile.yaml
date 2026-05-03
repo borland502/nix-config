@@ -355,7 +355,7 @@ tasks:
       } > "$tmp/copilot.md"
 
       fail=0
-      diff -u "$tmp/CLAUDE.md" chezmoi/dot_claude/CLAUDE.md || fail=1
+      diff -u "$tmp/CLAUDE.md" chezmoi/dot_config/claude/CLAUDE.md || fail=1
       diff -u "$tmp/copilot.md" chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md || fail=1
       diff -u "$tmp/copilot.md" "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" || fail=1
       diff -u "$tmp/copilot.md" chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md || fail=1
