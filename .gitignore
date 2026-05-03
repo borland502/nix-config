@@ -4,3 +4,4 @@ result-dist
 **/tmp/*
 .venv
 .claude
+.direnv

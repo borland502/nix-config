@@ -17,6 +17,18 @@ vars:
         "Darwin:"*) echo "darwin" ;;
         "Linux:nixos"|"Linux:wsl") echo "wsl" ;;
         "Linux:linux") echo "linux" ;;
+        "Linux:"*)
+          if grep -qi microsoft /proc/version 2>/dev/null && [ -f /etc/os-release ]; then
+            distro_id=$(. /etc/os-release 2>/dev/null && echo "$ID")
+            case "$distro_id" in
+              debian) echo "debian-wsl" ;;
+              ubuntu) echo "ubuntu-wsl" ;;
+              *) echo "linux" ;;
+            esac
+          else
+            echo "linux"
+          fi
+        ;;
         *) echo "linux" ;;
       esac
       {{end}}
@@ -25,7 +37,7 @@ vars:
     sh: |
       {{if eq OS "windows"}}echo windows{{else}}
       case "{{.HOST | default .DETECTED_HOST}}" in
-        "wsl") echo "nixos@wsl" ;;
+        "wsl") echo "jhettenh@wsl" ;;
         *) echo "jhettenh@{{.HOST | default .DETECTED_HOST}}" ;;
       esac
       {{end}}
@@ -41,7 +53,7 @@ vars:
     sh: |
       {{if eq OS "windows"}}echo .{{else}}
       case "{{.HOST | default .DETECTED_HOST}}" in
-        "wsl") printf 'path:%s#nixos@wsl\n' "$PWD" ;;
+        "wsl") printf 'path:%s#jhettenh@wsl\n' "$PWD" ;;
         *) printf '.#%s\n' "{{.HOME_ATTR}}" ;;
       esac
       {{end}}
@@ -98,16 +110,15 @@ tasks:
 
   # chezmoi — dotfile management backed by this repo
   chezmoi-init:
-    desc: Point chezmoi at this repo (run once after cloning to a new path)
+    desc: Point chezmoi at this repo and regenerate config from template (run once after cloning to a new path)
     cmds:
       - cmd: |
           mkdir -p "$HOME/.local/state/chezmoi"
           printf '%s\n' "$PWD" > "$HOME/.local/state/chezmoi/nix-config-dir"
         platforms: [linux, darwin]
       - |
-        mkdir -p "$HOME/.config/chezmoi"
         _src=$(printf '%s/chezmoi' "$PWD" | tr '\\' '/')
-        printf 'sourceDir = "%s"\n' "$_src" > "$HOME/.config/chezmoi/chezmoi.toml"
+        chezmoi init --source "$_src"
 
   chezmoi-apply:
     desc: Apply chezmoi dotfiles to the home directory

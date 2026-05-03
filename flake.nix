@@ -208,7 +208,7 @@
                 sops-nix.homeManagerModules.sops
               ];
 
-              users.nixos = import ./home-manager/home-wsl.nix;
+              users.jhettenh = import ./home-manager/home-wsl.nix;
             };
           }
         ];
@@ -226,7 +226,25 @@
         ];
       };
 
-      "nixos@wsl" = home-manager.lib.homeManagerConfiguration {
+      "jhettenh@nixos-wsl" = home-manager.lib.homeManagerConfiguration {
+        pkgs = pkgsFor "x86_64-linux";
+        modules = [
+          stylix.homeModules.stylix
+          sops-nix.homeManagerModules.sops
+          ./home-manager/home-wsl.nix
+        ];
+      };
+
+      "jhettenh@debian-wsl" = home-manager.lib.homeManagerConfiguration {
+        pkgs = pkgsFor "x86_64-linux";
+        modules = [
+          stylix.homeModules.stylix
+          sops-nix.homeManagerModules.sops
+          ./home-manager/home-wsl.nix
+        ];
+      };
+
+      "jhettenh@ubuntu-wsl" = home-manager.lib.homeManagerConfiguration {
         pkgs = pkgsFor "x86_64-linux";
         modules = [
           stylix.homeModules.stylix

@@ -93,8 +93,8 @@ in {
   ];
 
   home = {
-    username = lib.mkDefault "nixos";
-    homeDirectory = lib.mkDefault "/home/nixos";
+    username = lib.mkDefault "jhettenh";
+    homeDirectory = lib.mkDefault "/home/jhettenh";
 
     packages = availableLinuxPackages;
 
@@ -212,13 +212,13 @@ in {
   };
 
   programs.starship.settings = {
-    format = lib.mkForce "$os$username$hostname$directory$git_branch$git_status$nix_shell$nodejs$python$rust$golang$docker_context$aws$cmd_duration$line_break$character";
+    format = lib.mkForce "$os$username$hostname$directory$git_branch$git_status$nix_shell$nodejs$python$rust$golang$docker_context$aws$cmd_duration$line_break$time$character";
 
     username.show_always = lib.mkForce true;
 
     hostname = {
       ssh_only = lib.mkForce false;
-      format = lib.mkForce "[wsl@$hostname]($style) ";
+      format = lib.mkForce "[@$hostname]($style) ";
       style = lib.mkForce "${colors.base09} bold";
     };
 

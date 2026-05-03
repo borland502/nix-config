@@ -23,7 +23,7 @@ in {
     style = "${c.base0B} bold";
     symbols = {
       Macos = "󰀵 ";
-      NixOS = " ";
+      NixOS = " ";
       Ubuntu = "󰕈 ";
       Debian = "󰣚 ";
       Fedora = "󰣛 ";

@@ -2,7 +2,7 @@
 {pkgs, ...}: {
   wsl = {
     enable = true;
-    defaultUser = "nixos";
+    defaultUser = "jhettenh";
     docker-desktop.enable = true;
     interop.register = true;
     useWindowsDriver = true;
@@ -17,7 +17,7 @@
 
   programs.zsh.enable = true;
   users.defaultUserShell = pkgs.zsh;
-  users.users.nixos.shell = pkgs.zsh;
+  users.users.jhettenh.shell = pkgs.zsh;
 
   environment.systemPackages = with pkgs; [
     git
