@@ -4,4 +4,4 @@
 let
   raw = builtins.fromTOML (builtins.readFile ../../chezmoi/dot_config/colors/monokai.toml);
 in
-  raw.palette // {extras = raw.extras;}
+  raw.palette // {inherit (raw) extras;}
