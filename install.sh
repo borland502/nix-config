@@ -28,12 +28,26 @@ else
 fi
 
 # ── 2. Bootstrap configuration via go-task ────────────────────────────────────
-# Remove any standalone direnv profile entry before home-manager activates — home-manager
-# owns direnv (programs.direnv) and will conflict with a pre-existing profile installation.
-if nix profile list 2>/dev/null | grep -q 'direnv'; then
-  echo "==> Removing standalone direnv from nix profile (home-manager will manage it)..."
-  nix profile remove direnv 2>/dev/null || true
-fi
+# Remove any standalone profile entries that conflict with home-manager — home-manager
+# owns these packages and will fail activation if duplicates exist in the nix profile.
+_conflicting_packages=(direnv)
+for _pkg in "${_conflicting_packages[@]}"; do
+  if nix profile list 2>/dev/null | grep -q "$_pkg"; then
+    echo "==> Removing standalone $_pkg from nix profile (home-manager will manage it)..."
+    # Try by name first, then fall back to removing by regex match on the store path.
+    nix profile remove "$_pkg" 2>/dev/null \
+      || nix profile remove ".*${_pkg}.*" 2>/dev/null \
+      || nix profile remove --regex ".*${_pkg}.*" 2>/dev/null \
+      || true
+    # If still present, try removing by index number.
+    if nix profile list 2>/dev/null | grep -q "$_pkg"; then
+      _idx=$(nix profile list 2>/dev/null | grep "$_pkg" | head -1 | awk '{print $1}')
+      if [[ -n "$_idx" ]]; then
+        nix profile remove "$_idx" 2>/dev/null || true
+      fi
+    fi
+  fi
+done
 
 echo "==> Applying configuration via go-task..."
 cd "$SCRIPT_DIR"
