@@ -303,17 +303,27 @@ in {
     # Extensions and other VSCode config can be added here
     # Stylix will automatically handle theming
   };
-  xdg.configFile."flameshot/flameshot.ini".source = ./config/flameshot/flameshot.ini;
+  xdg.configFile."flameshot/flameshot.ini".text = ''
+    [General]
+    contrastOpacity=188
+    saveAfterCopy=true
+    startupLaunch=true
+    useJpgForClipboard=true
+
+    [Shortcuts]
+    SCREENSHOT_HISTORY=Ctrl+Shift+3
+    TAKE_SCREENSHOT=Ctrl+Shift+4
+  '';
   # Kitty terminal configuration
   xdg.configFile."kitty/kitty.conf".text = let
     c = import ./lib/colors.nix;
-    baseCfg = builtins.readFile ./config/kitty/kitty.conf;
+    baseCfg = builtins.readFile ../chezmoi/dot_config/kitty/kitty.conf;
   in
     baseCfg
     + ''
 
       # Theme: Monokai Spectrumish
-      # Source: config/colors/monokai.base24.yaml
+      # Source: chezmoi/dot_config/colors/monokai.toml
       foreground ${c.base05}
       background ${c.base00}
       cursor     ${c.base05}

@@ -252,7 +252,11 @@ in {
   # Common Stylix configuration
   stylix = {
     enable = true;
-    base16Scheme = ./config/colors/monokai.base24.yaml;
+    base16Scheme = let
+      raw = builtins.fromTOML (builtins.readFile ../chezmoi/dot_config/colors/monokai.toml);
+    in {
+      inherit (raw) system name author variant palette;
+    };
 
     fonts = {
       monospace = {

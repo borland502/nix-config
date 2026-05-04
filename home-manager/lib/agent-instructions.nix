@@ -3,7 +3,7 @@
 # the agent name (e.g. "copilot" or "claude") should appear; this module
 # substitutes the placeholder and prepends a YAML frontmatter when requested.
 {pkgs}: let
-  source = ../config/instructions/agent-defaults.md;
+  source = ../../chezmoi/dot_config/instructions/agent-defaults.md;
   body = builtins.readFile source;
 
   render = {

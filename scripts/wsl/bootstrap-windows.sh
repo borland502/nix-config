@@ -5,9 +5,21 @@ windows_powershell_exe="${WINDOWS_POWERSHELL_EXE:-/mnt/c/Windows/System32/Window
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 bootstrap_ps1="$script_dir/bootstrap-windows.ps1"
 
-if [[ ! -x "$windows_powershell_exe" ]]; then
+if [[ ! -f "$windows_powershell_exe" ]]; then
   echo "Windows PowerShell not found at $windows_powershell_exe" >&2
   exit 1
+fi
+
+# Ensure WSL interop binfmt handler is registered (required with systemd=true).
+if [[ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+  echo "WSL interop handler not registered; attempting to re-register..." >&2
+  if [[ -f /init ]]; then
+    sudo sh -c 'echo :WSLInterop:M::MZ::/init:PF > /proc/sys/fs/binfmt_misc/register' 2>/dev/null || true
+  fi
+  if [[ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+    echo "Could not register WSL interop handler. Run 'wsl --shutdown' and restart WSL, then retry." >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -f "$bootstrap_ps1" ]]; then
