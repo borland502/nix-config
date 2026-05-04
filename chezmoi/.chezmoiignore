@@ -1,0 +1,5 @@
+{{- if ne .chezmoi.os "windows" }}
+.local/bin/update_scoop.ps1
+Documents/PowerShell
+Documents/WindowsPowerShell
+{{- end }}

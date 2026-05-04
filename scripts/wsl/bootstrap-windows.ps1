@@ -247,6 +247,24 @@ function Set-WindowsTerminalFont {
   Write-Host "Set Windows Terminal default font to '$FontFace'"
 }
 
+function Ensure-LocalBinInPath {
+  $localBin = Join-Path $env:USERPROFILE ".local\bin"
+  $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $entries = $currentPath -split ";" | Where-Object { $_ -ne "" }
+
+  foreach ($entry in $entries) {
+    if ($entry.TrimEnd("\") -eq $localBin.TrimEnd("\")) {
+      Write-Host "~/.local/bin already in user Path"
+      return
+    }
+  }
+
+  $newPath = ($entries + $localBin) -join ";"
+  [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+  $env:Path = "$env:Path;$localBin"
+  Write-Host "Added ~/.local/bin to user Path"
+}
+
 function Ensure-Packages {
   $ScoopPackages = @(
     "7zip",
@@ -255,6 +273,7 @@ function Ensure-Packages {
     "curl",
     "direnv",
     "fd",
+    "flameshot",
     "fzf",
     "gh",
     "git",
@@ -285,5 +304,6 @@ $resolvedTerminalFontFace = Resolve-TerminalFontFace -RequestedFontFace $Termina
 Set-WindowsTerminalFont -PackageFamily $WindowsTerminalPackageFamily -FontFace $resolvedTerminalFontFace
 
 Ensure-Packages
+Ensure-LocalBinInPath
 
 Write-Host "Windows bootstrap complete."

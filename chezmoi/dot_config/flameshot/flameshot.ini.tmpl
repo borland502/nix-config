@@ -1,0 +1,14 @@
+[General]
+contrastOpacity=188
+saveAfterCopy=true
+startupLaunch=true
+useJpgForClipboard=true
+
+[Shortcuts]
+{{- if eq .chezmoi.os "windows" }}
+SCREENSHOT_HISTORY=Alt+Shift+3
+TAKE_SCREENSHOT=Alt+Shift+4
+{{- else }}
+SCREENSHOT_HISTORY=Ctrl+Shift+3
+TAKE_SCREENSHOT=Ctrl+Shift+4
+{{- end }}

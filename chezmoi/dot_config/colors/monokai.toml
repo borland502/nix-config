@@ -1,0 +1,38 @@
+# Monokai Spectrumish — single source of truth for the color palette.
+# Consumed by Nix (builtins.fromTOML) and deployed to ~/.config/colors/ by chezmoi.
+
+system = "base24"
+name   = "Monokai Spectrumish"
+author = "Jeremy Hettenhouser"
+variant = "dark"
+
+[palette]
+base00 = "#222222"  # Default background
+base01 = "#363537"  # Lighter background (status bars, line numbers)
+base02 = "#525053"  # Selection background
+base03 = "#69676c"  # Comments, invisibles
+base04 = "#8b888f"  # Dark foreground (status bars)
+base05 = "#bab6c0"  # Default foreground
+base06 = "#fbf8ff"  # Light foreground
+base07 = "#f7f1ff"  # Light background
+base08 = "#FC618D"  # Variables, markup link text — pink/red
+base09 = "#fd9353"  # Integers, constants — orange
+base0A = "#FCE566"  # Classes, search highlight — yellow
+base0B = "#7BD88F"  # Strings, markup code — green
+base0C = "#5AD4E6"  # Support, escape chars — cyan
+base0D = "#948ae3"  # Functions, attribute IDs — purple
+base0E = "#fc618d"  # Keywords, storage — pink/red (same hue as base08)
+base0F = "#fef20a"  # Deprecated, tags — bright yellow
+base10 = "#191919"  # Darkest background
+base11 = "#222222"  # Darker background (alias of base00)
+base12 = "#FC618D"  # Alert red
+base13 = "#FCE566"  # Alert yellow
+base14 = "#7BD88F"  # Alert green
+base15 = "#5AD4E6"  # Alert cyan
+base16 = "#948AE3"  # Alert purple
+base17 = "#FD9353"  # Alert orange
+
+[extras]
+lavender     = "#AB9DF2"  # Git branch colour in Starship
+yellowDim    = "#fcd566"  # Dim yellow — exported as the $yellow shell alias
+darkMidtone  = "#2b2b2b"  # Extra dark midtone

@@ -165,6 +165,7 @@ in {
 
           # Other tools
           export UNISON="$XDG_CONFIG_HOME/unison"
+          export _ZO_DOCTOR=0
 
           # Ensure Homebrew is in PATH (important for GUI terminals)
       export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"

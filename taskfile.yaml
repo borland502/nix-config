@@ -129,6 +129,16 @@ tasks:
     desc: Apply chezmoi dotfiles to the home directory
     cmd: chezmoi apply
 
+  _chezmoi-ensure:
+    internal: true
+    desc: Initialize chezmoi if needed, then apply
+    cmd: |
+      _src=$(printf '%s/chezmoi' "$PWD" | tr '\\' '/')
+      if ! chezmoi data >/dev/null 2>&1; then
+        chezmoi init --source "$_src"
+      fi
+      chezmoi apply
+
   chezmoi-diff:
     desc: Show pending chezmoi changes without applying them
     cmd: chezmoi diff
@@ -167,7 +177,7 @@ tasks:
   switch:
     desc: Build and switch to the system configuration
     platforms: [linux, darwin]
-    deps: [_record-nix-config-dir,fmt, generate:agent-instructions]
+    deps: [_record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
@@ -193,7 +203,7 @@ tasks:
   darwin-switch:
     desc: Build and switch to the nix-darwin configuration
     platforms: [darwin]
-    deps: [_record-nix-config-dir]
+    deps: [_record-nix-config-dir, _chezmoi-ensure]
     cmd: sudo darwin-rebuild switch --flake .#{{.HOST}}
 
   # NixOS-specific tasks (kept for Linux systems)
@@ -208,7 +218,7 @@ tasks:
   nixos-switch:
     desc: Build and switch to the NixOS configuration
     platforms: [linux]
-    deps: [_record-nix-config-dir]
+    deps: [_record-nix-config-dir, _chezmoi-ensure]
     cmd: '{{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
@@ -260,7 +270,7 @@ tasks:
   home-switch:
     desc: Switch home-manager configuration
     platforms: [linux, darwin]
-    deps: [_record-nix-config-dir]
+    deps: [_record-nix-config-dir, _chezmoi-ensure]
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
@@ -327,7 +337,7 @@ tasks:
     desc: Render agent-defaults.md into chezmoi-managed files for Windows deployment
     platforms: [linux, darwin]
     cmd: |
-      src="home-manager/config/instructions/agent-defaults.md"
+      src="chezmoi/dot_config/instructions/agent-defaults.md"
 
       mkdir -p chezmoi/dot_claude
       sed 's|@@AGENT@@|claude|g' "$src" > chezmoi/dot_config/claude/CLAUDE.md
@@ -351,7 +361,7 @@ tasks:
     desc: Verify chezmoi agent instruction files match the rendered source
     platforms: [linux, darwin]
     cmd: |
-      src="home-manager/config/instructions/agent-defaults.md"
+      src="chezmoi/dot_config/instructions/agent-defaults.md"
       tmp=$(mktemp -d)
       trap 'rm -rf "$tmp"' EXIT
 
@@ -440,7 +450,7 @@ tasks:
   upgrade:
     desc: Update nixpkgs and rebuild the system
     platforms: [linux, darwin]
-    deps: [_record-nix-config-dir,fmt, generate:agent-instructions]
+    deps: [_record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
     cmd: |
       nix flake update
       {{if eq .IN_DEVCONTAINER "true"}}
