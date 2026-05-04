@@ -53,16 +53,9 @@ info "Target: ${AGE_KEY_FILE}"
 echo
 
 if [[ -f "$AGE_KEY_FILE" ]]; then
-  warn "A key file already exists at ${AGE_KEY_FILE}."
-  if ! gum confirm \
-      --prompt.foreground "$C_YELLOW" \
-      --selected.background "$C_RED" --selected.foreground "$C_TEXT" \
-      --unselected.foreground "$C_MUTED" \
-      "Overwrite it?"; then
-    info "Skipping age key — existing file kept."
-    echo
-    exit 0
-  fi
+  success "Age key already present at ${AGE_KEY_FILE} — nothing to do."
+  echo
+  exit 0
 fi
 
 info "Paste your age private key below (input is hidden)."
