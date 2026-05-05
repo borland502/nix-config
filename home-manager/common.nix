@@ -147,6 +147,25 @@
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
   copilotDefaultsFile = agentInstructions.copilot;
   claudeDefaultsFile = agentInstructions.claude;
+  logBashScript = pkgs.writeText "claude-log-bash.sh" ''
+    #!/bin/bash
+    input=$(cat)
+    cmd=$(printf '%s' "$input" | ${pkgs.jq}/bin/jq -r '.tool_input.command // ""')
+    sid=$(printf '%s' "$input" | ${pkgs.jq}/bin/jq -r '.session_id // "nosid"')
+    resp=$(printf '%s' "$input" | ${pkgs.jq}/bin/jq -r '
+      if .tool_response == null then ""
+      elif (.tool_response | type) == "string" then .tool_response
+      else .tool_response | tostring
+      end')
+    logfile="$HOME/.cache/claude/session_''${sid}.log"
+    mkdir -p "$(dirname "$logfile")"
+    {
+      printf '\n## [%s]\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+      printf 'CMD: %s\n' "$cmd"
+      printf 'OUTPUT:\n%s\n' "$resp"
+      printf -- '---\n'
+    } >> "$logfile"
+  '';
 in {
   nixpkgs.config = {
     allowUnfree = true;
@@ -172,6 +191,7 @@ in {
     # state files like .claude.json, but does NOT drive memory-file resolution
     # — see also home.file.".claude/CLAUDE.md" below.
     configFile."claude/CLAUDE.md".source = claudeDefaultsFile;
+    configFile."claude/log-bash.sh".source = logBashScript;
   };
 
   home = {
@@ -190,6 +210,19 @@ in {
     };
 
     activation = {
+      ensureClaudeHook = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        _settings="${xdgConfigHome}/claude/settings.json"
+        if [ ! -f "$_settings" ]; then
+          ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
+        fi
+        if ! ${pkgs.jq}/bin/jq -e '.hooks.PostToolUse[]? | select(.matcher == "Bash")' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          ${pkgs.jq}/bin/jq \
+            '.hooks.PostToolUse |= (. // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":"bash \"''${CLAUDE_CONFIG_DIR:-$HOME/.config/claude}/log-bash.sh\"","async":true}]}]' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+      '';
+
       ensureXdgDirectories = lib.hm.dag.entryAfter ["writeBoundary"] ''
         ${pkgs.coreutils}/bin/mkdir -p ${lib.concatMapStringsSep " " lib.escapeShellArg xdgDirectories}
       '';
