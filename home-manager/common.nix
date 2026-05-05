@@ -189,33 +189,44 @@ in {
       LS_COLORS = "$(${pkgs.coreutils}/bin/cat ${lsColors})";
     };
 
-    activation.ensureXdgDirectories = lib.hm.dag.entryAfter ["writeBoundary"] ''
-      ${pkgs.coreutils}/bin/mkdir -p ${lib.concatMapStringsSep " " lib.escapeShellArg xdgDirectories}
-    '';
+    activation = {
+      ensureXdgDirectories = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        ${pkgs.coreutils}/bin/mkdir -p ${lib.concatMapStringsSep " " lib.escapeShellArg xdgDirectories}
+      '';
 
-    # Configure chezmoi to use the nix-config repo as its source of truth.
-    # The repo path is recorded to ~/.local/state/chezmoi/nix-config-dir by
-    # the _record-nix-config-dir task whenever any switch task runs, so this
-    # wiring survives the repo being renamed or moved.
-    activation.configureChezmoi = lib.hm.dag.entryAfter ["ensureXdgDirectories"] ''
-      _cm_dir_file="${xdgStateHome}/chezmoi/nix-config-dir"
-      _cm_age_key="${homeDirectory}/.config/sops/age/keys.txt"
-      if [ -f "$_cm_dir_file" ]; then
-        _cm_nix_dir=$(${pkgs.coreutils}/bin/cat "$_cm_dir_file")
-        _cm_source="$_cm_nix_dir/chezmoi"
-        if [ -d "$_cm_source" ]; then
-          ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/chezmoi"
-          {
-            ${pkgs.coreutils}/bin/printf 'sourceDir = "%s"\n' "$_cm_source"
-            if [ -f "$_cm_age_key" ]; then
-              ${pkgs.coreutils}/bin/printf 'encryption = "age"\n'
-              ${pkgs.coreutils}/bin/printf '\n[age]\n'
-              ${pkgs.coreutils}/bin/printf '  identity = "%s"\n' "$_cm_age_key"
-            fi
-          } > "${xdgConfigHome}/chezmoi/chezmoi.toml"
+      # Enforce ~/.cache/claude -> ~/.cache/copilot so both agents share one log dir.
+      ensureCacheClaudeSymlink = lib.hm.dag.entryAfter ["ensureXdgDirectories"] ''
+        ${pkgs.coreutils}/bin/mkdir -p "${xdgCacheHome}/copilot"
+        if [ ! -L "${xdgCacheHome}/claude" ] || [ "$(${pkgs.coreutils}/bin/readlink "${xdgCacheHome}/claude")" != "${xdgCacheHome}/copilot" ]; then
+          ${pkgs.coreutils}/bin/rm -rf "${xdgCacheHome}/claude"
+          ${pkgs.coreutils}/bin/ln -s "${xdgCacheHome}/copilot" "${xdgCacheHome}/claude"
         fi
-      fi
-    '';
+      '';
+
+      # Configure chezmoi to use the nix-config repo as its source of truth.
+      # The repo path is recorded to ~/.local/state/chezmoi/nix-config-dir by
+      # the _record-nix-config-dir task whenever any switch task runs, so this
+      # wiring survives the repo being renamed or moved.
+      configureChezmoi = lib.hm.dag.entryAfter ["ensureXdgDirectories"] ''
+        _cm_dir_file="${xdgStateHome}/chezmoi/nix-config-dir"
+        _cm_age_key="${homeDirectory}/.config/sops/age/keys.txt"
+        if [ -f "$_cm_dir_file" ]; then
+          _cm_nix_dir=$(${pkgs.coreutils}/bin/cat "$_cm_dir_file")
+          _cm_source="$_cm_nix_dir/chezmoi"
+          if [ -d "$_cm_source" ]; then
+            ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/chezmoi"
+            {
+              ${pkgs.coreutils}/bin/printf 'sourceDir = "%s"\n' "$_cm_source"
+              if [ -f "$_cm_age_key" ]; then
+                ${pkgs.coreutils}/bin/printf 'encryption = "age"\n'
+                ${pkgs.coreutils}/bin/printf '\n[age]\n'
+                ${pkgs.coreutils}/bin/printf '  identity = "%s"\n' "$_cm_age_key"
+              fi
+            } > "${xdgConfigHome}/chezmoi/chezmoi.toml"
+          fi
+        fi
+      '';
+    };
 
     # Common packages shared across Linux, WSL, and macOS.
     packages = lib.filter availableOnHost commonPackages;
