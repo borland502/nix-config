@@ -167,8 +167,10 @@ in {
     dataHome = xdgDataHome;
     stateHome = xdgStateHome;
 
-    # Deploy Claude Code global user instructions under XDG so they track
-    # the CLAUDE_CONFIG_DIR exported in zsh.nix ($XDG_CONFIG_HOME/claude).
+    # Canonical XDG location for Claude Code global user instructions.
+    # CLAUDE_CONFIG_DIR (exported in zsh.nix as $XDG_CONFIG_HOME/claude) drives
+    # state files like .claude.json, but does NOT drive memory-file resolution
+    # — see also home.file.".claude/CLAUDE.md" below.
     configFile."claude/CLAUDE.md".source = claudeDefaultsFile;
   };
 
@@ -227,6 +229,16 @@ in {
       ".vscode-server/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
       ".config/github-copilot/copilot-defaults.instructions.md".source = copilotDefaultsFile;
       ".config/github-copilot/intellij/global-copilot-instructions.md".source = copilotDefaultsFile;
+
+      # Claude Code's memory-file loader hardcodes ~/.claude/CLAUDE.md and does
+      # not honor CLAUDE_CONFIG_DIR — see https://code.claude.com/docs/en/memory.md.
+      # PR #20 moved this file to the XDG location alone, which silently broke
+      # auto-loading. Until Anthropic teaches the loader to follow
+      # CLAUDE_CONFIG_DIR (or another XDG-aware mechanism), we deploy the same
+      # source to both paths so XDG remains canonical and the legacy path acts
+      # as a forwarding pointer the loader can find. Revisit and remove this
+      # entry once the upstream fix lands.
+      ".claude/CLAUDE.md".source = claudeDefaultsFile;
     };
   };
 
