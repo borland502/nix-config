@@ -7,7 +7,10 @@ result
 {{ if ne .chezmoi.os "windows" -}}
 # Agent instructions managed by home-manager on Linux/macOS; chezmoi owns them on Windows only.
 .claude/CLAUDE.md
+.config/claude/CLAUDE.md
 .config/github-copilot/copilot-defaults.instructions.md
 .config/github-copilot/intellij/global-copilot-instructions.md
 .config/Code/User/prompts/copilot-defaults.instructions.md
+# Terminal config read by home-manager (darwin appends theme colors); chezmoi source is the base only.
+.config/kitty/kitty.conf
 {{ end -}}
