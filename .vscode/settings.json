@@ -38,5 +38,11 @@
     }
   },
   "nixEnvSelector.nixFile": "${workspaceFolder}/flake.nix",
-  "nixEnvSelector.useFlakes": true
+  "nixEnvSelector.useFlakes": true,
+  "files.associations": {
+    "*.toml.tmpl": "gotemplate",
+    "*.ini.tmpl": "gotemplate",
+    "*.ps1.tmpl": "gotemplate",
+    ".chezmoiignore.tmpl": "gotemplate"
+  }
 }

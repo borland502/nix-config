@@ -7,9 +7,6 @@
 }: let
   devPackages = with pkgs;
     [
-      # Editors and IDEs
-      neovim
-
       # Build tools
       gnumake
       cmake

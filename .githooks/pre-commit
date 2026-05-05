@@ -11,3 +11,6 @@ fi
 
 printf '%s\n' 'pre-commit: running task lint:nix in a nix shell to match CI'
 nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix -c task lint:nix
+
+printf '%s\n' 'pre-commit: scanning staged changes for secrets with gitleaks'
+nix shell nixpkgs#gitleaks -c gitleaks git --staged --redact --no-banner --verbose

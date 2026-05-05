@@ -1,0 +1,29 @@
+{{- if ne .chezmoi.os "windows" }}
+# Source checkouts for borland502 Go CLIs. The companion script
+# run_install-go-tools.sh.tmpl builds binaries from these into ~/.local/bin.
+#
+# chezmoi pulls each repo on first apply, then re-pulls once refreshPeriod
+# has elapsed. Run `chezmoi update` (alias for `chezmoi apply --refresh-externals`)
+# to force a refresh sooner.
+
+[".local/src/wordgen"]
+    type = "git-repo"
+    url = "https://github.com/borland502/wordgen.git"
+    refreshPeriod = "168h"
+    [".local/src/wordgen".pull]
+        args = ["--ff-only"]
+
+[".local/src/gopwgen"]
+    type = "git-repo"
+    url = "https://github.com/borland502/gopwgen.git"
+    refreshPeriod = "168h"
+    [".local/src/gopwgen".pull]
+        args = ["--ff-only"]
+
+[".local/src/go-sea"]
+    type = "git-repo"
+    url = "https://github.com/borland502/go-sea.git"
+    refreshPeriod = "168h"
+    [".local/src/go-sea".pull]
+        args = ["--ff-only"]
+{{- end }}

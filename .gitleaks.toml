@@ -1,0 +1,33 @@
+title = "nix-config gitleaks config"
+
+# Inherit gitleaks' built-in rules (latest default rule set), then layer
+# repo-specific allowlists below. See https://github.com/gitleaks/gitleaks for the
+# default rule list and config schema.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths and patterns intentionally allowed in this repo"
+
+paths = [
+  # Nix flake lock — pinned hashes/URLs only, no secrets.
+  '''(^|/)flake\.lock$''',
+
+  # sops recipients file — contains age public keys (age1...), not private keys.
+  '''(^|/)\.sops\.yaml$''',
+
+  # sops-encrypted secret stores. Encrypted ciphertext shouldn't match rules,
+  # but allowlist defensively in case a binding pattern (e.g. `password:`) trips.
+  '''(^|/)secrets/.*\.(yaml|json|env|ini)$''',
+  '''(^|/)hosts/[^/]+/secrets/.*\.(yaml|json|env|ini)$''',
+
+  # Age-encrypted blobs.
+  '''\.age$''',
+]
+
+regexes = [
+  # Age public recipients (age1...) — public keys, safe to commit. The default
+  # rules don't currently flag these, but pin it here so adding sops recipients
+  # in docs/comments stays clean even if the rule set changes.
+  '''age1[0-9a-z]{58}''',
+]
