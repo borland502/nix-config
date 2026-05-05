@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#
+# Build borland502 Go CLI tools from the source checkouts that
+# .chezmoiexternal.toml.tmpl maintains under ~/.local/src and install
+# the binaries to ~/.local/bin. `go install` is a fast no-op when the
+# Go build cache is warm and nothing has changed.
+
+{{ if eq .chezmoi.os "windows" -}}
+exit 0
+{{ end -}}
+
+set -euo pipefail
+
+command -v go >/dev/null 2>&1 || {
+  printf 'install-go-tools: go is required but not on PATH\n' >&2
+  exit 1
+}
+
+src_root="${HOME}/.local/src"
+bin_dir="${HOME}/.local/bin"
+mkdir -p "$bin_dir"
+
+names=(wordgen gopwgen go-sea)
+
+for name in "${names[@]}"; do
+  dir="${src_root}/${name}"
+  if [ ! -d "$dir" ]; then
+    printf 'install-go-tools: %s is missing — expected from .chezmoiexternal.toml\n' "$dir" >&2
+    exit 1
+  fi
+  printf '==> installing %s -> %s/%s\n' "$name" "$bin_dir" "$name"
+  (cd "$dir" && GOBIN="$bin_dir" go install .)
+done

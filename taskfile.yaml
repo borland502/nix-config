@@ -329,6 +329,11 @@ tasks:
       task check:copilot-instructions
       task check:agent-instructions
 
+  lint:secrets:
+    desc: Scan repo history for committed secrets with gitleaks
+    platforms: [linux, darwin]
+    cmd: gitleaks git --redact --no-banner --verbose
+
   check:copilot-instructions:
     desc: Verify duplicated Copilot instruction files stay in sync
     cmd: bash ./scripts/check-copilot-instructions-sync.sh

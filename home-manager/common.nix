@@ -23,6 +23,13 @@
     xdgStateHome
   ];
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
+  vividTheme = import ./lib/vivid-theme.nix {inherit lib pkgs;};
+  # Bake LS_COLORS at build time from the repo's monokai palette so ls/eza/tree
+  # share the rest of the theme. Read at shell init via $(cat ...) — kernel
+  # caches the /nix/store file so the cost is effectively zero.
+  lsColors = pkgs.runCommand "ls-colors" {} ''
+    ${pkgs.vivid}/bin/vivid generate ${vividTheme} > $out
+  '';
   awsSamCliPatched = pkgs.aws-sam-cli.overridePythonAttrs (old: {
     # nixpkgs currently wires newer click and aws-lambda-builders versions than
     # the wheel metadata expects. Keep the package Nix-managed and skip the
@@ -101,7 +108,6 @@
     zoxide
     direnvPatched
     dasel
-    tmux
     unzip
     p7zip
     age
@@ -180,6 +186,7 @@ in {
       XDG_DATA_HOME = xdgDataHome;
       XDG_LIB_HOME = xdgLibHome;
       XDG_STATE_HOME = xdgStateHome;
+      LS_COLORS = "$(${pkgs.coreutils}/bin/cat ${lsColors})";
     };
 
     activation.ensureXdgDirectories = lib.hm.dag.entryAfter ["writeBoundary"] ''
@@ -201,6 +208,7 @@ in {
           {
             ${pkgs.coreutils}/bin/printf 'sourceDir = "%s"\n' "$_cm_source"
             if [ -f "$_cm_age_key" ]; then
+              ${pkgs.coreutils}/bin/printf 'encryption = "age"\n'
               ${pkgs.coreutils}/bin/printf '\n[age]\n'
               ${pkgs.coreutils}/bin/printf '  identity = "%s"\n' "$_cm_age_key"
             fi
@@ -290,6 +298,8 @@ in {
       bat.enable = true;
       fzf.enable = true;
       vim.enable = true;
+      neovim.enable = true;
+      tmux.enable = true;
       btop.enable = true;
       # Add GUI and shell-aware targets so all profiles are themed
       kitty.enable = true;
@@ -328,10 +338,8 @@ in {
 
     # Common program configurations
     bat.enable = true;
-    dircolors = {
-      enable = true;
-      enableZshIntegration = true;
-    };
+    tmux.enable = true;
+    neovim.enable = true;
 
     eza = {
       enable = true;
