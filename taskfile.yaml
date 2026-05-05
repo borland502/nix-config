@@ -134,10 +134,8 @@ tasks:
     desc: Initialize chezmoi if needed, then apply
     cmd: |
       _src=$(printf '%s/chezmoi' "$PWD" | tr '\\' '/')
-      if ! chezmoi data >/dev/null 2>&1; then
-        chezmoi init --source "$_src"
-      fi
-      chezmoi apply
+      chezmoi init --source "$_src"
+      chezmoi apply --force
 
   chezmoi-diff:
     desc: Show pending chezmoi changes without applying them
