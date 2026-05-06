@@ -142,6 +142,7 @@ in {
           export XDG_STATE_HOME="''${XDG_STATE_HOME:-$HOME/.local/state}"
           export GOBIN="''${GOBIN:-$XDG_BIN_HOME}"
           export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
+          export COPILOT_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/copilot"
 
           # Development environment
           export CAN_USE_SUDO=1

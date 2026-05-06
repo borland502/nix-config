@@ -185,14 +185,25 @@ in {
       "claude/log-bash.sh".source = ./local/bin/log-bash.sh;
 
       # Single source of truth for custom agent/skill definitions is the
-      # workspace-scoped Copilot layout under .github. Deploy those definitions
-      # into Claude's XDG config path for dual-target reuse.
+      # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
+      # Deploy those definitions into both Claude's and Copilot's XDG config
+      # paths so the same plugin content is available to both CLIs.
+      # COPILOT_CONFIG_DIR (exported in zsh.nix as $XDG_CONFIG_HOME/copilot)
+      # is the parallel of CLAUDE_CONFIG_DIR for Copilot-side tooling.
       "claude/agents" = {
-        source = ../.github/agents;
+        source = ../ai-tools/agents;
         recursive = true;
       };
       "claude/skills" = {
-        source = ../.github/skills;
+        source = ../ai-tools/skills;
+        recursive = true;
+      };
+      "copilot/agents" = {
+        source = ../ai-tools/agents;
+        recursive = true;
+      };
+      "copilot/skills" = {
+        source = ../ai-tools/skills;
         recursive = true;
       };
     };
