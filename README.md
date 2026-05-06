@@ -251,6 +251,48 @@ task generate:agent-instructions
 
 The pre-commit hook and CI catch drift automatically via `task check:agent-instructions`.
 
+## AI Tooling (Skills + Agents)
+
+Custom skills and agents live in [`ai-tools/`](ai-tools/) as the single source of truth, modeled on the [obra/superpowers](https://github.com/obra/superpowers) layout:
+
+```
+ai-tools/
+├── .claude-plugin/
+│   ├── marketplace.json     # registers nix-config-tools as a Claude Code plugin
+│   └── plugin.json          # plugin metadata
+├── agents/                  # *.agent.md
+└── skills/                  # <name>/SKILL.md (+ optional references/, scripts/)
+```
+
+[`home-manager/common.nix`](home-manager/common.nix) deploys this content into both `~/.config/claude/{skills,agents}` and `~/.config/copilot/{skills,agents}`, and the `registerClaudeMarketplaces` activation hook idempotently writes the marketplace registration into `~/.config/claude/settings.json`. Two marketplaces are registered:
+
+| Marketplace | Source | Plugins enabled |
+|---|---|---|
+| `nix-config-dev` | `<repo>/ai-tools` (local) | `nix-config-tools` |
+| `anthropic-agent-skills` | `~/.local/src/ai-tools/anthropic-skills` (chezmoi external) | `document-skills`, `claude-api` |
+
+The Anthropic `document-skills` plugin (`docx`, `pdf`, `pptx`, `xlsx`) is loaded directly from the upstream checkout — its proprietary license forbids redistribution, so this repo never copies its contents.
+
+The shells export `CLAUDE_CONFIG_DIR` and `COPILOT_CONFIG_DIR` (defined in [`home-manager/zsh.nix`](home-manager/zsh.nix)) pointing at the XDG locations.
+
+### Upstream credits
+
+Skills under `ai-tools/skills/` other than the project-local ones (`cache-scan`, `chezmoi`, `dasel`, `fd`, `fzf`, `jq`, `nix-pitfalls`, `ops-agent`, `reconciliation`, `rg`, `sd`, `sops-encrypt`, `yq`) were ingested from upstream repositories. Each retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim alongside the skill.
+
+| Upstream repo | License | Skills ingested |
+|---|---|---|
+| [anthropics/skills](https://github.com/anthropics/skills) | Apache 2.0 (`claude-api`); proprietary (`document-skills`) | Loaded via the upstream marketplace registration above. NOT redistributed. |
+| [obra/superpowers](https://github.com/obra/superpowers) | MIT | `writing-plans`, `writing-skills`, `using-git-worktrees`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `finishing-a-development-branch`, `requesting-code-review`, `verification-before-completion` |
+| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `bun-runtime`, `golang-patterns`, `golang-testing`, `github-ops`, `jira-integration`, `repo-scan`, `python-patterns`, `python-testing`, `springboot-patterns`, `springboot-security`, `springboot-tdd`, `springboot-verification`, `git-workflow`, `security-review`, `security-scan` |
+| [appautomaton/webmaton](https://github.com/appautomaton/webmaton) | MIT | `agentic-search`, `chrome-devtools-cli`, `html-to-markdown`, `nodriver-browser`, `playwright-cli` |
+| [angular/skills](https://github.com/angular/skills) | MIT (Google LLC) | `angular-developer`, `angular-new-app` |
+
+### Reconciling against upstream
+
+The chezmoi externals at `~/.local/src/ai-tools/<repo>` refresh every 720h (~1 month). When upstream updates land, follow the [`reconciliation` skill](ai-tools/skills/reconciliation/SKILL.md) — it documents the diff/classify/apply procedure (and the namespace + path rewrites required after each `cp -R`), so local divergence (e.g. the project-specific "Project Layout References" section appended to `golang-patterns` and `golang-testing`) isn't silently overwritten.
+
+This project's own MIT-licensed code is governed by [LICENSE](LICENSE); ingested upstream content retains its original license.
+
 ## PowerShell Profile
 
 The chezmoi-managed PowerShell profile (`chezmoi/dot_Documents/PowerShell/`) mirrors the zsh configuration:
