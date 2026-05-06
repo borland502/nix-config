@@ -47,6 +47,7 @@ echo
 # Age private key → ~/.config/sops/age/keys.txt
 # ---------------------------------------------------------------------------
 AGE_KEY_FILE="${HOME}/.config/sops/age/keys.txt"
+export SOPS_AGE_KEY_FILE="$AGE_KEY_FILE"
 
 label "Age private key"
 info "Target: ${AGE_KEY_FILE}"
