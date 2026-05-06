@@ -1,44 +1,44 @@
-# TODO File for AI Processing Later
+# TODO
 
-> Follow the instructions for all superpowers related content (and dependent tasks and precursors) below and then enter planning mode using that skill.  Defer to existing agents and skills if requirements diverge.  That said merge related existing skills and agents that are logically related into the new skills and skill names so that future merges between this project's AI tools and the tools that are being derived from repos update smoothly
+Items addressed by the `feat/ai-tools-ingestion` branch (Phases 0–4) have
+been removed.  What remains is genuinely outstanding work.
 
-## Clone Repositories
+## Phase 5 — install/deploy integration
 
-### Clone the following repositories using chezmoi
+* Add any CLI applications introduced by ingested skills (e.g. browser
+  automation: playwright, nodriver/Chromium runtime; Python deps for
+  agentic-search) to the shared tooling defaults in
+  `chezmoi/dot_config/instructions/agent-defaults.md` so both Copilot
+  and Claude know they're available — only for tools that should be
+  globally installed via home-manager, not skill-internal venvs.
+* Ensure that `task upgrade` runs at the end of `install.sh`.
+* End-to-end verify on a clean host: `task switch` deploys the plugin
+  and skills into `~/.config/{claude,copilot}/{skills,agents}/` and
+  registers both marketplaces (`nix-config-dev` + `anthropic-agent-skills`)
+  in `~/.config/claude/settings.json`.
 
-> Adjust chezmoi external default refresh period to 1 month for all external references
+## Phase 6 — README + final pass
 
-* [claude skills](https://github.com/anthropics/skills)
-* [superpowers](https://github.com/obra/superpowers)
-* [everything-claude-code](https://github.com/affaan-m/everything-claude-code)
-* [webmation](https://github.com/appautomaton/webmaton)
-* [skills](https://github.com/angular/skills)
+* Credit all upstream skill repositories in `README.md` (anthropic/skills,
+  obra/superpowers, affaan-m/everything-claude-code, appautomaton/webmaton,
+  angular/skills) with their licenses noted.
+* Final lint/build/test pass.
 
-## Tool creation
+## Future — additional CLI tool skill pages
 
-* Add any cli applications added by skills to the default ai instructions list for copilot and claude
+The Phase 4c/4d batch covered `jq`, `dasel`, `rg`, `fd`, `yq`, `sd`,
+`fzf`.  The remaining shared-tooling-list candidates with non-trivial
+complexity, deferred for later if/when needed:
 
-## Skill Creation
+* `bat`   — cat with syntax highlighting + paging
+* `eza`   — ls replacement (already aliased to `ls` in zsh, so triggers
+            are ambient — lower-priority skill)
+* `tmux`  — terminal multiplexer
+* `gum`   — interactive shell prompts (sibling of fzf)
+* `direnv` — per-dir env loading (mostly auto-magic; skill mainly useful
+            for debugging `.envrc` failures)
+* `gh`    — already covered indirectly by the ingested `github-ops` skill;
+            a dedicated `gh` page would overlap
 
-> Revise any path references to the default ~/.claude and ~/.copilot directories to the env vars that are established in this project
-> Move .github skills into the new project tools directory and deploy into the <AGENT_HOME> directory
-
-* Ingest the skills docx, claude-api, pdf, pptx, xlsx from the claude skill repository and wire them into this project's AI tools
-* Ingest the writing-plans, writing-skills skill from `superpowers` repo
-* Ingest bun-runtime, golang-patterns, golang-testing, github-ops, jira-integration, repo-scan, python-patterns, python-testing, springboot-patterns, springboot-security, springboot-tdd, springboot-verification, git-workflow, security-review, security-scan,
-  * For Golang, defer to [project-layout](https://github.com/golang-standards/project-layout) and [go-sea](https://github.com/borland502/go-sea) for project layout
-* Ingest any support skills for named skills from those repo sites
-* Ingest all skills for webmation
-* Ingest all skills for angular
-* Create a reconciliation skill for this project that helps injest and merge these external repository skills into the plugin and AI tools managed by this repository.  Prompt if there is a logical change that would be ignored if deferring to this repository's AI tools
-* Create a chezmoi skill based on cache usage and [reference](https://www.chezmoi.io/reference/) and [user](https://www.chezmoi.io/user-guide/command-overview/) pages converted from html to markdown
-* Create a skill page for any cli tool listed in the default agent instructions with a fair amount of complexity (jq, dasel, rg, fd, etc) convert help pages (if available) to markdown and appropriate skill language.  Fallback to cli help invocations for this information if html reference pages cannot be found.
-* Credit all skill repositories in the README.md file
-
-## Refactor project
-
-* Refactor this project's AI tools (skills, agents, etc) to use the layout of the `superpowers` site into a logically named top level folder
-* Refactor this project's AI tools to be installed as either a github copilot plugin or a claude plugin from this project's AI tools subdirectory
-* Refactor this project to install the plugin into both cli tools or verify that the plugin is installed as well as skills/tasks/agents/etc upon `task switch` or `task upgrade`.
-* Ensure that `task upgrade` runs at the end of `install.sh`
-* Refactor so that COPILOT_HOME env var is introduced for the same reasons and scope as for CLAUDE_HOME_DIR
+Skip any tool where its `--help` is so simple that a skill page adds no
+information beyond "see `--help`".
