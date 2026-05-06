@@ -288,6 +288,7 @@ Common development tools (`git`, `gh`, `go`, `ripgrep`, `fzf`, `jq`, `docker`, `
 
 - `home-manager/lib/code-editor-user-settings.nix` is the shared source for VS Code user settings.
 - `common.nix` and `home-darwin.nix` install those settings and Copilot prompt files into each editor's user config directory.
+- Workspace-scoped Copilot custom agents and skills live under `.github/agents/` and `.github/skills/` so they stay project-organized and avoid Copilot's non-XDG personal skill path.
 - `.devcontainer/devcontainer.json` is the bootstrap layer for container sessions before the Home Manager profile is applied.
 - `.vscode/settings.json` and `.vscode/extensions.json` are repo-workspace-specific and should stay focused on the Nix formatter, language server, and extension recommendations.
 - If a setting should follow you across machines, keep it in Home Manager. If it applies only to this repository, keep it in `.vscode`.

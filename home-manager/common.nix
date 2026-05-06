@@ -127,6 +127,7 @@
     # AI development tools
     claude-code
     github-copilot-cli
+    opsAgent
 
     # Secret management
     sops
@@ -147,6 +148,10 @@
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
   copilotDefaultsFile = agentInstructions.copilot;
   claudeDefaultsFile = agentInstructions.claude;
+  opsAgentPython = pkgs.python3.withPackages (ps: [ps.anthropic]);
+  opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
+    exec ${opsAgentPython}/bin/python ${./local/bin/ops-agent.py} "$@"
+  '';
   logBashScript = pkgs.writeText "claude-log-bash.sh" ''
     #!/bin/bash
     input=$(cat)

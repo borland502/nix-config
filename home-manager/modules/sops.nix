@@ -6,9 +6,12 @@
     age.keyFile = "${config.home.homeDirectory}/.config/sops/age/keys.txt";
     defaultSopsFormat = "yaml";
 
-    # Declare secrets here as needed, for example:
-    # secrets."github-token" = {
-    #   sopsFile = ../../secrets/user-secrets.yaml;
-    # };
+    secrets."ops_agent/jira_base_url" = {
+      sopsFile = ../../secrets/ops-agent.yaml;
+      path = "${config.home.homeDirectory}/.config/ops-agent/jira-base-url";
+    };
+
+    # ops_agent/jira_token: Will be added after provisioning age key and encrypting secret.
+    # See .github/skills/sops-encrypt/ for the workflow.
   };
 }
