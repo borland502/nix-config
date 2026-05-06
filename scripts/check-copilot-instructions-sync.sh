@@ -75,6 +75,13 @@ normalized_mirror="$tmp_dir/copilot-instructions.normalized.md"
 normalize "$substituted_source" > "$normalized_source"
 normalize "$mirror_file" > "$normalized_mirror"
 
+stale_pattern='write the exact command and the resulting output to files under ~/.cache/copilot|Ensure ~/.cache/copilot exists once per session|temporary Go, Python, shell, or data files to ~/.cache/copilot'
+if rg -n "$stale_pattern" "$substituted_source" "$mirror_file" >/dev/null 2>&1; then
+  printf '%s\n' 'Stale cache-write directives detected in Copilot instruction sources.'
+  printf '%s\n' 'Remove these directives from chezmoi/dot_config/instructions/agent-defaults.md and re-generate.'
+  exit 1
+fi
+
 if ! cmp -s "$normalized_source" "$normalized_mirror"; then
   printf '%s\n' 'Normalized Copilot instruction content diverged:'
   diff -u \

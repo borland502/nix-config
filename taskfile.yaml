@@ -349,7 +349,7 @@ tasks:
       mkdir -p "chezmoi/dot_config/Code/User/prompts"
       {
         printf -- '---\n'
-        printf 'description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."\n'
+        printf 'description: "Use for every task. Persistent defaults for terminal commands and shell execution patterns."\n'
         printf 'name: "Persistent Terminal Logging Defaults"\n'
         printf 'applyTo: "**"\n'
         printf -- '---\n\n'
@@ -371,7 +371,7 @@ tasks:
       sed 's|@@AGENT@@|claude|g' "$src" > "$tmp/CLAUDE.md"
       {
         printf -- '---\n'
-        printf 'description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."\n'
+        printf 'description: "Use for every task. Persistent defaults for terminal commands and shell execution patterns."\n'
         printf 'name: "Persistent Terminal Logging Defaults"\n'
         printf 'applyTo: "**"\n'
         printf -- '---\n\n'
@@ -383,6 +383,18 @@ tasks:
       diff -u "$tmp/copilot.md" chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md || fail=1
       diff -u "$tmp/copilot.md" "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" || fail=1
       diff -u "$tmp/copilot.md" chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md || fail=1
+
+      stale_pattern='write the exact command and the resulting output to files under ~/.cache/copilot|Ensure ~/.cache/copilot exists once per session|temporary Go, Python, shell, or data files to ~/.cache/copilot'
+      if rg -n "$stale_pattern" \
+        chezmoi/dot_config/claude/CLAUDE.md \
+        chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md \
+        "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" \
+        chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md \
+        .github/copilot-instructions.md >/dev/null 2>&1; then
+        printf '%s\n' 'Stale cache-write directives detected in generated instruction files.' >&2
+        printf '%s\n' 'Run: task generate:agent-instructions and remove stale directives from source template.' >&2
+        exit 1
+      fi
 
       if [ "$fail" -ne 0 ]; then
         printf '%s\n' 'Stale chezmoi agent instructions. Run: task generate:agent-instructions' >&2
