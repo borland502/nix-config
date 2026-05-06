@@ -1,0 +1,21 @@
+{
+  "name": "nix-config-tools",
+  "description": "AI tooling (skills + agents) curated for this nix-config repo: ops-agent, sops/encryption helpers, cache scanning, nix pitfalls, and skills ingested from upstream repos.",
+  "version": "0.1.0",
+  "author": {
+    "name": "jhettenh",
+    "email": "jhettenh@gmail.com"
+  },
+  "homepage": "https://github.com/jhettenh/nix-config",
+  "repository": "https://github.com/jhettenh/nix-config",
+  "license": "MIT",
+  "keywords": [
+    "nix",
+    "home-manager",
+    "chezmoi",
+    "skills",
+    "agents",
+    "claude-code",
+    "github-copilot"
+  ]
+}

@@ -185,14 +185,25 @@ in {
       "claude/log-bash.sh".source = ./local/bin/log-bash.sh;
 
       # Single source of truth for custom agent/skill definitions is the
-      # workspace-scoped Copilot layout under .github. Deploy those definitions
-      # into Claude's XDG config path for dual-target reuse.
+      # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
+      # Deploy those definitions into both Claude's and Copilot's XDG config
+      # paths so the same plugin content is available to both CLIs.
+      # COPILOT_CONFIG_DIR (exported in zsh.nix as $XDG_CONFIG_HOME/copilot)
+      # is the parallel of CLAUDE_CONFIG_DIR for Copilot-side tooling.
       "claude/agents" = {
-        source = ../.github/agents;
+        source = ../ai-tools/agents;
         recursive = true;
       };
       "claude/skills" = {
-        source = ../.github/skills;
+        source = ../ai-tools/skills;
+        recursive = true;
+      };
+      "copilot/agents" = {
+        source = ../ai-tools/agents;
+        recursive = true;
+      };
+      "copilot/skills" = {
+        source = ../ai-tools/skills;
         recursive = true;
       };
     };
@@ -223,6 +234,82 @@ in {
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq \
             '.hooks.PostToolUse |= (. // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"''${CLAUDE_CONFIG_DIR:-$HOME/.config/claude}/log-bash.sh\"","async":true}]}]' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+      '';
+
+      # Register Claude Code marketplaces in ~/.config/claude/settings.json:
+      #
+      #   nix-config-dev          (local)  — this repo's ai-tools/ directory.
+      #                                       Plugin: nix-config-tools.
+      #   anthropic-agent-skills  (local)  — upstream anthropics/skills repo
+      #                                       checked out by chezmoi to
+      #                                       ~/.local/src/ai-tools/anthropic-skills.
+      #                                       Plugins: document-skills (docx,
+      #                                       pdf, pptx, xlsx) and claude-api.
+      #
+      # The proprietary docx/pdf/pptx/xlsx skills ship under terms that
+      # forbid redistribution outside Anthropic's services, so we never copy
+      # them into this repo — we only register the upstream marketplace
+      # locally so Claude Code can load them from the chezmoi-managed source.
+      #
+      # The absolute path for the local marketplace comes from the chezmoi
+      # state file written by _record-nix-config-dir, so this wiring tracks
+      # the repo even if it gets renamed or moved.  Idempotent: only writes
+      # when a key is missing or a path drifted.
+      registerClaudeMarketplaces = lib.hm.dag.entryAfter ["ensureClaudeHook" "ensureXdgDirectories"] ''
+        _settings="${xdgConfigHome}/claude/settings.json"
+        _cm_dir_file="${xdgStateHome}/chezmoi/nix-config-dir"
+        if [ ! -f "$_cm_dir_file" ]; then
+          exit 0
+        fi
+        _repo=$(${pkgs.coreutils}/bin/cat "$_cm_dir_file")
+        _local_path="$_repo/ai-tools"
+        _anthropic_path="${homeDirectory}/.local/src/ai-tools/anthropic-skills"
+        if [ ! -d "$_local_path/.claude-plugin" ]; then
+          exit 0
+        fi
+        if [ ! -f "$_settings" ]; then
+          ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
+        fi
+
+        _local_current=$(jq -r '.extraKnownMarketplaces."nix-config-dev".source.path // ""' "$_settings")
+        _local_enabled=$(jq -r '.enabledPlugins."nix-config-tools@nix-config-dev" // false' "$_settings")
+
+        _anthropic_present=false
+        if [ -d "$_anthropic_path/.claude-plugin" ]; then
+          _anthropic_present=true
+        fi
+        _anthropic_current=$(jq -r '.extraKnownMarketplaces."anthropic-agent-skills".source.path // ""' "$_settings")
+        _doc_enabled=$(jq -r '.enabledPlugins."document-skills@anthropic-agent-skills" // false' "$_settings")
+        _api_enabled=$(jq -r '.enabledPlugins."claude-api@anthropic-agent-skills" // false' "$_settings")
+
+        _need_write=false
+        if [ "$_local_current" != "$_local_path" ] || [ "$_local_enabled" != "true" ]; then
+          _need_write=true
+        fi
+        if [ "$_anthropic_present" = "true" ] && { [ "$_anthropic_current" != "$_anthropic_path" ] || [ "$_doc_enabled" != "true" ] || [ "$_api_enabled" != "true" ]; }; then
+          _need_write=true
+        fi
+        if [ "$_need_write" = "false" ]; then
+          exit 0
+        fi
+
+        _tmp=$(${pkgs.coreutils}/bin/mktemp)
+        if [ "$_anthropic_present" = "true" ]; then
+          jq \
+            --arg local "$_local_path" \
+            --arg anthropic "$_anthropic_path" \
+            '.extraKnownMarketplaces["nix-config-dev"] = {source: {source: "directory", path: $local}}
+             | .extraKnownMarketplaces["anthropic-agent-skills"] = {source: {source: "directory", path: $anthropic}}
+             | .enabledPlugins["nix-config-tools@nix-config-dev"] = true
+             | .enabledPlugins["document-skills@anthropic-agent-skills"] = true
+             | .enabledPlugins["claude-api@anthropic-agent-skills"] = true' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        else
+          jq --arg local "$_local_path" \
+            '.extraKnownMarketplaces["nix-config-dev"] = {source: {source: "directory", path: $local}}
+             | .enabledPlugins["nix-config-tools@nix-config-dev"] = true' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
       '';

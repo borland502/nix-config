@@ -70,8 +70,14 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
 
-      - name: Enable Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@565684385bcd71bad329742eefe8d12f2e765b39 # v13
+      # NOTE: magic-nix-cache-action removed for the darwin runner only —
+      # tracking upstream bug DeterminateSystems/magic-nix-cache-action#182
+      # ("Symbol not found: __ZNSt13exception_ptr31__from_native_exception_pointerEPv"),
+      # an ABI break between the prebuilt magic-nix-cache binary and the
+      # macos-14 runner image's C++ runtime.  The binary hangs instead of
+      # crashing, blocking the job indefinitely.  Linux jobs above keep the
+      # cache action since the bug is macOS-binary-specific.  Re-add this
+      # step once the upstream issue is fixed.
 
       - name: Build Darwin system
         run: nix build .#darwinConfigurations.darwin.system --print-build-logs

@@ -1,0 +1,20 @@
+{
+  "name": "nix-config-dev",
+  "description": "Local development marketplace for the nix-config-tools plugin. Register this marketplace by local path during development, or by git URL (subdir: ai-tools) for use on other machines.",
+  "owner": {
+    "name": "jhettenh",
+    "email": "jhettenh@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "nix-config-tools",
+      "description": "AI tooling (skills + agents) curated for this nix-config repo.",
+      "version": "0.1.0",
+      "source": "./",
+      "author": {
+        "name": "jhettenh",
+        "email": "jhettenh@gmail.com"
+      }
+    }
+  ]
+}
