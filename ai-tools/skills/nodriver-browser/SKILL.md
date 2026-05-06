@@ -20,7 +20,7 @@ A persistent Chrome/Chromium browser that **stays alive between Claude's turns**
 ## When NOT to use this skill
 
 - **Static HTML** that loads fully on first GET → use `WebFetch`
-- **One-shot search query** → use `WebSearch` (or grok-search skill if it exists)
+- **One-shot search query** → use `WebSearch`
 - **A JSON API endpoint** → use `curl` via Bash, you don't need a browser at all
 - **A single quick scrape with no interactivity** → consider a one-off Python script, not this skill
 
