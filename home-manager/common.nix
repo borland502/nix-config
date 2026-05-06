@@ -176,12 +176,26 @@ in {
     dataHome = xdgDataHome;
     stateHome = xdgStateHome;
 
-    # Canonical XDG location for Claude Code global user instructions.
-    # CLAUDE_CONFIG_DIR (exported in zsh.nix as $XDG_CONFIG_HOME/claude) drives
-    # state files like .claude.json, but does NOT drive memory-file resolution
-    # — see also home.file.".claude/CLAUDE.md" below.
-    configFile."claude/CLAUDE.md".source = claudeDefaultsFile;
-    configFile."claude/log-bash.sh".source = ./local/bin/log-bash.sh;
+    configFile = {
+      # Canonical XDG location for Claude Code global user instructions.
+      # CLAUDE_CONFIG_DIR (exported in zsh.nix as $XDG_CONFIG_HOME/claude) drives
+      # state files like .claude.json, but does NOT drive memory-file resolution
+      # — see also home.file.".claude/CLAUDE.md" below.
+      "claude/CLAUDE.md".source = claudeDefaultsFile;
+      "claude/log-bash.sh".source = ./local/bin/log-bash.sh;
+
+      # Single source of truth for custom agent/skill definitions is the
+      # workspace-scoped Copilot layout under .github. Deploy those definitions
+      # into Claude's XDG config path for dual-target reuse.
+      "claude/agents" = {
+        source = ../.github/agents;
+        recursive = true;
+      };
+      "claude/skills" = {
+        source = ../.github/skills;
+        recursive = true;
+      };
+    };
   };
 
   home = {
