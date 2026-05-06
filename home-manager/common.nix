@@ -238,6 +238,37 @@ in {
         fi
       '';
 
+      # Register the local ai-tools/ directory as a Claude Code marketplace
+      # named "nix-config-dev" and enable the "nix-config-tools" plugin from
+      # it.  The absolute path comes from the chezmoi state file written by
+      # the _record-nix-config-dir task, so this wiring tracks the repo even
+      # if it gets renamed or moved.  Idempotent: only writes when the keys
+      # are missing or the path drifted.
+      registerClaudeMarketplace = lib.hm.dag.entryAfter ["ensureClaudeHook" "ensureXdgDirectories"] ''
+        _settings="${xdgConfigHome}/claude/settings.json"
+        _cm_dir_file="${xdgStateHome}/chezmoi/nix-config-dir"
+        if [ ! -f "$_cm_dir_file" ]; then
+          exit 0
+        fi
+        _repo=$(${pkgs.coreutils}/bin/cat "$_cm_dir_file")
+        _market_path="$_repo/ai-tools"
+        if [ ! -d "$_market_path/.claude-plugin" ]; then
+          exit 0
+        fi
+        if [ ! -f "$_settings" ]; then
+          ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
+        fi
+        _current=$(jq -r '.extraKnownMarketplaces."nix-config-dev".source.path // ""' "$_settings")
+        _enabled=$(jq -r '.enabledPlugins."nix-config-tools@nix-config-dev" // false' "$_settings")
+        if [ "$_current" != "$_market_path" ] || [ "$_enabled" != "true" ]; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq --arg path "$_market_path" \
+            '.extraKnownMarketplaces["nix-config-dev"] = {source: {source: "directory", path: $path}}
+             | .enabledPlugins["nix-config-tools@nix-config-dev"] = true' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+      '';
+
       ensureXdgDirectories = lib.hm.dag.entryAfter ["writeBoundary"] ''
         ${pkgs.coreutils}/bin/mkdir -p ${lib.concatMapStringsSep " " lib.escapeShellArg xdgDirectories}
       '';
