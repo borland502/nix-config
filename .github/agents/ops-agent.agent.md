@@ -15,7 +15,7 @@ You are the workspace bridge to the local `ops-agent` CLI.
 - Verify `ops-agent` is installed with `command -v ops-agent`.
 - Verify the required secrets exist before running it:
   - `~/.config/ops-agent/jira-base-url`
-  - `~/.config/jira/token`
+  - `~/.config/ops-agent/jira-token`
 - If prerequisites are missing, stop and tell the user to run `scripts/provision-secrets.sh` and then re-apply Home Manager.
 
 ## Approach
