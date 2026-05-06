@@ -1,0 +1,33 @@
+# Command overview
+
+> Mirrored from <https://www.chezmoi.io/user-guide/command-overview/> for offline reference.
+
+## Getting started
+
+- [`chezmoi doctor`](https://www.chezmoi.io/reference/commands/doctor/) checks for common problems. If you encounter something unexpected, run this first.
+- [`chezmoi init`](https://www.chezmoi.io/reference/commands/init/) creates chezmoi's source directory and a git repo on a new machine.
+
+## Daily commands
+
+- [`chezmoi add $FILE`](https://www.chezmoi.io/reference/commands/add/) adds `$FILE` from your home directory to the source directory.
+- [`chezmoi edit $FILE`](https://www.chezmoi.io/reference/commands/edit/) opens your editor with the file in the source directory that corresponds to `$FILE`.
+- [`chezmoi status`](https://www.chezmoi.io/reference/commands/status/) gives a quick summary of what files would change if you ran `chezmoi apply`.
+- [`chezmoi diff`](https://www.chezmoi.io/reference/commands/diff/) shows the changes that `chezmoi apply` would make to your home directory.
+- [`chezmoi apply`](https://www.chezmoi.io/reference/commands/apply/) updates your dotfiles from the source directory.
+- [`chezmoi edit --apply $FILE`](https://www.chezmoi.io/reference/commands/edit/) is like `chezmoi edit $FILE` but also runs `chezmoi apply $FILE` afterwards.
+- [`chezmoi cd`](https://www.chezmoi.io/reference/commands/cd/) opens a subshell in the source directory.
+
+## Using chezmoi across multiple machines
+
+- [`chezmoi init $GITHUB_USERNAME`](https://www.chezmoi.io/reference/commands/init/) clones your dotfiles from GitHub into the source directory.
+- [`chezmoi init --apply $GITHUB_USERNAME`](https://www.chezmoi.io/reference/commands/init/) clones your dotfiles from GitHub into the source directory and runs `chezmoi apply`.
+- [`chezmoi update`](https://www.chezmoi.io/reference/commands/update/) pulls the latest changes from your remote repo and runs `chezmoi apply`.
+- Use normal git commands to add, commit, and push changes to your remote repo.
+
+## Working with templates
+
+- [`chezmoi data`](https://www.chezmoi.io/reference/commands/data/) prints the available template data.
+- [`chezmoi add --template $FILE`](https://www.chezmoi.io/reference/commands/add/) adds `$FILE` as a template.
+- [`chezmoi chattr +template $FILE`](https://www.chezmoi.io/reference/commands/chattr/) makes an existing file a template.
+- [`chezmoi cat $FILE`](https://www.chezmoi.io/reference/commands/cat/) prints the target contents of `$FILE`, without changing `$FILE`.
+- [`chezmoi execute-template`](https://www.chezmoi.io/reference/commands/execute-template/) is useful for testing and debugging templates.
