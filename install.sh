@@ -121,6 +121,16 @@ else
   echo "==> Secret provisioning script not found at $_provision_secrets; skipping."
 fi
 
+# ── 8. Upgrade flake inputs and re-switch ─────────────────────────────────────
+# Step 2 already brought the system to a working state; this final pass updates
+# the flake inputs to current and re-switches so the freshly-installed shell is
+# already on the latest before the user's first interactive session.
+echo "==> Upgrading flake inputs and re-switching (task upgrade)..."
+nix shell nixpkgs#go-task --command bash -c '
+  cd "'"$SCRIPT_DIR"'"
+  task upgrade
+'
+
 echo ""
 if [[ "$IS_WSL" == true ]]; then
   echo "==> Setup complete.  Please run wsl --shutdown and start a new WSL session to ensure all changes take effect."
