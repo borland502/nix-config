@@ -13,7 +13,6 @@
 * [everything-claude-code](https://github.com/affaan-m/everything-claude-code)
 * [webmation](https://github.com/appautomaton/webmaton)
 * [skills](https://github.com/angular/skills)
-* [cloudflare](https://officialskills.sh/cloudflare/skills/cloudflare)
 
 ## Tool creation
 
@@ -31,7 +30,6 @@
 * Ingest any support skills for named skills from those repo sites
 * Ingest all skills for webmation
 * Ingest all skills for angular
-* Ingest all skills from cloudflare
 * Create a reconciliation skill for this project that helps injest and merge these external repository skills into the plugin and AI tools managed by this repository.  Prompt if there is a logical change that would be ignored if deferring to this repository's AI tools
 * Create a chezmoi skill based on cache usage and [reference](https://www.chezmoi.io/reference/) and [user](https://www.chezmoi.io/user-guide/command-overview/) pages converted from html to markdown
 * Create a skill page for any cli tool listed in the default agent instructions with a fair amount of complexity (jq, dasel, rg, fd, etc) convert help pages (if available) to markdown and appropriate skill language.  Fallback to cli help invocations for this information if html reference pages cannot be found.
