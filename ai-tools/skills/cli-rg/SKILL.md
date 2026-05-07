@@ -1,5 +1,5 @@
 ---
-name: rg
+name: cli-rg
 description: Use when searching file contents recursively across a tree. ripgrep (rg) is the project's preferred grep replacement — it's gitignore-aware, fast, and supports PCRE2. Covers the patterns this repo uses (find references before refactor, scope by file type, multiline matches) plus pitfalls around the eza/ls alias and quoting.
 ---
 

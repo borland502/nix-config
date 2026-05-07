@@ -1,5 +1,5 @@
 ---
-name: fzf
+name: cli-fzf
 description: Use when interactive fuzzy selection from a list is wanted in a shell script (file picker, branch picker, command builder) or when wiring a tool's output into a TUI selector. fzf is on the project's shared tooling list; the zsh integration provides Ctrl-T / Ctrl-R / Alt-C bindings out of the box.
 ---
 

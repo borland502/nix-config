@@ -59,13 +59,6 @@ rather than introducing a flatten-on-deploy build step.
 
 | Current | New |
 |---|---|
-| `dasel` | `cli-dasel` |
-| `fd` | `cli-fd` |
-| `fzf` | `cli-fzf` |
-| `jq` | `cli-jq` |
-| `rg` | `cli-rg` |
-| `sd` | `cli-sd` |
-| `yq` | `cli-yq` |
 | `using-git-worktrees` | `git-worktrees` |
 | `finishing-a-development-branch` | `git-finish-branch` |
 | `requesting-code-review` | `git-request-review` |
@@ -117,7 +110,7 @@ first):**
 1. `web-` (4 renames, mostly self-contained)
 2. `sec-` (3 renames, few cross-refs)
 3. ~~`ops-` (5 renames, some `chezmoi`/`sops-encrypt` cross-refs to fix)~~ — landed
-4. `cli-` (7 renames, low cross-skill coupling)
+4. ~~`cli-` (7 renames, low cross-skill coupling)~~ — landed
 5. `git-` (3 renames, referenced by the flow cluster)
 6. `flow-` (8 renames, dense internal cross-references — do last so all
    targets already exist)

@@ -1,5 +1,5 @@
 ---
-name: fd
+name: cli-fd
 description: Use when finding files or directories by name, type, or attributes. fd is the project's preferred find replacement — gitignore-aware, regex by default, parallel, and friendlier syntax. Covers the patterns this repo uses (locate by extension, run a command per match, exclude paths, fd-then-rg pipelines).
 ---
 
