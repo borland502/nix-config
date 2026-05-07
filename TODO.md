@@ -56,7 +56,7 @@ rather than introducing a flatten-on-deploy build step.
 * (no prefix) — language-prefixed skills already self-group:
   `angular-*`, `bun-runtime`, `golang-*`, `python-*`, `springboot-*`
 
-**Renames (30 of 43):**
+**Renames remaining (26 of 30; web- batch landed in PR #N):**
 
 | Current | New |
 |---|---|
@@ -78,10 +78,6 @@ rather than introducing a flatten-on-deploy build step.
 | `subagent-driven-development` | `flow-subagent-driven-development` |
 | `verification-before-completion` | `flow-verification-before-completion` |
 | `reconciliation` | `flow-reconciliation` |
-| `chrome-devtools-cli` | `web-chrome-devtools-cli` |
-| `nodriver-browser` | `web-nodriver-browser` |
-| `playwright-cli` | `web-playwright-cli` |
-| `html-to-markdown` | `web-html-to-markdown` |
 | `security-review` | `sec-review` |
 | `security-scan` | `sec-scan` |
 | `sops-encrypt` | `sec-sops-encrypt` |
@@ -120,7 +116,7 @@ directory name and `name:` frontmatter change.
 **PR strategy — one PR per prefix, in this order (smallest blast radius
 first):**
 
-1. `web-` (4 renames, mostly self-contained)
+1. ~~`web-` (4 renames, mostly self-contained)~~ — landed
 2. `sec-` (3 renames, few cross-refs)
 3. `ops-` (5 renames, some `chezmoi`/`sops-encrypt` cross-refs to fix)
 4. `cli-` (7 renames, low cross-skill coupling)

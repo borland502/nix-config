@@ -1,5 +1,5 @@
 ---
-name: playwright-cli
+name: web-playwright-cli
 description: "Use when a task needs Playwright-backed browser automation from the shell: open or attach to browser sessions, inspect snapshots and element refs, click/type/fill forms, debug Playwright tests, inspect console/network/storage, run Playwright snippets, capture screenshots/traces/videos, or generate reliable test code. Prefer for repeatable browser workflows and Playwright test work; not for static HTTP fetches, JSON APIs, or simple web search."
 ---
 
