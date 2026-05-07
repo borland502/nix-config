@@ -149,6 +149,21 @@
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
   copilotDefaultsFile = agentInstructions.copilot;
   claudeDefaultsFile = agentInstructions.claude;
+  # Home-manager-managed agent-instruction destinations (paths relative to $HOME).
+  # Single list keeps the home.file refactor and the orphan-backup activation
+  # hook below pointing at the same set of files.
+  copilotInstructionPaths = [
+    ".config/Code/User/prompts/copilot-defaults.instructions.md"
+    ".vscode-server/data/User/prompts/copilot-defaults.instructions.md"
+    ".config/github-copilot/copilot-defaults.instructions.md"
+    ".config/github-copilot/intellij/global-copilot-instructions.md"
+  ];
+  agentInstructionDestPaths =
+    [
+      "${xdgConfigHome}/claude/CLAUDE.md"
+      "${homeDirectory}/.claude/CLAUDE.md"
+    ]
+    ++ map (p: "${homeDirectory}/${p}") copilotInstructionPaths;
   opsAgentPython = pkgs.python3.withPackages (ps: [ps.anthropic]);
   opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
     exec ${opsAgentPython}/bin/python ${./local/bin/ops-agent.py} "$@"
@@ -181,7 +196,13 @@ in {
       # CLAUDE_CONFIG_DIR (exported in zsh.nix as $XDG_CONFIG_HOME/claude) drives
       # state files like .claude.json, but does NOT drive memory-file resolution
       # — see also home.file.".claude/CLAUDE.md" below.
-      "claude/CLAUDE.md".source = claudeDefaultsFile;
+      # `force = true` because home-manager canonically owns this file; any
+      # pre-existing real file at the destination is moved aside by the
+      # backupAgentInstructions activation hook below before this is written.
+      "claude/CLAUDE.md" = {
+        source = claudeDefaultsFile;
+        force = true;
+      };
       "claude/log-bash.sh".source = ./local/bin/log-bash.sh;
 
       # Single source of truth for custom agent/skill definitions is the
@@ -225,6 +246,20 @@ in {
     };
 
     activation = {
+      # Move any pre-existing real file at an HM-owned agent-instruction path
+      # aside before checkLinkTargets runs. Eliminates "Existing file would be
+      # clobbered" failures when bootstrapping a host where another tool (e.g.
+      # an older chezmoi config, manual edit) placed the file first. Backup
+      # filenames are timestamped so repeated runs don't overwrite earlier
+      # backups. Symlinks are left alone — they're already HM-owned.
+      backupAgentInstructions = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
+        for f in ${lib.concatMapStringsSep " " lib.escapeShellArg agentInstructionDestPaths}; do
+          if [ -e "$f" ] && [ ! -L "$f" ]; then
+            ${pkgs.coreutils}/bin/mv "$f" "$f.pre-hm-$(${pkgs.coreutils}/bin/date +%s)"
+          fi
+        done
+      '';
+
       ensureClaudeHook = lib.hm.dag.entryAfter ["writeBoundary"] ''
         _settings="${xdgConfigHome}/claude/settings.json"
         if [ ! -f "$_settings" ]; then
@@ -359,22 +394,31 @@ in {
     stateVersion = "25.05";
 
     # Make Copilot defaults visible to desktop, remote, and shared IDE sessions.
-    file = {
-      ".config/Code/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-      ".vscode-server/data/User/prompts/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-      ".config/github-copilot/copilot-defaults.instructions.md".source = copilotDefaultsFile;
-      ".config/github-copilot/intellij/global-copilot-instructions.md".source = copilotDefaultsFile;
-
-      # Claude Code's memory-file loader hardcodes ~/.claude/CLAUDE.md and does
-      # not honor CLAUDE_CONFIG_DIR — see https://code.claude.com/docs/en/memory.md.
-      # PR #20 moved this file to the XDG location alone, which silently broke
-      # auto-loading. Until Anthropic teaches the loader to follow
-      # CLAUDE_CONFIG_DIR (or another XDG-aware mechanism), we deploy the same
-      # source to both paths so XDG remains canonical and the legacy path acts
-      # as a forwarding pointer the loader can find. Revisit and remove this
-      # entry once the upstream fix lands.
-      ".claude/CLAUDE.md".source = claudeDefaultsFile;
-    };
+    # Source paths come from copilotInstructionPaths in the let-block above so
+    # the orphan-backup activation hook and the deploy targets stay in sync.
+    # `force = true` on every entry: home-manager canonically owns these files,
+    # and the backupAgentInstructions hook below moves any pre-existing real
+    # file aside before write.
+    file =
+      (lib.genAttrs copilotInstructionPaths (_: {
+        source = copilotDefaultsFile;
+        force = true;
+      }))
+      // {
+        # Claude Code's memory-file loader hardcodes ~/.claude/CLAUDE.md and
+        # does not honor CLAUDE_CONFIG_DIR — see
+        # https://code.claude.com/docs/en/memory.md. PR #20 moved this file to
+        # the XDG location alone, which silently broke auto-loading. Until
+        # Anthropic teaches the loader to follow CLAUDE_CONFIG_DIR (or another
+        # XDG-aware mechanism), we deploy the same source to both paths so XDG
+        # remains canonical and the legacy path acts as a forwarding pointer
+        # the loader can find. Revisit and remove this entry once the upstream
+        # fix lands.
+        ".claude/CLAUDE.md" = {
+          source = claudeDefaultsFile;
+          force = true;
+        };
+      };
   };
 
   # Common font configuration
