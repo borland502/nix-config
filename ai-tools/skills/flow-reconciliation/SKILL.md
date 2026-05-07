@@ -121,7 +121,7 @@ rg '(superpowers|anthropic|webmaton|angular):[a-z-]+' ai-tools/skills/<skill>/ |
 Upstream skills sometimes reference paths under their own repo layout (e.g. `docs/superpowers/plans/`, `~/.claude/skills/`). Rewrite to project-relative paths or env-var paths:
 
 - `docs/<repo>/plans/` → `docs/plans/`
-- `~/.claude/...` / `~/.copilot/...` → `$CLAUDE_CONFIG_DIR/...` / `$COPILOT_CONFIG_DIR/...`
+- `~/.claude/...` / `~/.copilot/...` → `$CLAUDE_CONFIG_DIR/...` / `$COPILOT_HOME/...`
 
 ### 8. Validate
 
