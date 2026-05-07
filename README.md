@@ -282,7 +282,7 @@ Skills under `ai-tools/skills/` other than the project-local ones (`ops-cache-sc
 | Upstream repo | License | Skills ingested |
 |---|---|---|
 | [anthropics/skills](https://github.com/anthropics/skills) | Apache 2.0 (`claude-api`); proprietary (`document-skills`) | Loaded via the upstream marketplace registration above. NOT redistributed. |
-| [obra/superpowers](https://github.com/obra/superpowers) | MIT | `writing-plans`, `writing-skills`, `using-git-worktrees`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `finishing-a-development-branch`, `requesting-code-review`, `verification-before-completion` |
+| [obra/superpowers](https://github.com/obra/superpowers) | MIT | `writing-plans`, `writing-skills`, `git-worktrees`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `git-finish-branch`, `git-request-review`, `verification-before-completion` |
 | [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `bun-runtime`, `golang-patterns`, `golang-testing`, `github-ops`, `ops-jira-integration`, `ops-repo-scan`, `python-patterns`, `python-testing`, `springboot-patterns`, `springboot-security`, `springboot-tdd`, `springboot-verification`, `git-workflow`, `security-review`, `security-scan` |
 | [appautomaton/webmaton](https://github.com/appautomaton/webmaton) | MIT | `web-chrome-devtools-cli`, `web-html-to-markdown`, `web-nodriver-browser`, `web-playwright-cli` |
 | [angular/skills](https://github.com/angular/skills) | MIT (Google LLC) | `angular-developer`, `angular-new-app` |
