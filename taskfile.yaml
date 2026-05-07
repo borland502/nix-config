@@ -180,6 +180,7 @@ tasks:
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
+        brew update --quiet
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else if eq .IS_NIXOS "true"}}
         {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
