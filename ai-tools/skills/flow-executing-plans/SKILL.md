@@ -1,5 +1,5 @@
 ---
-name: executing-plans
+name: flow-executing-plans
 description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
 ---
 
@@ -9,9 +9,9 @@ description: Use when you have a written implementation plan to execute in a sep
 
 Load plan, review critically, execute all tasks, report when complete.
 
-**Announce at start:** "I'm using the executing-plans skill to implement this plan."
+**Announce at start:** "I'm using the flow-executing-plans skill to implement this plan."
 
-**Note:** Tell your human partner that Superpowers works much better with access to subagents. The quality of its work will be significantly higher if run on a platform with subagent support (such as Claude Code or Codex). If subagents are available, use nix-config-tools:subagent-driven-development instead of this skill.
+**Note:** Tell your human partner that Superpowers works much better with access to subagents. The quality of its work will be significantly higher if run on a platform with subagent support (such as Claude Code or Codex). If subagents are available, use nix-config-tools:flow-subagent-driven-development instead of this skill.
 
 ## The Process
 
@@ -66,5 +66,5 @@ After all tasks complete and verified:
 
 **Required workflow skills:**
 - **nix-config-tools:git-worktrees** - Ensures isolated workspace (creates one or verifies existing)
-- **nix-config-tools:writing-plans** - Creates the plan this skill executes
+- **nix-config-tools:flow-writing-plans** - Creates the plan this skill executes
 - **nix-config-tools:git-finish-branch** - Complete development after all tasks

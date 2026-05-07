@@ -277,19 +277,19 @@ The shells export `CLAUDE_CONFIG_DIR` and `COPILOT_CONFIG_DIR` (defined in [`hom
 
 ### Upstream credits
 
-Skills under `ai-tools/skills/` other than the project-local ones (`ops-cache-scan`, `ops-chezmoi`, `cli-dasel`, `cli-fd`, `cli-fzf`, `cli-jq`, `ops-nix-pitfalls`, `ops-agent`, `reconciliation`, `cli-rg`, `cli-sd`, `sec-sops-encrypt`, `cli-yq`) were ingested from upstream repositories. Each retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim alongside the skill.
+Skills under `ai-tools/skills/` other than the project-local ones (`ops-cache-scan`, `ops-chezmoi`, `cli-dasel`, `cli-fd`, `cli-fzf`, `cli-jq`, `ops-nix-pitfalls`, `ops-agent`, `flow-reconciliation`, `cli-rg`, `cli-sd`, `sec-sops-encrypt`, `cli-yq`) were ingested from upstream repositories. Each retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim alongside the skill.
 
 | Upstream repo | License | Skills ingested |
 |---|---|---|
 | [anthropics/skills](https://github.com/anthropics/skills) | Apache 2.0 (`claude-api`); proprietary (`document-skills`) | Loaded via the upstream marketplace registration above. NOT redistributed. |
-| [obra/superpowers](https://github.com/obra/superpowers) | MIT | `writing-plans`, `writing-skills`, `git-worktrees`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `git-finish-branch`, `git-request-review`, `verification-before-completion` |
+| [obra/superpowers](https://github.com/obra/superpowers) | MIT | `flow-writing-plans`, `flow-writing-skills`, `git-worktrees`, `flow-subagent-driven-development`, `flow-executing-plans`, `flow-test-driven-development`, `flow-systematic-debugging`, `git-finish-branch`, `git-request-review`, `flow-verification-before-completion` |
 | [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `bun-runtime`, `golang-patterns`, `golang-testing`, `github-ops`, `ops-jira-integration`, `ops-repo-scan`, `python-patterns`, `python-testing`, `springboot-patterns`, `springboot-security`, `springboot-tdd`, `springboot-verification`, `git-workflow`, `security-review`, `security-scan` |
 | [appautomaton/webmaton](https://github.com/appautomaton/webmaton) | MIT | `web-chrome-devtools-cli`, `web-html-to-markdown`, `web-nodriver-browser`, `web-playwright-cli` |
 | [angular/skills](https://github.com/angular/skills) | MIT (Google LLC) | `angular-developer`, `angular-new-app` |
 
 ### Reconciling against upstream
 
-The chezmoi externals at `~/.local/src/ai-tools/<repo>` refresh every 720h (~1 month). When upstream updates land, follow the [`reconciliation` skill](ai-tools/skills/reconciliation/SKILL.md) — it documents the diff/classify/apply procedure (and the namespace + path rewrites required after each `cp -R`), so local divergence (e.g. the project-specific "Project Layout References" section appended to `golang-patterns` and `golang-testing`) isn't silently overwritten.
+The chezmoi externals at `~/.local/src/ai-tools/<repo>` refresh every 720h (~1 month). When upstream updates land, follow the [`flow-reconciliation` skill](ai-tools/skills/flow-reconciliation/SKILL.md) — it documents the diff/classify/apply procedure (and the namespace + path rewrites required after each `cp -R`), so local divergence (e.g. the project-specific "Project Layout References" section appended to `golang-patterns` and `golang-testing`) isn't silently overwritten.
 
 This project's own MIT-licensed code is governed by [LICENSE](LICENSE); ingested upstream content retains its original license.
 

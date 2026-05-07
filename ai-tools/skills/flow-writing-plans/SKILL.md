@@ -1,5 +1,5 @@
 ---
-name: writing-plans
+name: flow-writing-plans
 description: Use when you have a spec or requirements for a multi-step task, before touching code
 ---
 
@@ -11,7 +11,7 @@ Write comprehensive implementation plans assuming the engineer has zero context 
 
 Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
 
-**Announce at start:** "I'm using the writing-plans skill to create the implementation plan."
+**Announce at start:** "I'm using the flow-writing-plans skill to create the implementation plan."
 
 **Context:** If working in an isolated worktree, it should have been created via the `nix-config-tools:git-worktrees` skill at execution time.
 
@@ -49,7 +49,7 @@ This structure informs the task decomposition. Each task should produce self-con
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use nix-config-tools:subagent-driven-development (recommended) or nix-config-tools:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use nix-config-tools:flow-subagent-driven-development (recommended) or nix-config-tools:flow-executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** [One sentence describing what this builds]
 
@@ -144,9 +144,9 @@ After saving the plan, offer execution choice:
 **Which approach?"**
 
 **If Subagent-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use nix-config-tools:subagent-driven-development
+- **REQUIRED SUB-SKILL:** Use nix-config-tools:flow-subagent-driven-development
 - Fresh subagent per task + two-stage review
 
 **If Inline Execution chosen:**
-- **REQUIRED SUB-SKILL:** Use nix-config-tools:executing-plans
+- **REQUIRED SUB-SKILL:** Use nix-config-tools:flow-executing-plans
 - Batch execution with checkpoints for review

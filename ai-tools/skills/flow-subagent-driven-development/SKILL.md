@@ -1,5 +1,5 @@
 ---
-name: subagent-driven-development
+name: flow-subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session
 ---
 
@@ -268,12 +268,12 @@ Done!
 
 **Required workflow skills:**
 - **nix-config-tools:git-worktrees** - Ensures isolated workspace (creates one or verifies existing)
-- **nix-config-tools:writing-plans** - Creates the plan this skill executes
+- **nix-config-tools:flow-writing-plans** - Creates the plan this skill executes
 - **nix-config-tools:git-request-review** - Code review template for reviewer subagents
 - **nix-config-tools:git-finish-branch** - Complete development after all tasks
 
 **Subagents should use:**
-- **nix-config-tools:test-driven-development** - Subagents follow TDD for each task
+- **nix-config-tools:flow-test-driven-development** - Subagents follow TDD for each task
 
 **Alternative workflow:**
-- **nix-config-tools:executing-plans** - Use for parallel session instead of same-session execution
+- **nix-config-tools:flow-executing-plans** - Use for parallel session instead of same-session execution

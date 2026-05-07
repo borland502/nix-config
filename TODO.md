@@ -59,14 +59,6 @@ rather than introducing a flatten-on-deploy build step.
 
 | Current | New |
 |---|---|
-| `executing-plans` | `flow-executing-plans` |
-| `writing-plans` | `flow-writing-plans` |
-| `writing-skills` | `flow-writing-skills` |
-| `systematic-debugging` | `flow-systematic-debugging` |
-| `test-driven-development` | `flow-test-driven-development` |
-| `subagent-driven-development` | `flow-subagent-driven-development` |
-| `verification-before-completion` | `flow-verification-before-completion` |
-| `reconciliation` | `flow-reconciliation` |
 | `chrome-devtools-cli` | `web-chrome-devtools-cli` |
 | `nodriver-browser` | `web-nodriver-browser` |
 | `playwright-cli` | `web-playwright-cli` |
@@ -109,8 +101,8 @@ first):**
 3. ~~`ops-` (5 renames, some `chezmoi`/`sops-encrypt` cross-refs to fix)~~ — landed
 4. ~~`cli-` (7 renames, low cross-skill coupling)~~ — landed
 5. ~~`git-` (3 renames, referenced by the flow cluster)~~ — landed
-6. `flow-` (8 renames, dense internal cross-references — do last so all
-   targets already exist)
+6. ~~`flow-` (8 renames, dense internal cross-references — do last so all
+   targets already exist)~~ — landed
 
 keep the local copies and treat the prefixed names as the canonical local fork.
 

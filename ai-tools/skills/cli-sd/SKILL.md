@@ -42,7 +42,7 @@ for f in $(rg -l "docs/superpowers/" ai-tools/skills/); do
 done
 ```
 
-That's the canonical `rg-l → xargs/loop → sd` pattern. The [reconciliation](../reconciliation/SKILL.md) skill documents the same workflow for future re-syncs.
+That's the canonical `rg-l → xargs/loop → sd` pattern. The [flow-reconciliation](../flow-reconciliation/SKILL.md) skill documents the same workflow for future re-syncs.
 
 ## Differences from sed
 
