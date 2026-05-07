@@ -23,6 +23,9 @@
     xdgStateHome
   ];
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
+  # Names of skills currently in ai-tools/skills/ — baked in at eval time so
+  # the cleanup activation hook can delete any directory whose name is absent.
+  currentSkillNames = builtins.attrNames (builtins.readDir ../ai-tools/skills);
   vividTheme = import ./lib/vivid-theme.nix {inherit lib pkgs;};
   # Bake LS_COLORS at build time from the repo's monokai palette so ls/eza/tree
   # share the rest of the theme. Read at shell init via $(cat ...) — kernel
@@ -209,7 +212,7 @@ in {
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
       # Deploy those definitions into both Claude's and Copilot's XDG config
       # paths so the same plugin content is available to both CLIs.
-      # COPILOT_CONFIG_DIR (exported in zsh.nix as $XDG_CONFIG_HOME/copilot)
+      # COPILOT_HOME (exported in zsh.nix as $XDG_CONFIG_HOME/copilot)
       # is the parallel of CLAUDE_CONFIG_DIR for Copilot-side tooling.
       "claude/agents" = {
         source = ../ai-tools/agents;
@@ -246,6 +249,26 @@ in {
     };
 
     activation = {
+      # Remove skill directories from HM-managed skill paths whose names are no
+      # longer in ai-tools/skills/ — orphans left behind by skill renames.
+      # currentSkillNames is baked in at eval time so this catches old-generation
+      # symlinks too (which the /nix/store/* check would incorrectly keep).
+      # Runs before checkLinkTargets so HM doesn't warn about them first.
+      cleanupOrphanedSkills = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
+        _known=" ${lib.concatStringsSep " " currentSkillNames} "
+        for _skills_dir in "${xdgConfigHome}/claude/skills" "${xdgConfigHome}/copilot/skills"; do
+          [ -d "$_skills_dir" ] || continue
+          for _skill_path in "$_skills_dir"/*/; do
+            [ -d "$_skill_path" ] || continue
+            _name=$(${pkgs.coreutils}/bin/basename "$_skill_path")
+            case "$_known" in
+              *" $_name "*) ;;
+              *) ${pkgs.coreutils}/bin/rm -rf "$_skill_path" ;;
+            esac
+          done
+        done
+      '';
+
       # Move any pre-existing real file at an HM-owned agent-instruction path
       # aside before checkLinkTargets runs. Eliminates "Existing file would be
       # clobbered" failures when bootstrapping a host where another tool (e.g.

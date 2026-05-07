@@ -73,6 +73,11 @@ rather than introducing a flatten-on-deploy build step.
 `springboot-tdd`, `springboot-verification`, `git-workflow`,
 `github-ops`, `ops-agent`.
 
+**Post-cleanup verification:** after pruning stale aliases from
+`~/.config/copilot/skills/`, prompt the user to reload the IDE, then
+verify the deployed skill total still matches `ai-tools/skills/`
+(currently `46` source / `46` deployed).
+
 **Per-rename mechanics:**
 
 1. `git mv ai-tools/skills/<old> ai-tools/skills/<new>`
