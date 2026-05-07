@@ -32,8 +32,8 @@ For each task:
 ### Step 3: Complete Development
 
 After all tasks complete and verified:
-- Announce: "I'm using the finishing-a-development-branch skill to complete this work."
-- **REQUIRED SUB-SKILL:** Use nix-config-tools:finishing-a-development-branch
+- Announce: "I'm using the git-finish-branch skill to complete this work."
+- **REQUIRED SUB-SKILL:** Use nix-config-tools:git-finish-branch
 - Follow that skill to verify tests, present options, execute choice
 
 ## When to Stop and Ask for Help
@@ -65,6 +65,6 @@ After all tasks complete and verified:
 ## Integration
 
 **Required workflow skills:**
-- **nix-config-tools:using-git-worktrees** - Ensures isolated workspace (creates one or verifies existing)
+- **nix-config-tools:git-worktrees** - Ensures isolated workspace (creates one or verifies existing)
 - **nix-config-tools:writing-plans** - Creates the plan this skill executes
-- **nix-config-tools:finishing-a-development-branch** - Complete development after all tasks
+- **nix-config-tools:git-finish-branch** - Complete development after all tasks
