@@ -1,5 +1,5 @@
 ---
-name: cache-scan
+name: ops-cache-scan
 description: Scan cache logs for recent activity, failures, and resumable context from ~/.cache/copilot and ~/.cache/claude.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: nix-pitfalls
+name: ops-nix-pitfalls
 description: Prevent and resolve common Nix flake, Home Manager, and repo config pitfalls that cause build/switch failures.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: chezmoi
+name: ops-chezmoi
 description: Use when adding/editing dotfiles managed by chezmoi in this repo, working with chezmoi externals (source repos under ~/.local/src), debugging template rendering, troubleshooting `chezmoi diff/apply` output, or when the user mentions chezmoi commands. Project-specific: chezmoi sources from <repo>/chezmoi via the state file at $XDG_STATE_HOME/chezmoi/nix-config-dir, and home-manager runs `chezmoi apply` automatically inside `task switch` / `task home-switch`.
 ---
 

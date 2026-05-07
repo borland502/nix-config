@@ -277,13 +277,13 @@ The shells export `CLAUDE_CONFIG_DIR` and `COPILOT_CONFIG_DIR` (defined in [`hom
 
 ### Upstream credits
 
-Skills under `ai-tools/skills/` other than the project-local ones (`cache-scan`, `chezmoi`, `dasel`, `fd`, `fzf`, `jq`, `nix-pitfalls`, `ops-agent`, `reconciliation`, `rg`, `sd`, `sec-sops-encrypt`, `yq`) were ingested from upstream repositories. Each retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim alongside the skill.
+Skills under `ai-tools/skills/` other than the project-local ones (`ops-cache-scan`, `ops-chezmoi`, `dasel`, `fd`, `fzf`, `jq`, `ops-nix-pitfalls`, `ops-agent`, `reconciliation`, `rg`, `sd`, `sec-sops-encrypt`, `yq`) were ingested from upstream repositories. Each retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim alongside the skill.
 
 | Upstream repo | License | Skills ingested |
 |---|---|---|
 | [anthropics/skills](https://github.com/anthropics/skills) | Apache 2.0 (`claude-api`); proprietary (`document-skills`) | Loaded via the upstream marketplace registration above. NOT redistributed. |
 | [obra/superpowers](https://github.com/obra/superpowers) | MIT | `writing-plans`, `writing-skills`, `using-git-worktrees`, `subagent-driven-development`, `executing-plans`, `test-driven-development`, `systematic-debugging`, `finishing-a-development-branch`, `requesting-code-review`, `verification-before-completion` |
-| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `bun-runtime`, `golang-patterns`, `golang-testing`, `github-ops`, `jira-integration`, `repo-scan`, `python-patterns`, `python-testing`, `springboot-patterns`, `springboot-security`, `springboot-tdd`, `springboot-verification`, `git-workflow`, `security-review`, `security-scan` |
+| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `bun-runtime`, `golang-patterns`, `golang-testing`, `github-ops`, `ops-jira-integration`, `ops-repo-scan`, `python-patterns`, `python-testing`, `springboot-patterns`, `springboot-security`, `springboot-tdd`, `springboot-verification`, `git-workflow`, `security-review`, `security-scan` |
 | [appautomaton/webmaton](https://github.com/appautomaton/webmaton) | MIT | `web-chrome-devtools-cli`, `web-html-to-markdown`, `web-nodriver-browser`, `web-playwright-cli` |
 | [angular/skills](https://github.com/angular/skills) | MIT (Google LLC) | `angular-developer`, `angular-new-app` |
 
