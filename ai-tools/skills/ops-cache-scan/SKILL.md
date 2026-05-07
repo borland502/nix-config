@@ -7,6 +7,12 @@ description: Scan cache logs for recent activity, failures, and resumable contex
 
 Use this skill when the user asks to recover context from recent cache activity, resume prior work, or summarize failures from terminal logs.
 
+## Why those logs exist
+
+The logs under `~/.cache/<agent>/*.log` (where `<agent>` is `claude` or `copilot`) are populated automatically by a `PostToolUse` hook wired up in [home-manager/common.nix L228-L239](../../../home-manager/common.nix#L228-L239). Every Bash invocation the agent runs is piped through [home-manager/local/bin/log-bash.sh](../../../home-manager/local/bin/log-bash.sh), which writes the exact command and its output to a timestamped file in the agent's cache dir. Activation also enforces `~/.cache/claude` → `~/.cache/copilot` as a symlink so both agents share one log dir.
+
+This is *not* something a session needs to wire up — if the host has had `home-manager switch` run successfully, the hook is already firing on every Bash call. This skill consumes that log stream; it does not produce it. The companion read-side workflow lives in [flow-systematic-debugging](../flow-systematic-debugging/SKILL.md) Phase 0.
+
 ## Inputs
 
 - Optional date in `YYYY-MM-DD` format. Defaults to today.
