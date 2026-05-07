@@ -113,7 +113,7 @@ chezmoi cat ~/.config/some-templated-file
 
 ## SOPS / Age Encryption
 
-This repo encrypts secrets with `age` (NOT chezmoi's built-in encryption — sops-nix manages decryption at activation time). Chezmoi's role is only to ferry the configured age identity files into place. See the [sops-encrypt](../sops-encrypt/SKILL.md) skill for the secrets workflow itself.
+This repo encrypts secrets with `age` (NOT chezmoi's built-in encryption — sops-nix manages decryption at activation time). Chezmoi's role is only to ferry the configured age identity files into place. See the [sec-sops-encrypt](../sec-sops-encrypt/SKILL.md) skill for the secrets workflow itself.
 
 Chezmoi's age awareness is wired up by the `configureChezmoi` activation hook in [home-manager/common.nix](../../../home-manager/common.nix) — it writes `~/.config/chezmoi/chezmoi.toml` with the `age.identity` set to `~/.config/sops/age/keys.txt` when that key file is present.
 

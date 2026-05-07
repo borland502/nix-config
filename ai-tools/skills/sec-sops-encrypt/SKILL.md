@@ -1,5 +1,5 @@
 ---
-name: sops-encrypt
+name: sec-sops-encrypt
 description: Add, update, or manage encrypted secrets in SOPS files. Covers age key provisioning, secret encryption, and common pitfalls.
 ---
 

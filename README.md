@@ -277,7 +277,7 @@ The shells export `CLAUDE_CONFIG_DIR` and `COPILOT_CONFIG_DIR` (defined in [`hom
 
 ### Upstream credits
 
-Skills under `ai-tools/skills/` other than the project-local ones (`cache-scan`, `chezmoi`, `dasel`, `fd`, `fzf`, `jq`, `nix-pitfalls`, `ops-agent`, `reconciliation`, `rg`, `sd`, `sops-encrypt`, `yq`) were ingested from upstream repositories. Each retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim alongside the skill.
+Skills under `ai-tools/skills/` other than the project-local ones (`cache-scan`, `chezmoi`, `dasel`, `fd`, `fzf`, `jq`, `nix-pitfalls`, `ops-agent`, `reconciliation`, `rg`, `sd`, `sec-sops-encrypt`, `yq`) were ingested from upstream repositories. Each retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim alongside the skill.
 
 | Upstream repo | License | Skills ingested |
 |---|---|---|
