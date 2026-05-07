@@ -6,7 +6,11 @@ origin: ECC
 
 # Jira Integration Skill
 
-Retrieve, analyze, and update Jira tickets directly from your AI coding workflow. Supports both **MCP-based** (recommended) and **direct REST API** approaches.
+Retrieve, analyze, and update Jira tickets directly from your AI coding workflow.
+
+> **This repo's policy: prefer direct REST API calls over CLI wrappers.**
+> [chezmoi/dot_config/instructions/agent-defaults.md L12](../../../chezmoi/dot_config/instructions/agent-defaults.md): *"For Jira and Confluence operations, prefer direct REST/API-spec requests with configured tokens over dedicated `jira-cli` or `confluence-cli` wrappers."*
+> Use the **REST API path (Option A below)** by default. The MCP integration (Option B) is a valid alternative when it's already configured for this user, but don't introduce or recommend `jira-cli`/`confluence-cli` wrappers.
 
 ## When to Activate
 
@@ -19,13 +23,30 @@ Retrieve, analyze, and update Jira tickets directly from your AI coding workflow
 
 ## Prerequisites
 
-### Option A: MCP Server (Recommended)
+### Option A: Direct REST API (default)
 
-Install the `mcp-atlassian` MCP server. This exposes Jira tools directly to your AI agent.
+Use the Jira REST API v3 directly via `curl` or a helper script. This is the loud default per the policy above — no extra dependencies, no opaque wrapper layer, and the auth flow lives in plain shell.
 
-**Requirements:**
-- Python 3.10+
-- `uvx` (from `uv`), installed via your package manager or the official `uv` installation documentation
+**Required environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `JIRA_URL` | Your Jira instance URL (e.g., `https://yourorg.atlassian.net`) |
+| `JIRA_EMAIL` | Your Atlassian account email |
+| `JIRA_API_TOKEN` | API token from id.atlassian.com |
+
+**Where to find the token in this repo's setup:**
+- sops-decrypted runtime path (preferred): `~/.config/ops-agent/jira-token` — populated by [home-manager/modules/sops.nix](../../../home-manager/modules/sops.nix) when `~/.config/sops/age/keys.txt` is present.
+- See [sec-credentials](../sec-credentials/SKILL.md) for the full lookup precedence.
+
+**To create a fresh token:**
+1. Go to <https://id.atlassian.com/manage-profile/security/api-tokens>
+2. Click **Create API token**
+3. Add it to the encrypted secrets via [sec-sops-encrypt](../sec-sops-encrypt/SKILL.md) — never paste it into source code.
+
+### Option B: MCP Server (alternative when already configured)
+
+If the `mcp-atlassian` MCP server is already configured for the user, the JSON-RPC tooling layer is fine. Don't introduce it just for this task — REST is simpler. The MCP path has the same env-var requirements as REST.
 
 **Add to your MCP config** (e.g., `~/.claude.json` → `mcpServers`):
 
@@ -44,26 +65,9 @@ Install the `mcp-atlassian` MCP server. This exposes Jira tools directly to your
 }
 ```
 
-> **Security:** Never hardcode secrets. Prefer setting `JIRA_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` in your system environment (or a secrets manager). Only use the MCP `env` block for local, uncommitted config files.
+**Requirements:** Python 3.10+, `uvx` (from `uv`).
 
-**To get a Jira API token:**
-1. Go to <https://id.atlassian.com/manage-profile/security/api-tokens>
-2. Click **Create API token**
-3. Copy the token — store it in your environment, never in source code
-
-### Option B: Direct REST API
-
-If MCP is not available, use the Jira REST API v3 directly via `curl` or a helper script.
-
-**Required environment variables:**
-
-| Variable | Description |
-|----------|-------------|
-| `JIRA_URL` | Your Jira instance URL (e.g., `https://yourorg.atlassian.net`) |
-| `JIRA_EMAIL` | Your Atlassian account email |
-| `JIRA_API_TOKEN` | API token from id.atlassian.com |
-
-Store these in your shell environment, secrets manager, or an untracked local env file. Do not commit them to the repo.
+> **Security:** Never hardcode secrets. Prefer setting `JIRA_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` in your system environment (or sops-managed paths — see `sec-credentials`). Only use the MCP `env` block for local, uncommitted config files.
 
 ## MCP Tools Reference
 

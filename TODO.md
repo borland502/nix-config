@@ -115,55 +115,27 @@ fresh session has no skill to discover them.
 
 **New skills (2):**
 
-* **`sec-credentials`** — codifies the CLAUDE.md rule "check `~/.cache`
+* ~~**`sec-credentials`** — codifies the CLAUDE.md rule "check `~/.cache`
   then `~/.config` for tool credentials" and the sops → legacy-path
-  fallback pattern implemented in
-  [home-manager/local/bin/ops-agent.py](home-manager/local/bin/ops-agent.py).
-  Triggers on "where's the token / auth / credential for X" type
-  questions. Should reference `sec-sops-encrypt` for the encryption
-  side and `ops-agent` for the canonical fallback example.
+  fallback pattern implemented in `ops-agent.py`.~~ — landed
 
-* **`shell-pitfalls`** — consolidates shell anti-patterns currently
+* ~~**`shell-pitfalls`** — consolidates shell anti-patterns currently
   scattered across instruction files: aliases hide real binaries (use
   `/bin/ls`, `/bin/cat` when exact output is needed); zsh `status` is
-  read-only (use `rc` or `exit_code`); the heavy-quoting heuristic
-  from [agent-defaults.md:27](chezmoi/dot_config/instructions/agent-defaults.md#L27)
-  ("when a command with JSON payloads or heavy quoting fails, write a
-  short script file under `~/.cache/<agent>/` and execute that
-  instead of retrying inline `zsh -c`"); the wrapped-capture
-  permission-denied retry trick from
-  [agent-defaults.md:25](chezmoi/dot_config/instructions/agent-defaults.md#L25).
-  Could alternatively be folded into `ops-nix-pitfalls` if we don't
-  want a separate skill.
+  read-only; the heavy-quoting heuristic; the wrapped-capture
+  permission-denied retry trick.~~ — landed
 
 **Skill updates (3):**
 
-* **`jira-integration` → make REST-first explicit.** CLAUDE.md says
-  prefer direct REST/API requests over `jira-cli`/`confluence-cli`
-  wrappers. Today this is a one-liner in CLAUDE.md and the skill
-  doesn't enforce it. Promote REST as the loud default; demote CLI
-  wrappers to a "fallback when no token is available" footnote.
+* ~~**`jira-integration` → make REST-first explicit.**~~ — landed
 
-* **`ops-cache-scan` (post-rename) → document the log source.** The
-  `PostToolUse` hook in
-  [home-manager/common.nix:228-239](home-manager/common.nix#L228-L239)
-  pipes every Bash command + output to `~/.cache/<agent>/*.log` via
-  [home-manager/local/bin/log-bash.sh](home-manager/local/bin/log-bash.sh).
-  Add a one-paragraph pointer in the SKILL.md so future sessions know
-  why those logs exist and that the hook is automatic (not something
-  to wire up themselves).
+* ~~**`ops-cache-scan` (post-rename) → document the log source.**~~ — landed
 
-* **`flow-systematic-debugging` (post-rename) → add a Phase 0 "check
-  the log first."** Codifies the procedure from
-  [agent-defaults.md:10](chezmoi/dot_config/instructions/agent-defaults.md#L10):
-  before retrying a failed command, grep `~/.cache/<agent>/*.log` for
-  prior successful invocations of the same tool and use them as
-  concrete templates. Pairs naturally with the `ops-cache-scan`
-  update — that skill produces the index, this one consumes it.
+* ~~**`flow-systematic-debugging` (post-rename) → add a Phase 0 "check
+  the log first."**~~ — landed
 
-* **`ops-nix-pitfalls` (post-rename) → optional sink for shell
-  pitfalls.** If we don't create a standalone `shell-pitfalls` skill,
-  fold the alias-escaping / zsh-`status` content here.
+* ~~**`ops-nix-pitfalls` (post-rename) → optional sink for shell
+  pitfalls.**~~ — moot: standalone `shell-pitfalls` skill landed instead.
 
 **Explicitly NOT skills:**
 
