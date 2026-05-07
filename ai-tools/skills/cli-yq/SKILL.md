@@ -1,5 +1,5 @@
 ---
-name: yq
+name: cli-yq
 description: Use when filtering, transforming, or generating YAML (and JSON, TOML, XML, CSV, properties) from the shell. yq is mikefarah/yq — Go-based, jq-syntax-compatible. Pairs with the jq skill (same idioms, different format) and is the project's preferred YAML processor.
 ---
 
@@ -40,7 +40,7 @@ yq -n '{"app": {"name": "demo", "port": 8080}}'
 
 This repo's [chezmoi/.chezmoiexternal.toml.tmpl](../../../chezmoi/.chezmoiexternal.toml.tmpl) is TOML, but [.sops.yaml](../../../.sops.yaml), [.gitleaks.toml](../../../.gitleaks.toml), [taskfile.yaml](../../../taskfile.yaml), and various GitHub workflows under [.github/workflows/](../../../.github/workflows/) are YAML. Use yq when scripting changes against those.
 
-For converting between TOML and YAML, `dasel` is also a good choice — see the [dasel](../dasel/SKILL.md) skill. Pick yq when the task is YAML-heavy with jq-style transforms; pick dasel when it's a simple cross-format read or per-file conversion.
+For converting between TOML and YAML, `dasel` is also a good choice — see the [cli-dasel](../cli-dasel/SKILL.md) skill. Pick yq when the task is YAML-heavy with jq-style transforms; pick dasel when it's a simple cross-format read or per-file conversion.
 
 ## Differences from jq
 

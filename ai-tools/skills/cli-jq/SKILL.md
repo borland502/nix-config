@@ -1,5 +1,5 @@
 ---
-name: jq
+name: cli-jq
 description: Use when filtering, transforming, or generating JSON from the shell. Covers idioms for safe field access, conditional pipelines, in-place file edits, and the jq patterns used by this repo's home-manager activation hooks (~/.config/claude/settings.json mutations) and ops-agent scripts.
 ---
 

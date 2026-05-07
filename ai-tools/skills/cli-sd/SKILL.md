@@ -1,5 +1,5 @@
 ---
-name: sd
+name: cli-sd
 description: Use when doing find-and-replace across files. sd is the project's preferred sed replacement — modern regex (Rust), much simpler syntax than sed, in-place by default. Pairs with rg/fd for the find→replace pipeline.
 ---
 

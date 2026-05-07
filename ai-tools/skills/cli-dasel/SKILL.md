@@ -1,5 +1,5 @@
 ---
-name: dasel
+name: cli-dasel
 description: Use when querying or modifying structured-data files in a format-agnostic way (JSON, YAML, TOML, XML, CSV) from the shell. dasel speaks all five formats with a single selector syntax — pick it over jq/yq/xq when the task crosses formats or when the file format is variable.
 ---
 
