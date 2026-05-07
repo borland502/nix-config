@@ -1,5 +1,5 @@
 ---
-name: chrome-devtools-cli
+name: web-chrome-devtools-cli
 description: "Use when a task needs Chrome DevTools from the shell: automate a live Chrome browser with `chrome-devtools`, inspect accessibility snapshots and UIDs, click/fill/navigate pages, evaluate JavaScript, inspect console and network activity, take screenshots, run Lighthouse, capture performance traces, or connect to an existing debuggable Chrome. This is CLI mode, not MCP client setup."
 ---
 

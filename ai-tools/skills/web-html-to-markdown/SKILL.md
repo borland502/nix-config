@@ -1,5 +1,5 @@
 ---
-name: html-to-markdown
+name: web-html-to-markdown
 description: Convert a URL or HTML into clean Markdown with metadata using markmaton. Handles browser capture for JS-heavy pages and deterministic HTML-to-Markdown conversion in one skill.
 ---
 
