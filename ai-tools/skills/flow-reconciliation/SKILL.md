@@ -1,5 +1,5 @@
 ---
-name: reconciliation
+name: flow-reconciliation
 description: Use when ingesting new skills/agents from upstream repos, refreshing already-ingested content after the chezmoi 720h external pull, or auditing whether local edits to ai-tools/skills/ have drifted from upstream. Surfaces local-only divergence so it isn't silently overwritten by a re-sync.
 ---
 

@@ -79,7 +79,7 @@ chezmoi apply --refresh-externals ~/.local/src
 Two groups of externals are managed:
 
 1. **Go CLI sources** — `wordgen`, `gopwgen`, `go-sea`. Built into `~/.local/bin` by `chezmoi/run_install-go-tools.sh.tmpl` on every apply.
-2. **AI-tools sources** — `anthropic-skills`, `superpowers`, `everything-claude-code`, `webmaton`, `angular-skills`. Read by the [reconciliation](../reconciliation/SKILL.md) skill when re-syncing `ai-tools/skills/`. The Anthropic checkout is also registered as a separate Claude Code marketplace by [home-manager/common.nix](../../../home-manager/common.nix).
+2. **AI-tools sources** — `anthropic-skills`, `superpowers`, `everything-claude-code`, `webmaton`, `angular-skills`. Read by the [flow-reconciliation](../flow-reconciliation/SKILL.md) skill when re-syncing `ai-tools/skills/`. The Anthropic checkout is also registered as a separate Claude Code marketplace by [home-manager/common.nix](../../../home-manager/common.nix).
 
 See `references/chezmoiexternal.md` for the full schema (all 25+ entry fields).
 
