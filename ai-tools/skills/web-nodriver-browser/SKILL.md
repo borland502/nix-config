@@ -1,5 +1,5 @@
 ---
-name: nodriver-browser
+name: web-nodriver-browser
 description: "Persistent Chrome/Chromium browser automation skill built on nodriver. Use when a page needs JavaScript rendering, authorized login/session continuity, clicking or typing, DOM snapshots with stable refs, screenshots, or multi-step look-think-act flows that ordinary WebFetch/search cannot complete. Auto-starts a headless or headed Chrome daemon, can use an isolated skill profile or the user's Chrome profile, and preserves one tab across calls; not for static pages, simple searches, JSON APIs, or one-off scrapes."
 ---
 
