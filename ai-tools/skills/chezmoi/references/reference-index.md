@@ -108,4 +108,4 @@ pass, Passhole, Proton Pass, Vault, plus generic `secret` / `secretJSON`
 
 This project does not use chezmoi's password-manager template helpers
 because secrets flow through sops-nix instead. See the
-[sops-encrypt](../../sops-encrypt/SKILL.md) skill.
+[sec-sops-encrypt](../../sec-sops-encrypt/SKILL.md) skill.

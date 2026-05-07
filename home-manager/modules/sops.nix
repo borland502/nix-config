@@ -12,6 +12,6 @@
     };
 
     # ops_agent/jira_token: Will be added after provisioning age key and encrypting secret.
-    # See ai-tools/skills/sops-encrypt/ for the workflow.
+    # See ai-tools/skills/sec-sops-encrypt/ for the workflow.
   };
 }

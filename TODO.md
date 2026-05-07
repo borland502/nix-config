@@ -82,9 +82,6 @@ rather than introducing a flatten-on-deploy build step.
 | `nodriver-browser` | `web-nodriver-browser` |
 | `playwright-cli` | `web-playwright-cli` |
 | `html-to-markdown` | `web-html-to-markdown` |
-| `security-review` | `sec-review` |
-| `security-scan` | `sec-scan` |
-| `sops-encrypt` | `sec-sops-encrypt` |
 | `chezmoi` | `ops-chezmoi` |
 | `nix-pitfalls` | `ops-nix-pitfalls` |
 | `cache-scan` | `ops-cache-scan` |
@@ -121,7 +118,7 @@ directory name and `name:` frontmatter change.
 first):**
 
 1. `web-` (4 renames, mostly self-contained)
-2. `sec-` (3 renames, few cross-refs)
+2. ~~`sec-` (3 renames, few cross-refs)~~ — landed
 3. `ops-` (5 renames, some `chezmoi`/`sops-encrypt` cross-refs to fix)
 4. `cli-` (7 renames, low cross-skill coupling)
 5. `git-` (3 renames, referenced by the flow cluster)
