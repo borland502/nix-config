@@ -1,0 +1,17 @@
+---
+extends: default
+
+ignore:
+  - secrets/**
+  - result
+  - result-*
+  - node_modules/**
+  - ai-tools/**
+
+rules:
+  line-length: disable
+  truthy:
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  document-start: disable

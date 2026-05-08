@@ -319,6 +319,41 @@ tasks:
     platforms: [linux, darwin]
     cmd: alejandra --check .
 
+  fmt:md:
+    desc: Auto-fix markdown files (skips ai-tools/ and chezmoi-generated agent instructions)
+    platforms: [linux, darwin]
+    cmd: markdownlint-cli2 --fix "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code"
+
+  fmt:sh:
+    desc: Format shell scripts in place (shfmt -w, skips ai-tools/)
+    platforms: [linux, darwin]
+    cmd: |
+      shfmt -f . | awk '!/^ai-tools\//' | while IFS= read -r f; do
+        shfmt -w "$f"
+      done
+
+  fmt:py:
+    desc: Format Python files and apply ruff autofixes (skips ai-tools/)
+    platforms: [linux, darwin]
+    cmd: |
+      ruff format --exclude ai-tools .
+      ruff check --fix --exclude ai-tools .
+
+  fmt:toml:
+    desc: Format TOML files (taplo fmt, skips ai-tools/)
+    platforms: [linux, darwin]
+    cmd: taplo fmt $(fd -e toml . --exclude ai-tools)
+
+  fmt:all:
+    desc: Run every formatter (nix, markdown, shell, python, toml)
+    platforms: [linux, darwin]
+    cmds:
+      - task: fmt
+      - task: fmt:md
+      - task: fmt:sh
+      - task: fmt:py
+      - task: fmt:toml
+
   lint:
     desc: Run all linters
     platforms: [linux, darwin]
@@ -341,21 +376,23 @@ tasks:
       task check:agent-instructions
 
   lint:md:
-    desc: Lint markdown files
+    desc: Lint markdown files (skips ai-tools/ and chezmoi-generated agent instructions)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 "**/*.md" "#node_modules"
+    cmd: markdownlint-cli2 "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code"
 
   lint:sh:
-    desc: Lint and check formatting of shell scripts
+    desc: Lint and check formatting of shell scripts (skips ai-tools/)
     platforms: [linux, darwin]
     cmd: |
-      shellcheck $(fd -e sh . --exclude node_modules)
-      shfmt -d .
+      shellcheck $(fd -e sh . --exclude node_modules --exclude ai-tools)
+      shfmt -f . | awk '!/^ai-tools\//' | while IFS= read -r f; do
+        shfmt -d "$f"
+      done
 
   lint:py:
-    desc: Lint Python files
+    desc: Lint Python files (skips ai-tools/)
     platforms: [linux, darwin]
-    cmd: ruff check .
+    cmd: ruff check --exclude ai-tools .
 
   lint:yaml:
     desc: Lint YAML files
@@ -363,9 +400,9 @@ tasks:
     cmd: yamllint .
 
   lint:toml:
-    desc: Lint TOML files
+    desc: Lint TOML files (skips ai-tools/)
     platforms: [linux, darwin]
-    cmd: taplo lint $(fd -e toml .)
+    cmd: taplo lint $(fd -e toml . --exclude ai-tools)
 
   lint:secrets:
     desc: Scan repo history for committed secrets with gitleaks
