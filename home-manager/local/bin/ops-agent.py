@@ -28,6 +28,7 @@ def _jira_token() -> str:
 def _confluence_token() -> str:
     return _SECRET_CONFLUENCE_TOKEN.read_text().strip()
 
+
 def _provision_script() -> Path | None:
     """Return the provision-secrets.sh path if locatable, else None.
 
@@ -37,7 +38,9 @@ def _provision_script() -> Path | None:
     state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
     marker = state / "chezmoi" / "nix-config-dir"
     if marker.exists():
-        candidate = Path(marker.read_text().strip()) / "scripts" / "provision-secrets.sh"
+        candidate = (
+            Path(marker.read_text().strip()) / "scripts" / "provision-secrets.sh"
+        )
         if candidate.exists():
             return candidate
     return None
@@ -45,12 +48,21 @@ def _provision_script() -> Path | None:
 
 def _require_secrets() -> None:
     """Abort with a clear prompt if required sops secrets are absent."""
-    missing = [p for p in [_SECRET_JIRA_URL, _SECRET_JIRA_TOKEN, _SECRET_CONFLUENCE_URL, _SECRET_CONFLUENCE_TOKEN] if not p.exists()]
+    missing = [
+        p
+        for p in [
+            _SECRET_JIRA_URL,
+            _SECRET_JIRA_TOKEN,
+            _SECRET_CONFLUENCE_URL,
+            _SECRET_CONFLUENCE_TOKEN,
+        ]
+        if not p.exists()
+    ]
     if not missing:
         return
 
     print(
-        f"[ops-agent] Missing decrypted secret(s):\n"
+        "[ops-agent] Missing decrypted secret(s):\n"
         + "\n".join(f"  {p}" for p in missing),
         file=sys.stderr,
     )
@@ -62,7 +74,11 @@ def _require_secrets() -> None:
 
     script = _provision_script()
     if script is not None:
-        answer = input(f"\nRun provision-secrets.sh now to add your age key? [y/N] ").strip().lower()
+        answer = (
+            input("\nRun provision-secrets.sh now to add your age key? [y/N] ")
+            .strip()
+            .lower()
+        )
         if answer == "y":
             os.execv("/usr/bin/env", ["/usr/bin/env", "bash", str(script)])
     else:
@@ -96,6 +112,7 @@ def _kion_creds() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # HTTP helpers
 # ---------------------------------------------------------------------------
+
 
 def _jira_request(method: str, path: str, body: Any = None) -> Any:
     url = f"{_jira_base_url()}{path}"
@@ -134,6 +151,7 @@ def _aws(*args: str) -> str:
 # Tool implementations
 # ---------------------------------------------------------------------------
 
+
 def jira_get_issue(ticket_id: str) -> dict[str, Any]:
     fields = "summary,status,assignee,description"
     return _jira_request("GET", f"/issue/{ticket_id}?fields={fields}")
@@ -155,7 +173,9 @@ def jira_transition(ticket_id: str, status: str) -> dict[str, Any]:
     if match is None:
         available = [t["to"]["name"] for t in transitions]
         return {"error": "no_match", "available": available}
-    return _jira_request("POST", f"/issue/{ticket_id}/transitions", {"transition": {"id": match["id"]}})
+    return _jira_request(
+        "POST", f"/issue/{ticket_id}/transitions", {"transition": {"id": match["id"]}}
+    )
 
 
 def jira_comment(ticket_id: str, body: str) -> dict[str, Any]:
@@ -170,10 +190,14 @@ def ecs_get_status(ticket_id: str, service: str) -> str:
     cluster = _cluster(ticket_id)
     svc = f"mdp-{ticket_id.lower()}-{service}"
     return _aws(
-        "ecs", "list-tasks",
-        "--cluster", cluster,
-        "--service-name", svc,
-        "--desired-status", "RUNNING",
+        "ecs",
+        "list-tasks",
+        "--cluster",
+        cluster,
+        "--service-name",
+        svc,
+        "--desired-status",
+        "RUNNING",
     )
 
 
@@ -181,9 +205,12 @@ def ecs_force_deploy(ticket_id: str, service: str) -> str:
     cluster = _cluster(ticket_id)
     svc = f"mdp-{ticket_id.lower()}-{service}"
     return _aws(
-        "ecs", "update-service",
-        "--cluster", cluster,
-        "--service", svc,
+        "ecs",
+        "update-service",
+        "--cluster",
+        cluster,
+        "--service",
+        svc,
         "--force-new-deployment",
     )
 
@@ -225,7 +252,12 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Fetch Jira issue summary, status, assignee, and description.",
         "input_schema": {
             "type": "object",
-            "properties": {"ticket_id": {"type": "string", "description": "Jira ticket ID, e.g. MDPMDD-797"}},
+            "properties": {
+                "ticket_id": {
+                    "type": "string",
+                    "description": "Jira ticket ID, e.g. MDPMDD-797",
+                }
+            },
             "required": ["ticket_id"],
         },
     },
@@ -245,7 +277,10 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "ticket_id": {"type": "string"},
-                "status": {"type": "string", "description": "Partial status name, e.g. 'In Progress'"},
+                "status": {
+                    "type": "string",
+                    "description": "Partial status name, e.g. 'In Progress'",
+                },
             },
             "required": ["ticket_id", "status"],
         },
@@ -322,6 +357,7 @@ SYSTEM = [
 # Agent loop
 # ---------------------------------------------------------------------------
 
+
 def run(prompt: str) -> None:
     client = anthropic.Anthropic()
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
@@ -373,7 +409,9 @@ def _test_credentials() -> None:
         print(f"[ops-agent] FAIL jira: {result}", file=sys.stderr)
         ok = False
     else:
-        print(f"[ops-agent] OK   jira: logged in as {result.get('displayName')} ({result.get('emailAddress', '')})")
+        print(
+            f"[ops-agent] OK   jira: logged in as {result.get('displayName')} ({result.get('emailAddress', '')})"
+        )
 
     # Confluence: GET /rest/api/user/current
     confluence_url = _confluence_base_url()
@@ -392,7 +430,10 @@ def _test_credentials() -> None:
         try:
             data = json.loads(body)
         except json.JSONDecodeError:
-            print(f"[ops-agent] FAIL confluence: non-JSON response: {body[:200]}", file=sys.stderr)
+            print(
+                f"[ops-agent] FAIL confluence: non-JSON response: {body[:200]}",
+                file=sys.stderr,
+            )
             ok = False
             sys.exit(0 if ok else 1)
         if "accountId" not in data and "username" not in data and "userKey" not in data:
@@ -402,7 +443,10 @@ def _test_credentials() -> None:
             name = data.get("displayName") or data.get("username", "")
             print(f"[ops-agent] OK   confluence: logged in as {name}")
     except urllib.error.HTTPError as exc:
-        print(f"[ops-agent] FAIL confluence: HTTP {exc.code} {exc.reason}", file=sys.stderr)
+        print(
+            f"[ops-agent] FAIL confluence: HTTP {exc.code} {exc.reason}",
+            file=sys.stderr,
+        )
         ok = False
 
     sys.exit(0 if ok else 1)

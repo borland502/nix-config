@@ -10,4 +10,4 @@ command -v zstd >/dev/null 2>&1 || exit 0
 command -v fd >/dev/null 2>&1 || exit 0
 
 fd --max-depth 1 --type f --changed-before 30days --exclude '*.zst' . "$cache_dir" --print0 |
-  xargs -0 -r zstd -q --rm --
+	xargs -0 -r zstd -q --rm --
