@@ -150,7 +150,7 @@
     lsof
   ];
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
-  inherit (agentInstructions) claude copilot copilotAgentBridgeDir copilotSkillBridgeDir;
+  inherit (agentInstructions) claude copilot copilotAgentBridgeDir copilotSkillBridgeDir copilotPluginManifestDir;
   # Home-manager-managed agent-instruction destinations (paths relative to $HOME).
   # Single list keeps the home.file refactor and the orphan-backup activation
   # hook below pointing at the same set of files.
@@ -450,6 +450,11 @@ in {
         };
         ".vscode-server/data/User/prompts/agents" = {
           source = copilotAgentBridgeDir;
+          recursive = true;
+          force = true;
+        };
+        ".config/copilot/plugin-manifest" = {
+          source = copilotPluginManifestDir;
           recursive = true;
           force = true;
         };
