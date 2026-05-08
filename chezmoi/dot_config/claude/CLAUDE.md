@@ -7,7 +7,7 @@
 - For helper scripts or long text payloads, write temporary Go, Python, shell, or data files to ~/.cache/claude. Prefer this over inline heredocs or long inline command strings.
 - Prefer file-editing tools for long text whenever possible; reserve shell text construction for short, stable snippets.
 - Use append-safe logging or timestamped files so earlier command logs are not lost unless replacement is explicitly intended.
-- When investigating tool or command failures, inspect relevant logs under ~/.cache/claude first; use prior successful executions there as concrete examples before retrying or changing approach.
+- When investigating tool or command failures, inspect relevant logs under ~/.cache/claude first; use prior successful executions there as concrete examples before retrying or changing approach. Cache files are retained uncompressed for 30 days; older files are archived as `.zst` (Zstandard) by a Stop hook. Search uncompressed files first — if no successful prior execution is found within the last 30 days, locate the relevant `.zst` archives and decompress on the fly with `zstdcat <file>` via Bash before reading. Do not decompress speculatively; only decompress when the recent logs do not contain a useful example.
 - When looking for tool credentials, auth state, or cached session data, examine ~/.cache first and then ~/.config.
 - For Jira and Confluence operations, prefer direct REST/API-spec requests with configured tokens over dedicated `jira-cli` or `confluence-cli` wrappers.
 - For GitHub repository, issue, release, and pull request operations, prefer GitHub's official MCP server when it is available.
