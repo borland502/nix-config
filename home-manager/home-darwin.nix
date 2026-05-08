@@ -240,7 +240,23 @@ in {
     # user configuration directories for the stable and Insiders VS Code apps.
     file = {
       "Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = agentInstructions.copilot;
+      "Library/Application Support/Code/User/prompts/skills" = {
+        source = agentInstructions.copilotSkillBridgeDir;
+        recursive = true;
+      };
+      "Library/Application Support/Code/User/prompts/agents" = {
+        source = agentInstructions.copilotAgentBridgeDir;
+        recursive = true;
+      };
       "Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md".source = agentInstructions.copilot;
+      "Library/Application Support/Code - Insiders/User/prompts/skills" = {
+        source = agentInstructions.copilotSkillBridgeDir;
+        recursive = true;
+      };
+      "Library/Application Support/Code - Insiders/User/prompts/agents" = {
+        source = agentInstructions.copilotAgentBridgeDir;
+        recursive = true;
+      };
       "Library/Application Support/Code - Insiders/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
     };
   };
