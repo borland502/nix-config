@@ -15,17 +15,18 @@ import anthropic
 # Credentials
 # ---------------------------------------------------------------------------
 
-def _jira_token() -> str:
-    # Prefer the sops-managed location and keep legacy fallback for migration.
-    primary = Path.home() / ".config" / "ops-agent" / "jira-token"
-    fallback = Path.home() / ".config" / "jira" / "token"
-    if primary.exists():
-        return primary.read_text().strip()
-    return fallback.read_text().strip()
-
-
 _SECRET_JIRA_URL = Path.home() / ".config" / "ops-agent" / "jira-base-url"
 _SECRET_JIRA_TOKEN = Path.home() / ".config" / "ops-agent" / "jira-token"
+_SECRET_CONFLUENCE_URL = Path.home() / ".config" / "confluence" / "base-url"
+_SECRET_CONFLUENCE_TOKEN = Path.home() / ".config" / "confluence" / "token"
+
+
+def _jira_token() -> str:
+    return _SECRET_JIRA_TOKEN.read_text().strip()
+
+
+def _confluence_token() -> str:
+    return _SECRET_CONFLUENCE_TOKEN.read_text().strip()
 
 def _provision_script() -> Path | None:
     """Return the provision-secrets.sh path if locatable, else None.
@@ -44,7 +45,7 @@ def _provision_script() -> Path | None:
 
 def _require_secrets() -> None:
     """Abort with a clear prompt if required sops secrets are absent."""
-    missing = [p for p in [_SECRET_JIRA_URL] if not p.exists()]
+    missing = [p for p in [_SECRET_JIRA_URL, _SECRET_JIRA_TOKEN, _SECRET_CONFLUENCE_URL, _SECRET_CONFLUENCE_TOKEN] if not p.exists()]
     if not missing:
         return
 
@@ -78,6 +79,10 @@ def _jira_base_url() -> str:
     return _SECRET_JIRA_URL.read_text().strip()
 
 
+def _confluence_base_url() -> str:
+    return _SECRET_CONFLUENCE_URL.read_text().strip()
+
+
 def _kion_creds() -> dict[str, str]:
     base = Path.home() / ".cache" / "kion-aws-cache"
     env: dict[str, str] = {}
@@ -93,7 +98,6 @@ def _kion_creds() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 def _jira_request(method: str, path: str, body: Any = None) -> Any:
-    token = _jira_token()
     url = f"{_jira_base_url()}{path}"
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(
@@ -101,7 +105,7 @@ def _jira_request(method: str, path: str, body: Any = None) -> Any:
         data=data,
         method=method,
         headers={
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {_jira_token()}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         },
@@ -358,10 +362,60 @@ def run(prompt: str) -> None:
         messages.append({"role": "user", "content": tool_results})
 
 
+def _test_credentials() -> None:
+    """Probe Jira and Confluence with read-only API calls and report pass/fail."""
+    _require_secrets()
+    ok = True
+
+    # Jira: GET /myself (base URL already includes /rest/api/2)
+    result = _jira_request("GET", "/myself")
+    if "error" in result or not any(k in result for k in ("accountId", "key", "name")):
+        print(f"[ops-agent] FAIL jira: {result}", file=sys.stderr)
+        ok = False
+    else:
+        print(f"[ops-agent] OK   jira: logged in as {result.get('displayName')} ({result.get('emailAddress', '')})")
+
+    # Confluence: GET /rest/api/user/current
+    confluence_url = _confluence_base_url()
+    token = _confluence_token()
+    req = urllib.request.Request(
+        f"{confluence_url}/rest/api/user/current",
+        method="GET",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            body = resp.read()
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            print(f"[ops-agent] FAIL confluence: non-JSON response: {body[:200]}", file=sys.stderr)
+            ok = False
+            sys.exit(0 if ok else 1)
+        if "accountId" not in data and "username" not in data and "userKey" not in data:
+            print(f"[ops-agent] FAIL confluence: {data}", file=sys.stderr)
+            ok = False
+        else:
+            name = data.get("displayName") or data.get("username", "")
+            print(f"[ops-agent] OK   confluence: logged in as {name}")
+    except urllib.error.HTTPError as exc:
+        print(f"[ops-agent] FAIL confluence: HTTP {exc.code} {exc.reason}", file=sys.stderr)
+        ok = False
+
+    sys.exit(0 if ok else 1)
+
+
 def main() -> None:
+    if len(sys.argv) == 2 and sys.argv[1] == "--test":
+        _test_credentials()
+        return
     _require_secrets()
     if len(sys.argv) < 2:
         print("Usage: ops-agent <prompt>", file=sys.stderr)
+        print("       ops-agent --test   # verify credentials", file=sys.stderr)
         sys.exit(1)
     prompt = " ".join(sys.argv[1:])
     run(prompt)

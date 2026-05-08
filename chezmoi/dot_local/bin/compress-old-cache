@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Compress cache files older than 30 days with zstd.
+# Invoked by the Claude Code Stop hook after each session.
+# Files already ending in .zst are skipped; originals are removed on success.
+set -euo pipefail
+
+cache_dir="${HOME}/.cache/claude"
+[ -d "$cache_dir" ] || exit 0
+command -v zstd >/dev/null 2>&1 || exit 0
+command -v fd >/dev/null 2>&1 || exit 0
+
+fd --max-depth 1 --type f --changed-before 30days --exclude '*.zst' . "$cache_dir" --print0 |
+  xargs -0 -r zstd -q --rm --

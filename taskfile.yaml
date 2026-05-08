@@ -319,6 +319,18 @@ tasks:
     platforms: [linux, darwin]
     cmd: alejandra --check .
 
+  lint:
+    desc: Run all linters
+    platforms: [linux, darwin]
+    cmds:
+      - task: lint:nix
+      - task: lint:md
+      - task: lint:sh
+      - task: lint:py
+      - task: lint:yaml
+      - task: lint:toml
+      - task: lint:secrets
+
   lint:nix:
     desc: Lint nix files
     platforms: [linux, darwin]
@@ -327,6 +339,33 @@ tasks:
       deadnix .
       task check:copilot-instructions
       task check:agent-instructions
+
+  lint:md:
+    desc: Lint markdown files
+    platforms: [linux, darwin]
+    cmd: markdownlint-cli2 "**/*.md" "#node_modules"
+
+  lint:sh:
+    desc: Lint and check formatting of shell scripts
+    platforms: [linux, darwin]
+    cmd: |
+      shellcheck $(fd -e sh . --exclude node_modules)
+      shfmt -d .
+
+  lint:py:
+    desc: Lint Python files
+    platforms: [linux, darwin]
+    cmd: ruff check .
+
+  lint:yaml:
+    desc: Lint YAML files
+    platforms: [linux, darwin]
+    cmd: yamllint .
+
+  lint:toml:
+    desc: Lint TOML files
+    platforms: [linux, darwin]
+    cmd: taplo lint $(fd -e toml .)
 
   lint:secrets:
     desc: Scan repo history for committed secrets with gitleaks

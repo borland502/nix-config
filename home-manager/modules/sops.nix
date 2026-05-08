@@ -6,12 +6,23 @@
     age.keyFile = "${config.home.homeDirectory}/.config/sops/age/keys.txt";
     defaultSopsFormat = "yaml";
 
-    secrets."ops_agent/jira_base_url" = {
-      sopsFile = ../../secrets/ops-agent.yaml;
-      path = "${config.home.homeDirectory}/.config/ops-agent/jira-base-url";
+    secrets = {
+      "ops_agent/jira_base_url" = {
+        sopsFile = ../../secrets/ops-agent.yaml;
+        path = "${config.home.homeDirectory}/.config/ops-agent/jira-base-url";
+      };
+      "ops_agent/jira_token" = {
+        sopsFile = ../../secrets/ops-agent.yaml;
+        path = "${config.home.homeDirectory}/.config/ops-agent/jira-token";
+      };
+      "ops_agent/confluence_base_url" = {
+        sopsFile = ../../secrets/ops-agent.yaml;
+        path = "${config.home.homeDirectory}/.config/confluence/base-url";
+      };
+      "ops_agent/confluence_token" = {
+        sopsFile = ../../secrets/ops-agent.yaml;
+        path = "${config.home.homeDirectory}/.config/confluence/token";
+      };
     };
-
-    # ops_agent/jira_token: Will be added after provisioning age key and encrypting secret.
-    # See ai-tools/skills/sec-sops-encrypt/ for the workflow.
   };
 }

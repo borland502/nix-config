@@ -1,0 +1,21 @@
+{
+    "model": "opus",
+    "permissions": {
+        "allow": [
+            "Bash(gh pr *)",
+            "Bash(jq)"
+        ]
+    },
+    "hooks": {
+        "Stop": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$HOME/.local/bin/compress-old-cache"
+                    }
+                ]
+            }
+        ]
+    }
+}
