@@ -72,80 +72,107 @@
       })
     else pkgs.direnv;
   commonPackages = with pkgs; [
-    # Development tools
+    # Version control
     git
     gh
+
+    # Network
     curl
     wget
+
+    # Build tools
     gcc
+    pkg-config
+    go-task
+    maven
+
+    # Go toolchain
     go
     gopls
     govulncheck
     delve
-    go-task
-    pkg-config
+
+    # Python
     python3
     pipx
-    maven
+
+    # JavaScript
+    bun
+
+    # Cloud & AWS
     awscli2
     awslogs
     awsSamCliPatched
     checkovPatched
-    bun
 
-    # Container and process tooling
+    # Containers & process management
     docker
     docker-buildx
     docker-compose
     overmind
 
-    # Shell integration tools
+    # Shell enhancement
     bat
     eza
     fzf
     fd
     ripgrep
     sd
-    jq
-    yq-go
     zoxide
     direnvPatched
+
+    # Data processing
+    jq
+    yq-go
     dasel
-    unzip
-    p7zip
-    age
+
+    # Nix tooling
     alejandra
-    ncdu
     statix
     deadnix
     nixd
-    unison
 
-    # Productivity and content
-    glow
-    gum
-    tealdeer
-    scrcpy
+    # Linters
+    markdownlint-cli2
+    ruff
+    shellcheck
+    shfmt
+    yamllint
+    taplo
 
-    # AI development tools
+    # AI & agent tools
     claude-code
     github-copilot-cli
     opsAgent
     cacheScan
 
     # Secret management
+    age
     sops
 
-    # Imperative dotfiles management
+    # Dotfiles & file sync
     chezmoi
+    unison
+
+    # Productivity & content
+    glow
+    gum
+    tealdeer
+    scrcpy
 
     # Basic utilities
     file
     which
     tree
     rsync
+    ncdu
 
-    # System monitoring (cross-platform)
+    # Compression
+    unzip
+    p7zip
+    zstd
+
+    # System monitoring
     btop
     lsof
   ];
