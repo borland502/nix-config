@@ -150,8 +150,7 @@
     lsof
   ];
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
-  copilotDefaultsFile = agentInstructions.copilot;
-  claudeDefaultsFile = agentInstructions.claude;
+  inherit (agentInstructions) claude copilot copilotAgentBridgeDir copilotSkillBridgeDir copilotPluginManifestDir;
   # Home-manager-managed agent-instruction destinations (paths relative to $HOME).
   # Single list keeps the home.file refactor and the orphan-backup activation
   # hook below pointing at the same set of files.
@@ -161,12 +160,18 @@
     ".config/github-copilot/copilot-defaults.instructions.md"
     ".config/github-copilot/intellij/global-copilot-instructions.md"
   ];
+  copilotInstructionDirPaths = [
+    ".config/Code/User/prompts/skills"
+    ".config/Code/User/prompts/agents"
+    ".vscode-server/data/User/prompts/skills"
+    ".vscode-server/data/User/prompts/agents"
+  ];
   agentInstructionDestPaths =
     [
       "${xdgConfigHome}/claude/CLAUDE.md"
       "${homeDirectory}/.claude/CLAUDE.md"
     ]
-    ++ map (p: "${homeDirectory}/${p}") copilotInstructionPaths;
+    ++ map (p: "${homeDirectory}/${p}") (copilotInstructionPaths ++ copilotInstructionDirPaths);
   opsAgentPython = pkgs.python3.withPackages (ps: [ps.anthropic]);
   opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
     exec ${opsAgentPython}/bin/python ${./local/bin/ops-agent.py} "$@"
@@ -203,7 +208,7 @@ in {
       # pre-existing real file at the destination is moved aside by the
       # backupAgentInstructions activation hook below before this is written.
       "claude/CLAUDE.md" = {
-        source = claudeDefaultsFile;
+        source = claude;
         force = true;
       };
       "claude/log-bash.sh".source = ./local/bin/log-bash.sh;
@@ -424,9 +429,36 @@ in {
     # file aside before write.
     file =
       (lib.genAttrs copilotInstructionPaths (_: {
-        source = copilotDefaultsFile;
+        source = copilot;
         force = true;
       }))
+      // {
+        ".config/Code/User/prompts/skills" = {
+          source = copilotSkillBridgeDir;
+          recursive = true;
+          force = true;
+        };
+        ".config/Code/User/prompts/agents" = {
+          source = copilotAgentBridgeDir;
+          recursive = true;
+          force = true;
+        };
+        ".vscode-server/data/User/prompts/skills" = {
+          source = copilotSkillBridgeDir;
+          recursive = true;
+          force = true;
+        };
+        ".vscode-server/data/User/prompts/agents" = {
+          source = copilotAgentBridgeDir;
+          recursive = true;
+          force = true;
+        };
+        ".config/copilot/plugin-manifest" = {
+          source = copilotPluginManifestDir;
+          recursive = true;
+          force = true;
+        };
+      }
       // {
         # Claude Code's memory-file loader hardcodes ~/.claude/CLAUDE.md and
         # does not honor CLAUDE_CONFIG_DIR — see
@@ -438,7 +470,7 @@ in {
         # the loader can find. Revisit and remove this entry once the upstream
         # fix lands.
         ".claude/CLAUDE.md" = {
-          source = claudeDefaultsFile;
+          source = claude;
           force = true;
         };
       };
