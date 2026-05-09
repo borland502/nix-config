@@ -8,13 +8,13 @@ mirror_file="$repo_root/.github/copilot-instructions.md"
 tmp_dir=$(mktemp -d)
 
 cleanup() {
-  rm -rf "$tmp_dir"
+	rm -rf "$tmp_dir"
 }
 
 trap cleanup EXIT
 
 normalize() {
-  awk '
+	awk '
     BEGIN {
       in_frontmatter = 0
       at_start = 1
@@ -67,18 +67,18 @@ normalize() {
 }
 
 substituted_source="$tmp_dir/agent-defaults.copilot.md"
-sed 's|@@AGENT@@|copilot|g' "$source_file" > "$substituted_source"
+sed 's|@@AGENT@@|copilot|g' "$source_file" >"$substituted_source"
 
 normalized_source="$tmp_dir/copilot-defaults.normalized.md"
 normalized_mirror="$tmp_dir/copilot-instructions.normalized.md"
 
-normalize "$substituted_source" > "$normalized_source"
-normalize "$mirror_file" > "$normalized_mirror"
+normalize "$substituted_source" >"$normalized_source"
+normalize "$mirror_file" >"$normalized_mirror"
 
 if ! cmp -s "$normalized_source" "$normalized_mirror"; then
-  printf '%s\n' 'Normalized Copilot instruction content diverged:'
-  diff -u \
-    -L 'chezmoi/dot_config/instructions/agent-defaults.md (normalized, copilot variant)' "$normalized_source" \
-    -L '.github/copilot-instructions.md (normalized)' "$normalized_mirror" || true
-  exit 1
+	printf '%s\n' 'Normalized Copilot instruction content diverged:'
+	diff -u \
+		-L 'chezmoi/dot_config/instructions/agent-defaults.md (normalized, copilot variant)' "$normalized_source" \
+		-L '.github/copilot-instructions.md (normalized)' "$normalized_mirror" || true
+	exit 1
 fi

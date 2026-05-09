@@ -13,7 +13,7 @@ resp=$(printf '%s' "$input" | jq -r '
 agent_raw="${AGENT_NAME:-claude}"
 agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
 if [[ -z "$agent" ]]; then
-  agent="claude"
+	agent="claude"
 fi
 
 log_dir="$HOME/.cache/$agent"
@@ -21,8 +21,8 @@ logfile="$log_dir/session_${sid}.log"
 mkdir -p "$log_dir"
 
 {
-  printf '\n## [%s]\n' "$(date '+%Y-%m-%d %H:%M:%S')"
-  printf 'CMD: %s\n' "$cmd"
-  printf 'OUTPUT:\n%s\n' "$resp"
-  printf -- '---\n'
-} >> "$logfile"
+	printf '\n## [%s]\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+	printf 'CMD: %s\n' "$cmd"
+	printf 'OUTPUT:\n%s\n' "$resp"
+	printf -- '---\n'
+} >>"$logfile"

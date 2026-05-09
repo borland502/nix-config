@@ -1,6 +1,8 @@
 # Nix Configuration
 
-Jeremy's personal Nix configuration with modular organization for NixOS, WSL, and macOS via Home Manager, NixOS-WSL, and nix-darwin. Dotfiles for all platforms (including Windows-native) are managed through chezmoi, backed by this same repository.
+Jeremy's personal Nix configuration with modular organization for NixOS, WSL, and macOS via Home Manager, NixOS-WSL,
+and nix-darwin. Dotfiles for all platforms (including Windows-native) are managed through chezmoi, backed by this same
+repository.
 
 ## Structure
 
@@ -61,7 +63,11 @@ Jeremy's personal Nix configuration with modular organization for NixOS, WSL, an
 
 ## Quick Start
 
-> **Linux / WSL users:** The `install.sh` script at the repo root is designed for fresh WSL2 or bare Ubuntu/Debian installs where Nix is used in place of Linuxbrew. It bootstraps Nix via the Determinate Systems installer, runs chezmoi and Home Manager, sets zsh as the default shell, bootstraps Windows-side tools (WSL only), and runs interactive secret provisioning. It is not needed on macOS (use Homebrew + nix-darwin) or on an existing NixOS system (use the task commands below directly).
+> **Linux / WSL users:** The `install.sh` script at the repo root is designed for fresh WSL2 or bare Ubuntu/Debian
+> installs where Nix is used in place of Linuxbrew. It bootstraps Nix via the Determinate Systems installer, runs
+> chezmoi and Home Manager, sets zsh as the default shell, bootstraps Windows-side tools (WSL only), and runs
+> interactive secret provisioning. It is not needed on macOS (use Homebrew + nix-darwin) or on an existing NixOS
+> system (use the task commands below directly).
 
 ### Platform Auto-Detection
 
@@ -117,7 +123,8 @@ task fmt
 task check
 ```
 
-The `switch`, `upgrade`, `home-switch`, `darwin-switch`, and `nixos-switch` tasks automatically ensure chezmoi is initialized and applied before rebuilding the system.
+The `switch`, `upgrade`, `home-switch`, `darwin-switch`, and `nixos-switch` tasks automatically ensure chezmoi is
+initialized and applied before rebuilding the system.
 
 ### Initial Chezmoi Setup
 
@@ -139,7 +146,8 @@ To add a new file to chezmoi management:
 task chezmoi-add FILE=~/.somerc
 ```
 
-On Linux and macOS, home-manager manages the agent instruction files and chezmoi ignores them (via `.chezmoiignore`). On Windows, chezmoi deploys them directly.
+On Linux and macOS, home-manager manages the agent instruction files and chezmoi ignores them (via `.chezmoiignore`).
+On Windows, chezmoi deploys them directly.
 
 ### Windows Bootstrap
 
@@ -149,15 +157,19 @@ To set up a Windows machine without WSL, run natively in PowerShell from the rep
 task windows-bootstrap
 ```
 
-This installs Scoop, creates standard XDG directories (`~/.local/bin`, `~/.config`, `~/.cache`, etc.), installs a curated package set (git, chezmoi, task, ripgrep, fzf, fd, bat, flameshot, go, jq, neovim, and others), adds `~/.local/bin` to the user Path, installs the FiraCode Nerd Font, and configures Windows Terminal to use it.
+This installs Scoop, creates standard XDG directories (`~/.local/bin`, `~/.config`, `~/.cache`, etc.), installs a
+curated package set (git, chezmoi, task, ripgrep, fzf, fd, bat, flameshot, go, jq, neovim, and others), adds
+`~/.local/bin` to the user Path, installs the FiraCode Nerd Font, and configures Windows Terminal to use it.
 
-After bootstrap, run `task chezmoi-init` and `task chezmoi-apply` to deploy dotfiles — including the PowerShell profile, flameshot config, and color scheme.
+After bootstrap, run `task chezmoi-init` and `task chezmoi-apply` to deploy dotfiles — including the PowerShell
+profile, flameshot config, and color scheme.
 
 > Note: Windows support is nothing fancy, mostly a bunch of helper scripts after an initial run by WSL
 
 ### WSL Bootstrap
 
-On a fresh NixOS-WSL instance, use a path-based flake reference for the first switch so newly added local files are included before they are tracked by Git:
+On a fresh NixOS-WSL instance, use a path-based flake reference for the first switch so newly added local files are
+included before they are tracked by Git:
 
 ```bash
 cd ~/nix-config
@@ -201,20 +213,26 @@ Provides Go, gopls, govulncheck, delve, pkg-config, and the required X11, Waylan
 
 ## Available Hosts
 
-- **darwin**: macOS configuration using nix-darwin and Home Manager. The alias `ICFGG241C3Y03` points to the same Darwin configuration for backwards compatibility.
+- **darwin**: macOS configuration using nix-darwin and Home Manager. The alias `ICFGG241C3Y03` points to the same
+  Darwin configuration for backwards compatibility.
 - **linux**: NixOS with KDE Plasma, development tooling, and desktop packages.
 - **wsl**: NixOS-WSL. Hostname is set to `wsl` by `hosts/wsl/default.nix` so platform auto-detection works after first switch.
 
 ## Chezmoi Dotfile Management
 
-Chezmoi source directory is `chezmoi/` in this repo. The `chezmoi-init` task writes `~/.config/chezmoi/chezmoi.toml` pointing there; home-manager activation does the same automatically on Linux and macOS after any `task switch`.
+Chezmoi source directory is `chezmoi/` in this repo. The `chezmoi-init` task writes `~/.config/chezmoi/chezmoi.toml`
+pointing there; home-manager activation does the same automatically on Linux and macOS after any `task switch`.
 
 `.chezmoiignore` is a Go template that conditionally ignores files based on platform:
 
-- **Linux / macOS**: agent instruction paths are ignored — home-manager owns them via Nix store symlinks. Windows-only files (`Documents/PowerShell`, `.local/bin/update_scoop.ps1`) are also ignored.
-- **Windows**: all chezmoi-managed files are deployed, including `~/.claude/CLAUDE.md`, Copilot instruction files, PowerShell profiles, `~/.local/bin` scripts, and flameshot config.
+- **Linux / macOS**: agent instruction paths are ignored — home-manager owns them via Nix store symlinks. Windows-only
+  files (`Documents/PowerShell`, `.local/bin/update_scoop.ps1`) are also ignored.
+- **Windows**: all chezmoi-managed files are deployed, including `~/.claude/CLAUDE.md`, Copilot instruction files,
+  PowerShell profiles, `~/.local/bin` scripts, and flameshot config.
 
-The `run_onchange_deploy-vscode-instructions.ps1.tmpl` script (Windows-only, skipped elsewhere via empty template body) additionally copies the Copilot instructions from the chezmoi-managed XDG path to `%APPDATA%\Code\User\prompts\`, which is where Windows-native VS Code reads them.
+The `run_onchange_deploy-vscode-instructions.ps1.tmpl` script (Windows-only, skipped elsewhere via empty template
+body) additionally copies the Copilot instructions from the chezmoi-managed XDG path to `%APPDATA%\Code\User\prompts\`,
+which is where Windows-native VS Code reads them.
 
 ## Color Palette
 
@@ -232,7 +250,7 @@ Stylix applies the palette automatically to bat, btop, fzf, kitty, Starship, Vim
 
 All agent instructions derive from a single source file:
 
-```
+```text
 chezmoi/dot_config/instructions/agent-defaults.md
 ```
 
@@ -253,9 +271,10 @@ The pre-commit hook and CI catch drift automatically via `task check:agent-instr
 
 ## AI Tooling (Skills + Agents)
 
-Custom skills and agents live in [`ai-tools/`](ai-tools/) as the single source of truth, modeled on the [obra/superpowers](https://github.com/obra/superpowers) layout:
+Custom skills and agents live in [`ai-tools/`](ai-tools/) as the single source of truth, modeled on the
+[obra/superpowers](https://github.com/obra/superpowers) layout:
 
-```
+```text
 ai-tools/
 ├── .claude-plugin/
 │   ├── marketplace.json     # registers nix-config-tools as a Claude Code plugin
@@ -264,20 +283,29 @@ ai-tools/
 └── skills/                  # <name>/SKILL.md (+ optional references/, scripts/)
 ```
 
-[`home-manager/common.nix`](home-manager/common.nix) deploys this content into both `~/.config/claude/{skills,agents}` and `~/.config/copilot/{skills,agents}`, and the `registerClaudeMarketplaces` activation hook idempotently writes the marketplace registration into `~/.config/claude/settings.json`. Two marketplaces are registered:
+[`home-manager/common.nix`](home-manager/common.nix) deploys this content into both
+`~/.config/claude/{skills,agents}` and `~/.config/copilot/{skills,agents}`, and the `registerClaudeMarketplaces`
+activation hook idempotently writes the marketplace registration into `~/.config/claude/settings.json`. Two
+marketplaces are registered:
 
 | Marketplace | Source | Plugins enabled |
 |---|---|---|
 | `nix-config-dev` | `<repo>/ai-tools` (local) | `nix-config-tools` |
 | `anthropic-agent-skills` | `~/.local/src/ai-tools/anthropic-skills` (chezmoi external) | `document-skills`, `claude-api` |
 
-The Anthropic `document-skills` plugin (`docx`, `pdf`, `pptx`, `xlsx`) is loaded directly from the upstream checkout — its proprietary license forbids redistribution, so this repo never copies its contents.
+The Anthropic `document-skills` plugin (`docx`, `pdf`, `pptx`, `xlsx`) is loaded directly from the upstream checkout —
+its proprietary license forbids redistribution, so this repo never copies its contents.
 
-The shells export `CLAUDE_CONFIG_DIR` and `COPILOT_HOME` (defined in [`home-manager/zsh.nix`](home-manager/zsh.nix)) pointing at the XDG locations.
+The shells export `CLAUDE_CONFIG_DIR` and `COPILOT_HOME` (defined in [`home-manager/zsh.nix`](home-manager/zsh.nix))
+pointing at the XDG locations.
 
 ### Upstream credits
 
-Skills under `ai-tools/skills/` other than the project-local ones (`ops-cache-scan`, `ops-chezmoi`, `cli-dasel`, `cli-fd`, `cli-fzf`, `cli-jq`, `ops-nix-pitfalls`, `ops-agent`, `flow-reconciliation`, `cli-rg`, `cli-sd`, `sec-credentials`, `sec-sops-encrypt`, `shell-pitfalls`, `cli-yq`) were ingested from upstream repositories. Each retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim alongside the skill.
+Skills under `ai-tools/skills/` other than the project-local ones (`ops-cache-scan`, `ops-chezmoi`, `cli-dasel`,
+`cli-fd`, `cli-fzf`, `cli-jq`, `ops-nix-pitfalls`, `ops-agent`, `flow-reconciliation`, `cli-rg`, `cli-sd`,
+`sec-credentials`, `sec-sops-encrypt`, `shell-pitfalls`, `cli-yq`) were ingested from upstream repositories. Each
+retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim
+alongside the skill.
 
 | Upstream repo | License | Skills ingested |
 |---|---|---|
@@ -289,7 +317,11 @@ Skills under `ai-tools/skills/` other than the project-local ones (`ops-cache-sc
 
 ### Reconciling against upstream
 
-The chezmoi externals at `~/.local/src/ai-tools/<repo>` refresh every 720h (~1 month). When upstream updates land, follow the [`flow-reconciliation` skill](ai-tools/skills/flow-reconciliation/SKILL.md) — it documents the diff/classify/apply procedure (and the namespace + path rewrites required after each `cp -R`), so local divergence (e.g. the project-specific "Project Layout References" section appended to `golang-patterns` and `golang-testing`) isn't silently overwritten.
+The chezmoi externals at `~/.local/src/ai-tools/<repo>` refresh every 720h (~1 month). When upstream updates land,
+follow the [`flow-reconciliation` skill](ai-tools/skills/flow-reconciliation/SKILL.md) — it documents the
+diff/classify/apply procedure (and the namespace + path rewrites required after each `cp -R`), so local divergence
+(e.g. the project-specific "Project Layout References" section appended to `golang-patterns` and `golang-testing`)
+isn't silently overwritten.
 
 This project's own MIT-licensed code is governed by [LICENSE](LICENSE); ingested upstream content retains its original license.
 
@@ -303,15 +335,18 @@ The chezmoi-managed PowerShell profile (`chezmoi/dot_Documents/PowerShell/`) mir
 - **Starship** prompt initialization (shares `~/.config/starship.toml` with WSL)
 - **XDG directory** environment variables
 
-The profile uses chezmoi's `create_` prefix — it is only written if no profile exists yet, so user customizations are preserved. PowerShell 5.1 gets a thin redirector that dot-sources the PS7 profile.
+The profile uses chezmoi's `create_` prefix — it is only written if no profile exists yet, so user customizations are
+preserved. PowerShell 5.1 gets a thin redirector that dot-sources the PS7 profile.
 
-On WSL, home-manager deploys `starship.toml` to the Windows home directory and bootstraps starship + PowerShell 7 via winget. Chezmoi owns the PowerShell profile; home-manager owns the starship config.
+On WSL, home-manager deploys `starship.toml` to the Windows home directory and bootstraps starship + PowerShell 7 via
+winget. Chezmoi owns the PowerShell profile; home-manager owns the starship config.
 
 ## Home Manager Profiles
 
 ### Development Profile (`profiles/development-linux.nix`)
 
-- Editors: Neovim, VS Code (non-WSL only) with Python, GitLens, Material Icon Theme, Tailwind CSS, Prettier, and Live Server extensions
+- Editors: Neovim, VS Code (non-WSL only) with Python, GitLens, Material Icon Theme, Tailwind CSS, Prettier, and Live
+  Server extensions
 - Build tools: gnumake, cmake
 - Runtimes: Node.js
 - Cloud: kubectl
@@ -324,17 +359,24 @@ On WSL, home-manager deploys `starship.toml` to the Windows home directory and b
 - Productivity: LibreOffice, Obsidian, KeePassXC
 - Graphics: GIMP, Inkscape, Flameshot
 
-Common development tools (`git`, `gh`, `go`, `ripgrep`, `fzf`, `jq`, `docker`, `awscli2`, and many others) live in `common.nix` and are shared across all platforms.
+Common development tools (`git`, `gh`, `go`, `ripgrep`, `fzf`, `jq`, `docker`, `awscli2`, and many others) live in
+`common.nix` and are shared across all platforms.
 
 ## Editor Configuration
 
 - `home-manager/lib/code-editor-user-settings.nix` is the shared source for VS Code user settings.
 - `common.nix` and `home-darwin.nix` install those settings and Copilot prompt files into each editor's user config directory.
-- Custom agents and skills live in `ai-tools/agents/` and `ai-tools/skills/` as the single source of truth, with a Claude Code marketplace manifest in `ai-tools/.claude-plugin/`.
-- Home Manager deploys that same source into `~/.config/claude/{agents,skills}` and `~/.config/copilot/{agents,skills}`, so both CLIs share one canonical definition set. The shells export `CLAUDE_CONFIG_DIR` and `COPILOT_HOME` pointing at those XDG paths.
-- `.devcontainer/devcontainer.json` is the bootstrap layer for container sessions before the Home Manager profile is applied.
-- `.vscode/settings.json` and `.vscode/extensions.json` are repo-workspace-specific and should stay focused on the Nix formatter, language server, and extension recommendations.
-- If a setting should follow you across machines, keep it in Home Manager. If it applies only to this repository, keep it in `.vscode`.
+- Custom agents and skills live in `ai-tools/agents/` and `ai-tools/skills/` as the single source of truth, with a
+  Claude Code marketplace manifest in `ai-tools/.claude-plugin/`.
+- Home Manager deploys that same source into `~/.config/claude/{agents,skills}` and
+  `~/.config/copilot/{agents,skills}`, so both CLIs share one canonical definition set. The shells export
+  `CLAUDE_CONFIG_DIR` and `COPILOT_HOME` pointing at those XDG paths.
+- `.devcontainer/devcontainer.json` is the bootstrap layer for container sessions before the Home Manager profile is
+  applied.
+- `.vscode/settings.json` and `.vscode/extensions.json` are repo-workspace-specific and should stay focused on the Nix
+  formatter, language server, and extension recommendations.
+- If a setting should follow you across machines, keep it in Home Manager. If it applies only to this repository, keep
+  it in `.vscode`.
 
 ## Modules
 
@@ -363,7 +405,8 @@ task check:copilot-instructions     # verify .github/copilot-instructions.md sta
 ## Git Hooks
 
 - Run `task hooks:install` once per clone to configure Git to use the tracked hooks in `.githooks/`.
-- The pre-commit hook runs `task lint:nix` inside `nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix`, which includes `check:copilot-instructions` and `check:agent-instructions`.
+- The pre-commit hook runs `task lint:nix` inside `nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix`, which
+  includes `check:copilot-instructions` and `check:agent-instructions`.
 - Hooks are local Git configuration and do not enable themselves automatically for other clones.
 
 ## Platform Notes
@@ -377,30 +420,38 @@ task check:copilot-instructions     # verify .github/copilot-instructions.md sta
 ### WSL
 
 - Uses `NixOS-WSL` as the base system module.
-- `programs.nix-ld` is enabled on the WSL host so VS Code Remote / `.vscode-server` binaries have a compatible runtime on NixOS.
-- The WSL Home Manager profile deploys `starship.toml` to Windows and bootstraps starship + PowerShell 7 via winget. Chezmoi owns the PowerShell profile.
-- `install.sh` detects WSL automatically, enables interop in `/etc/wsl.conf`, and runs the Windows bootstrap. On plain Linux, the Windows steps are skipped.
-- `task wsl-bootstrap-windows` bootstraps Windows-side Scoop buckets, installs the configured Nerd Font, and updates Windows Terminal to use the same font. The script auto-registers the WSL interop binfmt handler if missing.
+- `programs.nix-ld` is enabled on the WSL host so VS Code Remote / `.vscode-server` binaries have a compatible runtime
+  on NixOS.
+- The WSL Home Manager profile deploys `starship.toml` to Windows and bootstraps starship + PowerShell 7 via winget.
+  Chezmoi owns the PowerShell profile.
+- `install.sh` detects WSL automatically, enables interop in `/etc/wsl.conf`, and runs the Windows bootstrap. On plain
+  Linux, the Windows steps are skipped.
+- `task wsl-bootstrap-windows` bootstraps Windows-side Scoop buckets, installs the configured Nerd Font, and updates
+  Windows Terminal to use the same font. The script auto-registers the WSL interop binfmt handler if missing.
 - First-time switches should use a path-based flake reference (`path:$PWD#wsl`) until all new files are tracked by Git.
 
 ### Windows (native)
 
 - `task windows-bootstrap` is the native Windows entry point (runs via PowerShell, no WSL required).
 - After bootstrap, use `task chezmoi-init` and `task chezmoi-apply` to deploy dotfiles.
-- chezmoi manages the PowerShell profile, flameshot config, agent instructions, `~/.local/bin` scripts, and other dotfiles on Windows since home-manager is unavailable.
+- chezmoi manages the PowerShell profile, flameshot config, agent instructions, `~/.local/bin` scripts, and other
+  dotfiles on Windows since home-manager is unavailable.
 - Flameshot uses Alt+Shift+3/4 for screenshots on Windows (Ctrl+Shift+3/4 on Linux/macOS).
 
 ## Customization
 
 1. Update user information in the relevant host or Home Manager profile.
 2. Add or remove packages in `home-manager/common.nix` (shared) or the appropriate profile.
-3. Edit `chezmoi/dot_config/instructions/agent-defaults.md` for agent instruction changes, then run `task generate:agent-instructions` and commit the result.
-4. Edit `chezmoi/dot_config/colors/monokai.toml` to change the color palette — Nix, Stylix, and chezmoi all read from this single file.
+3. Edit `chezmoi/dot_config/instructions/agent-defaults.md` for agent instruction changes, then run
+   `task generate:agent-instructions` and commit the result.
+4. Edit `chezmoi/dot_config/colors/monokai.toml` to change the color palette — Nix, Stylix, and chezmoi all read from
+   this single file.
 5. Adjust module configurations as needed.
 
 ## GitHub Actions CI
 
 - GitHub Actions validates Linux and macOS targets by building flake outputs.
 - The WSL target is validated by building `nixosConfigurations.wsl`.
-- GitHub-hosted runners do not provide a real WSL2 runtime, so end-to-end WSL boot tests require a self-hosted Windows runner with WSL2 enabled.
+- GitHub-hosted runners do not provide a real WSL2 runtime, so end-to-end WSL boot tests require a self-hosted Windows
+  runner with WSL2 enabled.
 - The workflow lives at `.github/workflows/nix-validation.yml`.
