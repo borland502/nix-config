@@ -301,6 +301,22 @@ in {
         done
       '';
 
+      # Remove stale *.instructions.md files from skill/agent bridge prompt
+      # directories.  These were produced by older generations before the bridge
+      # generators switched to *.prompt.md; without this hook they persist
+      # alongside the new prompt files and re-inflate the instruction count.
+      cleanupStaleInstructionBridges = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
+        for _dir in ${lib.concatMapStringsSep " " lib.escapeShellArg (
+          map (p: "${homeDirectory}/${p}") copilotInstructionDirPaths
+        )}; do
+          [ -d "$_dir" ] || continue
+          for _f in "$_dir"/*.instructions.md; do
+            [ -f "$_f" ] || [ -L "$_f" ] || continue
+            ${pkgs.coreutils}/bin/rm -f "$_f"
+          done
+        done
+      '';
+
       # Move any pre-existing real file at an HM-owned agent-instruction path
       # aside before checkLinkTargets runs. Eliminates "Existing file would be
       # clobbered" failures when bootstrapping a host where another tool (e.g.

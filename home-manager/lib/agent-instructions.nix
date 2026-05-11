@@ -41,12 +41,12 @@ in {
       skill_file="$skill_dir/SKILL.md"
       [ -f "$skill_file" ] || continue
 
-      out_file="$out/$skill_name.instructions.md"
+      out_file="$out/$skill_name.prompt.md"
       {
         printf -- '---\n'
         printf 'description: "Copilot bridge for ai-tools/skills/%s/SKILL.md"\n' "$skill_name"
         printf 'name: "Skill Bridge - %s"\n' "$skill_name"
-        printf 'applyTo: "**"\n'
+        printf 'mode: ask\n'
         printf -- '---\n\n'
         printf '# Skill Bridge: %s\n\n' "$skill_name"
         printf 'Source: ai-tools/skills/%s/SKILL.md\n\n' "$skill_name"
@@ -64,13 +64,13 @@ in {
     for agent_file in "$agents_root"/*.agent.md; do
       [ -f "$agent_file" ] || continue
       agent_name=$(basename "$agent_file" .agent.md)
-      out_file="$out/$agent_name.instructions.md"
+      out_file="$out/$agent_name.prompt.md"
 
       {
         printf -- '---\n'
         printf 'description: "Copilot bridge for ai-tools/agents/%s.agent.md"\n' "$agent_name"
         printf 'name: "Agent Bridge - %s"\n' "$agent_name"
-        printf 'applyTo: "**"\n'
+        printf 'mode: agent\n'
         printf -- '---\n\n'
         printf '# Agent Bridge: %s\n\n' "$agent_name"
         printf 'Source: ai-tools/agents/%s.agent.md\n\n' "$agent_name"
