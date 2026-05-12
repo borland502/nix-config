@@ -342,6 +342,11 @@ in {
             '.hooks.PostToolUse |= (. // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"''${CLAUDE_CONFIG_DIR:-$HOME/.config/claude}/log-bash.sh\"","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
+        if ! jq -e '.attribution' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq '.attribution = {"commit": "", "pr": ""}' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
       '';
 
       # Register Claude Code marketplaces in ~/.config/claude/settings.json:
