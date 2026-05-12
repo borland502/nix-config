@@ -142,6 +142,23 @@ in {
     sessionVariables.BROWSER = "vivaldi";
 
     activation = {
+      # Remove stale *.instructions.md files from macOS skill/agent bridge
+      # prompt directories left behind by older generations before the bridge
+      # generators switched to *.prompt.md.
+      cleanupStaleInstructionBridgesDarwin = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
+        for _dir in \
+          "$HOME/Library/Application Support/Code/User/prompts/skills" \
+          "$HOME/Library/Application Support/Code/User/prompts/agents" \
+          "$HOME/Library/Application Support/Code - Insiders/User/prompts/skills" \
+          "$HOME/Library/Application Support/Code - Insiders/User/prompts/agents"; do
+          [ -d "$_dir" ] || continue
+          for _f in "$_dir"/*.instructions.md; do
+            [ -f "$_f" ] || [ -L "$_f" ] || continue
+            ${pkgs.coreutils}/bin/rm -f "$_f"
+          done
+        done
+      '';
+
       # Install SDKMAN! on macOS so Java toolchains can be managed declaratively
       installSdkman = lib.hm.dag.entryAfter ["writeBoundary"] ''
         sdkman_dir="$HOME/.sdkman"

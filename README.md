@@ -279,14 +279,26 @@ ai-tools/
 ├── .claude-plugin/
 │   ├── marketplace.json     # registers nix-config-tools as a Claude Code plugin
 │   └── plugin.json          # plugin metadata
-├── agents/                  # *.agent.md
+├── agents/                  # *.agent.md — four custom sub-agents
 └── skills/                  # <name>/SKILL.md (+ optional references/, scripts/)
 ```
 
-[`home-manager/common.nix`](home-manager/common.nix) deploys this content into both
-`~/.config/claude/{skills,agents}` and `~/.config/copilot/{skills,agents}`, and the `registerClaudeMarketplaces`
-activation hook idempotently writes the marketplace registration into `~/.config/claude/settings.json`. Two
-marketplaces are registered:
+[`home-manager/lib/agent-instructions.nix`](home-manager/lib/agent-instructions.nix) generates bridge files and
+[`home-manager/common.nix`](home-manager/common.nix) deploys them:
+
+| Destination | File type | Frontmatter | Behaviour |
+|---|---|---|---|
+| `~/.config/claude/{skills,agents}` | raw `SKILL.md` / `*.agent.md` | as-authored | loaded by Claude Code marketplace |
+| `~/.config/copilot/{skills,agents}` | raw `SKILL.md` / `*.agent.md` | as-authored | loaded by Copilot CLI |
+| `prompts/skills/*.prompt.md` | generated bridge | `mode: ask` | invoke on-demand in VS Code Copilot Chat with `/` |
+| `prompts/agents/*.prompt.md` | generated bridge | `mode: agent` | invoke on-demand in VS Code Copilot Chat with `/` |
+
+Skills and agents are **not** deployed as always-on instruction files — only `copilot-defaults.instructions.md`
+carries `applyTo: "**"`. This keeps the active instruction count to one and makes each skill or agent available
+as an explicit slash command (e.g. `/flow-test-driven-development`, `/github-actions-expert`).
+
+The `registerClaudeMarketplaces` activation hook idempotently writes the marketplace registration into
+`~/.config/claude/settings.json`. Two marketplaces are registered:
 
 | Marketplace | Source | Plugins enabled |
 |---|---|---|
@@ -368,9 +380,10 @@ Common development tools (`git`, `gh`, `go`, `ripgrep`, `fzf`, `jq`, `docker`, `
 - `common.nix` and `home-darwin.nix` install those settings and Copilot prompt files into each editor's user config directory.
 - Custom agents and skills live in `ai-tools/agents/` and `ai-tools/skills/` as the single source of truth, with a
   Claude Code marketplace manifest in `ai-tools/.claude-plugin/`.
-- Home Manager deploys that same source into `~/.config/claude/{agents,skills}` and
-  `~/.config/copilot/{agents,skills}`, so both CLIs share one canonical definition set. The shells export
-  `CLAUDE_CONFIG_DIR` and `COPILOT_HOME` pointing at those XDG paths.
+- Home Manager deploys skills and agents to `~/.config/claude/{agents,skills}` and `~/.config/copilot/{agents,skills}`
+  for Claude Code and the Copilot CLI. For VS Code Copilot Chat, generated `*.prompt.md` bridges are installed under
+  `prompts/skills/` and `prompts/agents/` — available on-demand via `/` rather than as always-on instructions. The
+  shells export `CLAUDE_CONFIG_DIR` and `COPILOT_HOME` pointing at those XDG paths.
 - `.devcontainer/devcontainer.json` is the bootstrap layer for container sessions before the Home Manager profile is
   applied.
 - `.vscode/settings.json` and `.vscode/extensions.json` are repo-workspace-specific and should stay focused on the Nix
