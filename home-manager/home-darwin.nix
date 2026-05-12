@@ -153,7 +153,7 @@ in {
           "$HOME/Library/Application Support/Code - Insiders/User/prompts/agents"; do
           [ -d "$_dir" ] || continue
           for _f in "$_dir"/*.instructions.md; do
-            [ -f "$_f" ] || [ -L "$_f" ] || continue
+            [ -f "$_f" ] && [ ! -L "$_f" ] || continue
             ${pkgs.coreutils}/bin/rm -f "$_f"
           done
         done

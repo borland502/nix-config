@@ -239,6 +239,17 @@ in {
         force = true;
       };
       "claude/log-bash.sh".source = ./local/bin/log-bash.sh;
+      "copilot/log-bash.sh".source = ./local/bin/log-bash.sh;
+      "copilot/hooks/log-bash.json".text = builtins.toJSON {
+        version = 1;
+        hooks.postToolUse = [
+          {
+            type = "command";
+            bash = ''AGENT_NAME=copilot exec bash "$HOME/.config/copilot/log-bash.sh"'';
+            timeoutSec = 10;
+          }
+        ];
+      };
 
       # Single source of truth for custom agent/skill definitions is the
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
