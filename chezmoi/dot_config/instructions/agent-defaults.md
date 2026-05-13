@@ -23,7 +23,17 @@
   Bash before reading. Do not decompress speculatively; only decompress when
   uncompressed logs contain no useful example.
 - When looking for tool credentials, auth state, or cached session data, examine
-  ~/.cache first and then ~/.config.
+  ~/.cache first and then ~/.config. Known locations by service:
+  - **Jira**: token at `~/.config/ops-agent/jira-token`, base URL at
+    `~/.config/ops-agent/jira-base-url` (SOPS-decrypted from
+    `secrets/ops-agent.yaml` in the nix-config repo)
+  - **Confluence**: token at `~/.config/confluence/token`, base URL at
+    `~/.config/confluence/base-url` (same SOPS source)
+  - **AWS**: `~/.aws/config` and `~/.aws/credentials`; Kion session cache at
+    `~/.cache/kion-aws-cache/`
+  - **GitHub (gh CLI)**: `~/.config/gh/hosts.yml`
+  - **SOPS age key** (decrypts all nix-managed secrets):
+    `~/.config/sops/age/keys.txt`
 - For Jira and Confluence operations, prefer direct REST/API-spec requests with
   configured tokens over dedicated `jira-cli` or `confluence-cli` wrappers.
 - For GitHub repository, issue, release, and pull request operations, prefer
@@ -63,3 +73,39 @@
 - For shell commands with JSON payloads, inline scripts, or heavily quoted
   objects, prefer writing a short script file under ~/.cache/copilot and
   executing that file instead of retrying inline `zsh -c` command strings.
+
+## Agent Instruction Sources
+
+This file (`chezmoi/dot_config/instructions/agent-defaults.md`) is the single
+source of truth for persistent agent defaults. It is rendered by
+`home-manager/lib/agent-instructions.nix` (substituting `@@AGENT@@` with the
+agent name) and deployed as read-only symlinks via home-manager. Each deployed
+file is loaded into the agent session's system prompt at startup and is the
+primary source of Anthropic prompt-cache hits for that session.
+
+Stable deployment paths — these symlinks always point to the active generation:
+
+**Claude** (loaded via `CLAUDE_CONFIG_DIR` or fallback):
+
+- `~/.config/claude/CLAUDE.md` — primary
+- `~/.claude/CLAUDE.md` — fallback / memory resolution path
+
+**Copilot:**
+
+- `~/.config/github-copilot/copilot-defaults.instructions.md` — Copilot CLI
+- `~/Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md` — VS Code stable (macOS)
+- `~/Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md` — VS Code Insiders (macOS)
+- `~/.config/Code/User/prompts/copilot-defaults.instructions.md` — VS Code (Linux/XDG)
+- `~/.vscode-server/data/User/prompts/copilot-defaults.instructions.md` — VS Code Server
+
+Each symlink resolves through the current home-manager generation bundle in the
+nix store. To find the active nix store path for a given agent:
+
+```sh
+readlink -f ~/.config/claude/CLAUDE.md          # Claude variant
+readlink -f ~/.config/github-copilot/copilot-defaults.instructions.md  # Copilot variant
+```
+
+The chezmoi path for this file (`chezmoi/dot_config/instructions/`) makes the
+credential and cache-directory locations documented above discoverable on hosts
+that have chezmoi but not the full nix config.
