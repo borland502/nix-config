@@ -30,7 +30,18 @@
   - **Confluence**: token at `~/.config/confluence/token`, base URL at
     `~/.config/confluence/base-url` (same SOPS source)
   - **AWS**: `~/.aws/config` and `~/.aws/credentials`; Kion session cache at
-    `~/.cache/kion-aws-cache/`
+    `~/.cache/kion-aws-cache/`. Credentials in `~/.aws/credentials` and
+    `AWS_PROFILE` are frequently stale and produce `ExpiredTokenException`.
+    Prefer loading directly from the Kion cache:
+
+    ```sh
+    export AWS_ACCESS_KEY_ID=$(/bin/cat ~/.cache/kion-aws-cache/AWS_ACCESS_KEY_ID)
+    export AWS_SECRET_ACCESS_KEY=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SECRET_ACCESS_KEY)
+    export AWS_SESSION_TOKEN=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SESSION_TOKEN)
+    ```
+
+    Or run `source ~/.local/bin/kac ensure` (zsh only, must be sourced) to
+    refresh via `kion s` if the cache is empty.
   - **GitHub (gh CLI)**: `~/.config/gh/hosts.yml`
   - **SOPS age key** (decrypts all nix-managed secrets):
     `~/.config/sops/age/keys.txt`
