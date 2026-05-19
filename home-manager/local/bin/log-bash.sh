@@ -4,7 +4,7 @@ set -euo pipefail
 input=$(cat)
 
 # Detect format by presence of Copilot's camelCase "toolName" vs Claude Code's "tool_input".
-if printf '%s' "$input" | jq -e '.toolName' > /dev/null 2>&1; then
+if printf '%s' "$input" | jq -e '.toolName' >/dev/null 2>&1; then
 	# Copilot postToolUse format: toolArgs is a JSON string, result nested under toolResult.
 	tool_name=$(printf '%s' "$input" | jq -r '.toolName // ""')
 	[[ "$tool_name" == "bash" ]] || exit 0
