@@ -1,0 +1,53 @@
+#!/usr/bin/osascript -l JavaScript
+// Toggle default browser between Vivaldi and Safari using the
+// CoreServices ObjC bridge - bypasses nix Python/Swift env issues.
+
+ObjC.import('CoreServices');
+
+const SAFARI  = 'com.apple.Safari';
+const VIVALDI = 'com.vivaldi.Vivaldi';
+
+const CHROMIUM_PREFIXES = [
+  'com.vivaldi.',
+  'com.google.Chrome',
+  'com.brave.Browser',
+  'org.chromium.',
+  'com.microsoft.edgemac',
+  'com.operasoftware.',
+  'io.github.ungoogled-software.',
+  'com.arc.',
+];
+
+function currentBrowser() {
+  const ref = $.LSCopyDefaultHandlerForURLScheme($('https'));
+  if (!ref) return '';
+  const nsStr = ObjC.castRefToObject(ref);
+  return nsStr ? nsStr.js : '';
+}
+
+function isChromium(id) {
+  return CHROMIUM_PREFIXES.some(p => id.startsWith(p));
+}
+
+function setBrowser(id) {
+  ['https', 'http'].forEach(scheme => {
+    $.LSSetDefaultHandlerForURLScheme($(scheme), $(id));
+  });
+}
+
+const current = currentBrowser();
+console.log('current: ' + (current || '(none)'));
+
+let target;
+if (current === SAFARI) {
+  target = VIVALDI;
+} else if (isChromium(current)) {
+  target = SAFARI;
+} else {
+  console.log("unrecognised browser '" + current + "' - switching to Vivaldi");
+  target = VIVALDI;
+}
+
+console.log('target:  ' + target);
+setBrowser(target);
+console.log('done (confirm the system dialog if prompted)');
