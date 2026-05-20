@@ -23,6 +23,12 @@
   "editor.inlayHints.fontFamily" = "FiraCode Nerd Font Mono";
   "editor.inlineSuggest.fontFamily" = "FiraCode Nerd Font Mono";
   "editor.minimap.sectionHeaderFontSize" = 10.285714285714286;
+  "[typescript]" = {
+    "editor.formatOnSave" = false;
+  };
+  "[typescriptreact]" = {
+    "editor.formatOnSave" = false;
+  };
   "[nix]" = {
     "editor.defaultFormatter" = "jnoortheen.nix-ide";
   };

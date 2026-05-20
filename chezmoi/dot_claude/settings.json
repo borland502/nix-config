@@ -1,5 +1,14 @@
 {
     "model": "opus",
+    "mcpServers": {
+        "aws-api": {
+            "type": "stdio",
+            "command": "$HOME/.local/bin/aws-mcp-server",
+            "env": {
+                "AWS_REGION": "us-east-1"
+            }
+        }
+    },
     "permissions": {
         "allow": [
             "Bash(gh pr *)",

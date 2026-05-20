@@ -95,6 +95,7 @@
     # Python
     python3
     pipx
+    uv
 
     # JavaScript
     bun
@@ -239,6 +240,17 @@ in {
         force = true;
       };
       "claude/log-bash.sh".source = ./local/bin/log-bash.sh;
+      "copilot/log-bash.sh".source = ./local/bin/log-bash.sh;
+      "copilot/hooks/log-bash.json".text = builtins.toJSON {
+        version = 1;
+        hooks.postToolUse = [
+          {
+            type = "command";
+            bash = ''AGENT_NAME=copilot exec bash "$HOME/.config/copilot/log-bash.sh"'';
+            timeoutSec = 10;
+          }
+        ];
+      };
 
       # Single source of truth for custom agent/skill definitions is the
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
@@ -421,6 +433,20 @@ in {
           jq --arg local "$_local_path" \
             '.extraKnownMarketplaces["nix-config-dev"] = {source: {source: "directory", path: $local}}
              | .enabledPlugins["nix-config-tools@nix-config-dev"] = true' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+      '';
+
+      ensureClaudeMcpServers = lib.hm.dag.entryAfter ["ensureClaudeHook"] ''
+        _settings="${xdgConfigHome}/claude/settings.json"
+        if ! ${pkgs.jq}/bin/jq -e '.mcpServers["awslabs.aws-api-mcp-server"]' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          ${pkgs.jq}/bin/jq \
+            '.mcpServers["awslabs.aws-api-mcp-server"] = {
+              "command": "uvx",
+              "args": ["awslabs.aws-api-mcp-server@latest"],
+              "env": {}
+            }' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
       '';

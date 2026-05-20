@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Wrapper for awslabs.aws-api-mcp-server that injects fresh AWS credentials
+# from the Kion cache before starting the server.
+set -euo pipefail
+
+kion="${HOME}/.cache/kion-aws-cache"
+
+if [[ -f "${kion}/AWS_ACCESS_KEY_ID" ]]; then
+	export AWS_ACCESS_KEY_ID=$(/bin/cat "${kion}/AWS_ACCESS_KEY_ID")
+	export AWS_SECRET_ACCESS_KEY=$(/bin/cat "${kion}/AWS_SECRET_ACCESS_KEY")
+	export AWS_SESSION_TOKEN=$(/bin/cat "${kion}/AWS_SESSION_TOKEN")
+fi
+
+exec uvx awslabs.aws-api-mcp-server@latest "$@"
