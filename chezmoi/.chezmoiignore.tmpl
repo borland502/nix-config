@@ -4,6 +4,9 @@
 .nix-defexpr
 .nix-channels
 result
+{{ if ne .chezmoi.os "darwin" -}}
+.local/bin/toggle-browser
+{{ end -}}
 {{ if ne .chezmoi.os "windows" -}}
 # Agent instructions managed by home-manager on Linux/macOS; chezmoi owns them on Windows only.
 .claude/CLAUDE.md

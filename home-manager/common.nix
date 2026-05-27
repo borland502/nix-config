@@ -145,7 +145,6 @@
     claude-code
     github-copilot-cli
     opsAgent
-    cacheScan
 
     # Secret management
     age
@@ -202,10 +201,7 @@
     ++ map (p: "${homeDirectory}/${p}") (copilotInstructionPaths ++ copilotInstructionDirPaths);
   opsAgentPython = pkgs.python3.withPackages (ps: [ps.anthropic]);
   opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
-    exec ${opsAgentPython}/bin/python ${./local/bin/ops-agent.py} "$@"
-  '';
-  cacheScan = pkgs.writeShellScriptBin "cache-scan" ''
-    exec ${pkgs.bash}/bin/bash ${./local/bin/cache-scan.sh} "$@"
+    exec ${opsAgentPython}/bin/python ${./scripts/ops-agent.py} "$@"
   '';
 in {
   nixpkgs.config = {
@@ -239,8 +235,8 @@ in {
         source = claude;
         force = true;
       };
-      "claude/log-bash.sh".source = ./local/bin/log-bash.sh;
-      "copilot/log-bash.sh".source = ./local/bin/log-bash.sh;
+      "claude/log-bash.sh".source = ./scripts/log-bash.sh;
+      "copilot/log-bash.sh".source = ./scripts/log-bash.sh;
       "copilot/hooks/log-bash.json".text = builtins.toJSON {
         version = 1;
         hooks.postToolUse = [
