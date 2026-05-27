@@ -121,6 +121,11 @@ they fit the task.
   30 days with zstd. Invoked automatically by the @@AGENT@@ Stop hook.
 - **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
   Safari (darwin only).
+- **`sync-to-gdrive`** — Sync `~/.config`, `~/.local`, and `~/.cache/copilot`
+  to Google Drive (`~/Library/CloudStorage/GoogleDrive-jhettenh@gmail.com/My Drive/42245/dotfiles`).
+  Uses the unison profile at `$UNISON/gdrive-dotfiles.prf`. Sensitive dirs
+  (sops, ops-agent, gh tokens) and large regenerable caches are excluded.
+  Run: `sync-to-gdrive` or `sync-to-gdrive --verbose`.
 - **`ops-agent`** / **`cache-scan`** — Deployed via `home-manager/common.nix`
   as `writeShellScriptBin`; source in `home-manager/local/bin/`.
 

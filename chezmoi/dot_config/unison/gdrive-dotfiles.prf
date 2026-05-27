@@ -1,0 +1,72 @@
+# Unison profile: sync dotfiles to Google Drive
+# Usage: unison gdrive-dotfiles
+#   or:  sync-to-gdrive
+
+root = /Users/42245
+root = /Users/42245/Library/CloudStorage/GoogleDrive-jhettenh@gmail.com/My Drive/42245/dotfiles
+
+# ── Paths to sync ──────────────────────────────────────────────────────────────
+path = .config
+path = .local
+path = .cache/copilot
+
+# ── SECURITY: never sync private keys or decrypted secrets ────────────────────
+ignore = Path .config/sops
+ignore = Path .config/ops-agent
+ignore = Path .config/confluence
+ignore = Path .config/gkion
+ignore = Path .config/technitiumdns-cli
+ignore = Path .config/gh
+
+# ── Skip large directories managed elsewhere ──────────────────────────────────
+# nix config is on GitHub; worktrees are transient
+ignore = Path .config/nix
+ignore = Path .config/nix.worktrees
+
+# unison archive and profile files — managed by chezmoi/git, would self-modify during sync
+ignore = Path .config/unison
+
+# Model/embedding caches — large and regenerable
+ignore = Path .config/github-copilot
+ignore = Path .config/claude
+
+# nvm runtime versions — reinstalled on demand
+ignore = Path .config/nvm
+
+# .local/bin — 160 MB of binaries managed by nix home-manager
+ignore = Path .local/bin
+
+# .local/share — 411 MB of app data (fonts, icons, etc.)
+ignore = Path .local/share
+
+# .local/src — source checkouts
+ignore = Path .local/src
+
+# .local/pipx — Python tool installs, reinstalled via pipx
+ignore = Path .local/pipx
+
+# ── Common transient/build artifacts ─────────────────────────────────────────
+# Google Drive creates these briefly during upload; ignore to avoid mid-sync errors
+ignore = Name .tmp.driveupload
+# Unison log files shouldn't be synced (avoid self-modification errors)
+ignore = Name unison-gdrive.log
+ignore = Name .git
+ignore = Name .gitignore
+ignore = Name node_modules
+ignore = Name __pycache__
+ignore = Name *.pyc
+ignore = Name *.class
+ignore = Name .DS_Store
+ignore = Name .localized
+ignore = Name Thumbs.db
+
+# ── Sync behaviour ────────────────────────────────────────────────────────────
+# Newer file wins on conflict; run non-interactively
+prefer = newer
+batch = true
+times = true
+perms = 0o600
+
+# Log to a fixed file so runs are auditable
+log = true
+logfile = /Users/42245/.cache/claude/unison-gdrive.log
