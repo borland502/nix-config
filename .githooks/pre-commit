@@ -10,6 +10,10 @@ if ! command -v nix >/dev/null 2>&1; then
 fi
 
 printf '%s\n' 'pre-commit: running task lint:nix in a nix shell to match CI'
+# Unset TMPDIR so inner nix shells don't inherit a stale temp path from the
+# outer nix environment (e.g. when running inside Claude Code or another
+# nix-managed shell).
+unset TMPDIR
 nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix -c task lint:nix
 
 printf '%s\n' 'pre-commit: scanning staged changes for secrets with gitleaks'

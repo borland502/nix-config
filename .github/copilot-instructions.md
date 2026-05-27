@@ -4,18 +4,18 @@
 - If a shared shell shows prompt fragments, reused partial commands, or quote mangling,
   stop reusing it and rerun the workflow from an isolated shell.
 - When running terminal commands, also write the exact command and the resulting
-  output to files under `~/.cache/copilot`.
-- Ensure `~/.cache/copilot` exists once per session before attempting to write
+  output to files under ~/.cache/copilot.
+- Ensure ~/.cache/copilot exists once per session before attempting to write
   logs there.
 - For helper scripts or long text payloads, write temporary Go, Python, shell, or
-  data files to `~/.cache/copilot`. Prefer this over inline heredocs or long
+  data files to ~/.cache/copilot. Prefer this over inline heredocs or long
   inline command strings.
 - Prefer file-editing tools for long text whenever possible; reserve shell text
   construction for short, stable snippets.
 - Use append-safe logging or timestamped files so earlier command logs are not
   lost unless replacement is explicitly intended.
 - When investigating tool or command failures, inspect relevant logs under
-  `~/.cache/copilot` first; use prior successful executions there as concrete
+  ~/.cache/copilot first; use prior successful executions there as concrete
   examples before retrying or changing approach. Cache files are archived as
   `.zst` (Zstandard) by a Stop hook when older than 30 days or larger than 10
   MB. Search uncompressed files first. If no useful example is found, locate the
@@ -23,7 +23,7 @@
   Bash before reading. Do not decompress speculatively; only decompress when
   uncompressed logs contain no useful example.
 - When looking for tool credentials, auth state, or cached session data, examine
-  `~/.cache` first and then `~/.config`. Known locations by service:
+  ~/.cache first and then ~/.config. Known locations by service:
   - **Jira**: token at `~/.config/ops-agent/jira-token`, base URL at
     `~/.config/ops-agent/jira-base-url` (SOPS-decrypted from
     `secrets/ops-agent.yaml` in the nix-config repo)
@@ -40,8 +40,13 @@
     export AWS_SESSION_TOKEN=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SESSION_TOKEN)
     ```
 
-    Or run `source ~/.local/bin/kac ensure` (zsh only, must be sourced) to
-    refresh via `kion s` if the cache is empty.
+    Or source `~/.local/bin/kac ensure` (zsh only, must be sourced) to load
+    from cache or refresh automatically via `gkion` if the cache is stale:
+
+    ```sh
+    source ~/.local/bin/kac ensure
+    ```
+
   - **GitHub (gh CLI)**: `~/.config/gh/hosts.yml`
   - **SOPS age key** (decrypts all nix-managed secrets):
     `~/.config/sops/age/keys.txt`
@@ -56,7 +61,7 @@
 
 ## Shared Tooling Defaults
 
-- The shared package set in `home-manager/common.nix` usually provides these CLI
+- The shared package set in home-manager/common.nix usually provides these CLI
   tools on managed hosts: git, gh, curl, wget, gcc, go, gopls, govulncheck,
   delve (`dlv`), go-task (`task`), pkg-config, python3, pipx, maven, awscli2,
   awslogs, aws-sam-cli, checkov, bun, docker, docker-buildx, docker-compose,
@@ -71,7 +76,7 @@
   formatting and linting.
 - Treat this tool list as the default expected environment for repo work, but
   verify availability with `command -v` when portability matters because
-  `home-manager/common.nix` still filters packages by host support.
+  home-manager/common.nix still filters packages by host support.
 - Shell aliases `ls` to `eza`; use `/bin/ls` when exact BSD `ls` flags or output
   ordering matter.
 - In zsh wrappers, avoid `status` as a shell variable name; it is read-only. Use
@@ -82,8 +87,42 @@
   command, retry with a direct `/bin/zsh -f <script>` invocation before assuming
   file permissions are the issue.
 - For shell commands with JSON payloads, inline scripts, or heavily quoted
-  objects, prefer writing a short script file under `~/.cache/copilot` and
+  objects, prefer writing a short script file under ~/.cache/copilot and
   executing that file instead of retrying inline `zsh -c` command strings.
+
+## Helper scripts in `~/.local/bin`
+
+These utility scripts are deployed to `~/.local/bin` (on `$PATH`) by chezmoi.
+Source files live in `chezmoi/dot_local/bin/` (and `chezmoi/dot_local/lib/`)
+within the nix-config repo. Prefer these over ad-hoc shell one-liners when
+they fit the task.
+
+- **`kac`** — Kion AWS credential cache proxy. Must be **sourced** (not
+  executed). Backed by `~/.local/lib/kion-aws-cache`. Commands:
+  - `source ~/.local/bin/kac ensure` — **(preferred)** load valid creds into
+    the current shell, refreshing automatically via `gkion` if the cache is
+    empty or expired. `gkion` writes the fresh creds back to
+    `~/.cache/kion-aws-cache/` as a side-effect.
+  - `source ~/.local/bin/kac dump` — write current valid AWS env vars to
+    `~/.cache/kion-aws-cache/`
+  - `source ~/.local/bin/kac load` — restore vars from cache into current
+    shell
+  - `source ~/.local/bin/kac clear` — unset vars and remove cache files
+  - `source ~/.local/bin/kac status` — print whether current/cached creds
+    are valid
+- **`monitor-gh-run <run-id>`** — Poll a GitHub Actions run, printing
+  per-job status transitions. Cancels older duplicate runs; switches to newer
+  runs automatically. Exits 0 on success, 1 on failure. Deps: `gh`, `jq`.
+- **`jira-my-tickets`** — Print open Jira tickets assigned to the current
+  user (status not Done, ordered by rank). Reads token from
+  `~/.config/ops-agent/jira-token` and email from
+  `~/.config/ops-agent/jira-email` (falls back to `git config user.email`).
+- **`compress-old-cache`** — Compress `~/.cache/copilot/` files older than
+  30 days with zstd. Invoked automatically by the copilot Stop hook.
+- **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
+  Safari (darwin only).
+- **`ops-agent`** / **`cache-scan`** — Deployed via `home-manager/common.nix`
+  as `writeShellScriptBin`; source in `home-manager/local/bin/`.
 
 ## Agent Instruction Sources
 

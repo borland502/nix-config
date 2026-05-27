@@ -1,0 +1,116 @@
+#!/bin/zsh
+# Usage: monitor-gh-run <run-id>
+# Polls a GH Actions run every 20s, prints per-job status changes,
+# exits 1 immediately on any job failure, exits 0 when all jobs succeed.
+#
+# Duplicate-run handling: on every poll the script checks for other active
+# (non-completed) runs of the same workflow on the same branch.
+#   - Any run with a LOWER ID (older) is cancelled immediately.
+#   - If a run with a HIGHER ID (newer) exists, the current run is cancelled
+#     and the script switches to monitor the newer one instead.
+set -euo pipefail
+
+RUN_ID="${1:?Usage: $0 <run-id>}"
+INTERVAL=20
+declare -A LAST_STATUS
+
+resolve_run_meta() {
+  local id="$1"
+  RUN_META=$(gh run view "$id" --json databaseId,headBranch,workflowName,name 2>/dev/null) || {
+    echo "❌ Could not fetch metadata for run $id" >&2; exit 1
+  }
+  BRANCH=$(echo "$RUN_META" | jq -r '.headBranch')
+  WORKFLOW=$(echo "$RUN_META" | jq -r '.workflowName')
+  RUN_NAME=$(echo "$RUN_META" | jq -r '.name')
+}
+
+resolve_run_meta "$RUN_ID"
+echo "Monitoring run $RUN_ID — $RUN_NAME (branch: $BRANCH)"
+
+while true; do
+  # Fetch all recent runs without a status filter, then keep non-completed
+  # ones in jq. This avoids the multi-query problem where "pending" runs
+  # are missed by --status queued / --status in_progress filters.
+  active_runs=$(gh run list \
+    --branch "$BRANCH" \
+    --workflow "$WORKFLOW" \
+    --limit 20 \
+    --json databaseId,status \
+    2>/dev/null \
+    | jq '[.[] | select(.status != "completed")] | sort_by(.databaseId)')
+    # sorted ascending: index 0 = oldest, last = newest
+
+  # Cancel any runs with ID lower than ours (older duplicates)
+  while IFS= read -r old_id; do
+    if (( old_id < RUN_ID )); then
+      ts=$(date '+%H:%M:%S')
+      echo "[$ts] 🗑  Cancelling older duplicate run $old_id"
+      gh run cancel "$old_id" 2>/dev/null || true
+    fi
+  done < <(echo "$active_runs" | jq -r '.[].databaseId | tostring')
+
+  # If a run with a higher ID exists, cancel ours and switch to it
+  newest_id=$(echo "$active_runs" | jq -r 'last.databaseId // empty')
+  if [[ -n "$newest_id" ]] && (( newest_id > RUN_ID )); then
+    ts=$(date '+%H:%M:%S')
+    echo "[$ts] 🔀 Newer run $newest_id found — cancelling $RUN_ID and switching"
+    gh run cancel "$RUN_ID" 2>/dev/null || true
+    RUN_ID="$newest_id"
+    resolve_run_meta "$RUN_ID"
+    echo "[$ts] Monitoring run $RUN_ID — $RUN_NAME"
+    LAST_STATUS=()
+  fi
+
+  snapshot=$(gh run view "$RUN_ID" --json status,conclusion,jobs 2>/dev/null) || { sleep "$INTERVAL"; continue; }
+
+  overall_status=$(echo "$snapshot" | jq -r '.status')
+  overall_conclusion=$(echo "$snapshot" | jq -r '.conclusion // ""')
+
+  # Print job transitions
+  while IFS='|' read -r jname jrc jconclusion; do
+    key="${jname// /_}"
+    current="${jrc}/${jconclusion}"
+    if [[ "${LAST_STATUS[$key]:-}" != "$current" ]]; then
+      LAST_STATUS[$key]="$current"
+      ts=$(date '+%H:%M:%S')
+      if [[ "$jconclusion" == "failure" ]]; then
+        echo "[$ts] ❌ FAILED:    $jname"
+      elif [[ "$jconclusion" == "success" ]]; then
+        echo "[$ts] ✅ passed:    $jname"
+      elif [[ "$jconclusion" == "skipped" ]]; then
+        echo "[$ts] ⏭  skipped:   $jname"
+      elif [[ "$jconclusion" == "cancelled" ]]; then
+        echo "[$ts] 🚫 cancelled: $jname"
+      elif [[ "$jrc" == "in_progress" ]]; then
+        echo "[$ts] 🔄 started:   $jname"
+      elif [[ "$jrc" == "queued" || "$jrc" == "pending" || "$jrc" == "waiting" ]]; then
+        echo "[$ts] ⏳ queued:    $jname"
+      fi
+    fi
+  done < <(echo "$snapshot" | jq -r '.jobs[] | "\(.name)|\(.status)|\(.conclusion // "")"')
+
+  # Exit immediately on any job failure
+  if echo "$snapshot" | jq -e '.jobs[] | select(.conclusion == "failure")' > /dev/null 2>&1; then
+    echo ""
+    echo "❌ Run $RUN_ID FAILED — failed jobs:"
+    echo "$snapshot" | jq -r '.jobs[] | select(.conclusion == "failure") | "  - \(.name)"'
+    echo "URL: $(gh run view "$RUN_ID" --json url --jq '.url' 2>/dev/null)"
+    exit 1
+  fi
+
+  if [[ "$overall_status" == "completed" ]]; then
+    if [[ "$overall_conclusion" == "success" ]]; then
+      echo ""
+      echo "✅ Run $RUN_ID completed successfully."
+      echo "URL: $(gh run view "$RUN_ID" --json url --jq '.url' 2>/dev/null)"
+      exit 0
+    else
+      echo ""
+      echo "❌ Run $RUN_ID completed: $overall_conclusion"
+      echo "URL: $(gh run view "$RUN_ID" --json url --jq '.url' 2>/dev/null)"
+      exit 1
+    fi
+  fi
+
+  sleep "$INTERVAL"
+done
