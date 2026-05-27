@@ -1,0 +1,19 @@
+#!/bin/zsh
+# Source this proxy so it can mutate the current shell:
+#   source ~/.local/bin/kac [dump|load|clear|status]
+
+if ! (return 0 2>/dev/null); then
+  echo "This proxy must be sourced, not executed." >&2
+  echo "Use: source ~/.local/bin/kac [command]" >&2
+  exit 1
+fi
+
+_kac_script_path="${(%):-%N}"
+_kac_helper_path="${_kac_script_path:A:h:h}/lib/kion-aws-cache"
+
+if ! source "$_kac_helper_path" "$@"; then
+  unset _kac_script_path _kac_helper_path
+  return 1
+fi
+
+unset _kac_script_path _kac_helper_path

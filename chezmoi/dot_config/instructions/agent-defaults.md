@@ -40,8 +40,13 @@
     export AWS_SESSION_TOKEN=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SESSION_TOKEN)
     ```
 
-    Or run `source ~/.local/bin/kac ensure` (zsh only, must be sourced) to
-    refresh via `kion s` if the cache is empty.
+    Or source `~/.local/bin/kac ensure` (zsh only, must be sourced) to load
+    from cache or refresh automatically via `gkion` if the cache is stale:
+
+    ```sh
+    source ~/.local/bin/kac ensure
+    ```
+
   - **GitHub (gh CLI)**: `~/.config/gh/hosts.yml`
   - **SOPS age key** (decrypts all nix-managed secrets):
     `~/.config/sops/age/keys.txt`
@@ -84,6 +89,40 @@
 - For shell commands with JSON payloads, inline scripts, or heavily quoted
   objects, prefer writing a short script file under ~/.cache/copilot and
   executing that file instead of retrying inline `zsh -c` command strings.
+
+## Helper scripts in `~/.local/bin`
+
+These utility scripts are deployed to `~/.local/bin` (on `$PATH`) by chezmoi.
+Source files live in `chezmoi/dot_local/bin/` (and `chezmoi/dot_local/lib/`)
+within the nix-config repo. Prefer these over ad-hoc shell one-liners when
+they fit the task.
+
+- **`kac`** — Kion AWS credential cache proxy. Must be **sourced** (not
+  executed). Backed by `~/.local/lib/kion-aws-cache`. Commands:
+  - `source ~/.local/bin/kac ensure` — **(preferred)** load valid creds into
+    the current shell, refreshing automatically via `gkion` if the cache is
+    empty or expired. `gkion` writes the fresh creds back to
+    `~/.cache/kion-aws-cache/` as a side-effect.
+  - `source ~/.local/bin/kac dump` — write current valid AWS env vars to
+    `~/.cache/kion-aws-cache/`
+  - `source ~/.local/bin/kac load` — restore vars from cache into current
+    shell
+  - `source ~/.local/bin/kac clear` — unset vars and remove cache files
+  - `source ~/.local/bin/kac status` — print whether current/cached creds
+    are valid
+- **`monitor-gh-run <run-id>`** — Poll a GitHub Actions run, printing
+  per-job status transitions. Cancels older duplicate runs; switches to newer
+  runs automatically. Exits 0 on success, 1 on failure. Deps: `gh`, `jq`.
+- **`jira-my-tickets`** — Print open Jira tickets assigned to the current
+  user (status not Done, ordered by rank). Reads token from
+  `~/.config/ops-agent/jira-token` and email from
+  `~/.config/ops-agent/jira-email` (falls back to `git config user.email`).
+- **`compress-old-cache`** — Compress `~/.cache/@@AGENT@@/` files older than
+  30 days with zstd. Invoked automatically by the @@AGENT@@ Stop hook.
+- **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
+  Safari (darwin only).
+- **`ops-agent`** / **`cache-scan`** — Deployed via `home-manager/common.nix`
+  as `writeShellScriptBin`; source in `home-manager/local/bin/`.
 
 ## Agent Instruction Sources
 

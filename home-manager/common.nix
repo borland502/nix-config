@@ -117,6 +117,7 @@
     eza
     fzf
     fd
+    overmind
     ripgrep
     sd
     zoxide
