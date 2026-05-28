@@ -283,10 +283,7 @@ tasks:
   update:
     desc: Update flake inputs
     platforms: [linux, darwin]
-    cmd: |
-      [ -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ] && \
-        . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-      nix flake update
+    cmd: nix flake update
 
   gc:
     desc: Garbage collect old generations
@@ -535,8 +532,6 @@ tasks:
     platforms: [linux, darwin]
     deps: [_record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
     cmd: |
-      [ -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ] && \
-        . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
       nix flake update
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
