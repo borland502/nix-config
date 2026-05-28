@@ -18,7 +18,8 @@ command -v go >/dev/null 2>&1 || {
 
 src_root="${HOME}/.local/src"
 bin_dir="${HOME}/.local/bin"
-mkdir -p "$bin_dir"
+state_dir="${HOME}/.local/state/go-tools"
+mkdir -p "$bin_dir" "$state_dir"
 
 names=(wordgen gopwgen go-sea)
 
@@ -28,6 +29,18 @@ for name in "${names[@]}"; do
     printf 'install-go-tools: %s is missing — expected from .chezmoiexternal.toml\n' "$dir" >&2
     exit 1
   fi
-  printf '==> installing %s -> %s/%s\n' "$name" "$bin_dir" "$name"
+
+  binary="${bin_dir}/${name}"
+  sha_file="${state_dir}/${name}.sha"
+  current_sha=$(git -C "$dir" rev-parse HEAD 2>/dev/null || printf 'unknown')
+  stored_sha=$(cat "$sha_file" 2>/dev/null || true)
+
+  if [ -x "$binary" ] && [ "$current_sha" = "$stored_sha" ] && [ "$current_sha" != "unknown" ]; then
+    printf '==> %s up to date (%.8s)\n' "$name" "$current_sha"
+    continue
+  fi
+
+  printf '==> installing %s -> %s (%.8s)\n' "$name" "$binary" "$current_sha"
   (cd "$dir" && GOBIN="$bin_dir" go install .)
+  printf '%s' "$current_sha" > "$sha_file"
 done

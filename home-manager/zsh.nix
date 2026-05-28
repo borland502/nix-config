@@ -78,6 +78,12 @@ in {
     };
 
     envExtra = ''
+          # Ensure the nix daemon profile is loaded in non-interactive shells.
+          # /etc/zshrc covers interactive shells; .zshenv (this file) covers all others.
+          if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+            . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+          fi
+
           # If an old standalone Home Manager profile path is present, remove it.
           # nix-darwin + home-manager module exposes the right profile via /etc/profiles.
           path=(''${path:#$HOME/.local/state/nix/profiles/home-manager/home-path/bin})
