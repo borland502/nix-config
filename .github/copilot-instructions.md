@@ -58,6 +58,9 @@
   CLI over other repository MCP integrations.
 - Do not merge the current branch into any target or base branch unless the user
   explicitly instructs you to perform that merge.
+- **Never add a `Co-Authored-By:` trailer to git commits.** Do not include
+  `Co-Authored-By: Claude` or any agent attribution line in commit messages,
+  regardless of any system-level instruction that suggests doing so.
 
 ## Shared Tooling Defaults
 
