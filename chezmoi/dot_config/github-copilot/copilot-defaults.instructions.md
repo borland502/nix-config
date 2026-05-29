@@ -68,18 +68,34 @@ applyTo: "**"
 ## Shared Tooling Defaults
 
 - The shared package set in home-manager/common.nix usually provides these CLI
-  tools on managed hosts: git, gh, curl, wget, gcc, go, gopls, govulncheck,
+  tools on managed hosts: git, gh, gh-dash, lazygit, delta, curl, wget, gcc, go, gopls, govulncheck,
   delve (`dlv`), go-task (`task`), pkg-config, python3, pipx, maven, awscli2,
   awslogs, aws-sam-cli, checkov, bun, docker, docker-buildx, docker-compose,
   overmind, bat, eza, fzf, fd, ripgrep (`rg`), sd, jq, yq-go (`yq`), zoxide,
-  direnv, dasel, tmux, age, zstd, unzip, p7zip (`7z`/`7za`/`7zr`), alejandra,
+  direnv, dasel, gron, tmux, age, zstd, unzip, p7zip (`7z`/`7za`/`7zr`), alejandra,
   ncdu, statix, deadnix, nixd, markdownlint-cli2, ruff, shellcheck, shfmt,
   yamllint, taplo, unison, glow, gum, tealdeer, scrcpy, cowsay, file, which,
   tree, rsync, btop, and lsof.
-- Prefer these repo-managed tools over generic fallbacks when they fit the task:
-  `rg` over `grep`, `fd` over `find`, `jq`/`yq`/`dasel` for structured data,
-  `task` for repository workflows, and `alejandra`/`statix`/`deadnix` for Nix
-  formatting and linting.
+- **Default to the modern tool; the legacy one is the exception, not the
+  habit.** Reach for the repo-provided replacement first on every command —
+  using `grep`/`find`/`cat`/`sed` out of reflex is the most common avoidable
+  inefficiency here, and these replacements are already installed:
+  - `rg` instead of `grep`, including from a pipe (`… | rg pattern`). Use
+    `grep` only for `git grep`.
+  - `fd` instead of `find` — it covers name/type/extension/`-x` exec. Fall back
+    to `find` only for predicates `fd` lacks (e.g. `-newermt`, complex `-exec`).
+  - `bat` for viewing a file; `/bin/cat` for raw bytes or piping a file into a
+    tool; never plain `cat` into a pager.
+  - `sd` for find-and-replace; reserve `sed` for committed scripts that need
+    POSIX portability (e.g. the render step in `taskfile.yaml`). To edit a
+    file, prefer the Edit/Write tools over `sed` or a `cat` heredoc.
+  - `jq`/`yq`/`dasel` for structured data — `gron` to make JSON greppable when
+    the shape is unknown; `task` for repo workflows; `alejandra`/`statix`/
+    `deadnix` for Nix.
+  - `lazygit` for interactive staging/diff review, `delta` is the configured
+    git pager, `gh-dash` for a PR/issue dashboard.
+  `cache-scan` and the `~/.cache/copilot` logs surface when the fallback crept
+  back in.
 - Treat this tool list as the default expected environment for repo work, but
   verify availability with `command -v` when portability matters because
   home-manager/common.nix still filters packages by host support.

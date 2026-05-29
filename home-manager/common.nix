@@ -75,6 +75,9 @@
     # Version control
     git
     gh
+    gh-dash # TUI dashboard for GitHub PRs/issues
+    lazygit # TUI for fast hunk-level staging, diff/log/branch navigation
+    delta # syntax-highlighting pager for git diffs (wired as core.pager below)
 
     # Network
     curl
@@ -127,6 +130,7 @@
     jq
     yq-go
     dasel
+    gron # flatten JSON into greppable assignment lines (and back)
 
     # Nix tooling
     alejandra
@@ -653,8 +657,19 @@ in {
           email = "jhettenh@gmail.com";
         };
         init.defaultBranch = "main";
-        core.editor = "vim";
+        core = {
+          editor = "vim";
+          pager = "delta";
+        };
         pull.rebase = false;
+        # delta: syntax-highlighted diffs/pager. `delta` package added above.
+        interactive.diffFilter = "delta --color-only";
+        delta = {
+          navigate = true; # n/N to move between diff hunks
+          line-numbers = true;
+        };
+        merge.conflictStyle = "zdiff3";
+        diff.colorMoved = "default";
       };
     };
 
