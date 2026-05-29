@@ -1,20 +1,47 @@
 #!/usr/bin/env bash
+# cache-scan — surface recent agent activity from the ~/.cache/<agent> log dir.
+#
+# Reads the structured per-session logs written by log-bash.sh and prints:
+#   - a per-session overview (command / stderr / interrupt counts, last status)
+#   - a timeline of the most recent commands with their status
+#   - the commands that produced stderr or were interrupted (likely failures)
+#   - a heuristic keyword scan of output text (catches errors a status=ok line
+#     would miss, and still works on pre-structured logs)
+#
+# log-bash.sh record format the parser keys on:
+#   ## [YYYY-MM-DD HH:MM:SS] status=ok|stderr|interrupted cwd=<dir>
+#   CMD: <command>
+#   STDOUT: / STDERR: sections
 set -euo pipefail
 
 usage() {
 	cat <<'EOF'
-Usage: cache-scan [--date YYYY-MM-DD] [--days N]
+Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
 
-Scans ~/.cache/copilot and ~/.cache/claude for recent log activity,
-common failure patterns, and resumable context clues.
+  --days N      Look back N days by file mtime (default: 2)
+  --date DATE   Only show records whose header timestamp starts with DATE
+  --session ID  Restrict to session log files matching ID
+  --limit N     Number of recent commands in the timeline (default: 15)
+
+Scans the agent log dir (~/.cache/claude, symlinked to ~/.cache/copilot).
 EOF
 }
 
-date_filter="$(date +%F)"
-days=1
+days=2
+date_filter=""
+session=""
+limit=15
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
+	--days)
+		shift
+		days="${1:-}"
+		[[ "$days" =~ ^[0-9]+$ ]] || {
+			echo "--days must be a number" >&2
+			exit 1
+		}
+		;;
 	--date)
 		shift
 		date_filter="${1:-}"
@@ -23,11 +50,15 @@ while [[ $# -gt 0 ]]; do
 			exit 1
 		}
 		;;
-	--days)
+	--session)
 		shift
-		days="${1:-}"
-		[[ "$days" =~ ^[0-9]+$ ]] || {
-			echo "--days must be a number" >&2
+		session="${1:-}"
+		;;
+	--limit)
+		shift
+		limit="${1:-}"
+		[[ "$limit" =~ ^[0-9]+$ ]] || {
+			echo "--limit must be a number" >&2
 			exit 1
 		}
 		;;
@@ -44,50 +75,110 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
-roots=("$HOME/.cache/copilot" "$HOME/.cache/claude")
-
-find_existing_roots() {
-	for root in "${roots[@]}"; do
-		[[ -d "$root" ]] && echo "$root"
-	done
-}
-
-mapfile -t existing_roots < <(find_existing_roots)
-if [[ ${#existing_roots[@]} -eq 0 ]]; then
-	echo "No cache roots found under ~/.cache/copilot or ~/.cache/claude"
+# Resolve log roots, de-duplicating the ~/.cache/claude -> ~/.cache/copilot
+# symlink (otherwise every file is counted twice).
+declare -A seen=()
+roots=()
+for cand in "$HOME/.cache/claude" "$HOME/.cache/copilot"; do
+	[[ -d "$cand" ]] || continue
+	real=$(cd "$cand" 2>/dev/null && pwd -P) || continue
+	[[ -n "${seen[$real]:-}" ]] && continue
+	seen[$real]=1
+	roots+=("$real")
+done
+if [[ ${#roots[@]} -eq 0 ]]; then
+	echo "No cache log dir found under ~/.cache/claude or ~/.cache/copilot"
 	exit 0
 fi
 
-echo "== Cache Scan =="
-echo "Date filter: $date_filter"
-echo "Lookback days: $days"
+# mtime format args, detecting GNU (-c) vs BSD (-f) stat. Probe -c first: only
+# GNU supports it, so BSD falls through cleanly (BSD -f would otherwise be
+# misread as --file-system on GNU and print filesystem info).
+if stat -c '%Y' . >/dev/null 2>&1; then
+	statfmt=(-c '%Y')
+else
+	statfmt=(-f '%m')
+fi
+
+# Discover session logs (by mtime), newest first.
+name_glob='session_*.log'
+[[ -n "$session" ]] && name_glob="session_*${session}*.log"
+mapfile -t logs < <(find "${roots[@]}" -type f -name "$name_glob" -mtime "-$days" 2>/dev/null |
+	while read -r p; do printf '%s\t%s\n' "$(stat "${statfmt[@]}" "$p" 2>/dev/null || echo 0)" "$p"; done |
+	sort -rn | cut -f2-)
+
+short() { sed "s#$HOME#~#g"; }
+
+echo "== cache-scan =="
+echo "roots:    ${roots[*]/#$HOME/\~}"
+echo "lookback: ${days}d${date_filter:+   date~$date_filter}${session:+   session~$session}"
+echo "sessions: ${#logs[@]}"
 echo
 
-echo "== Recent Files (Top 20) =="
-find "${existing_roots[@]}" -type f -mtime "-$days" \
-	\( -name "*.log" -o -name "*.out" -o -name "*.err" -o -name "*.txt" \) \
-	-print0 | xargs -0 ls -lt 2>/dev/null | head -20 || true
-echo
+if [[ ${#logs[@]} -eq 0 ]]; then
+	echo "No session_*.log files in the last ${days} day(s)."
+	echo "(raise --days, or check that the log-bash.sh PostToolUse hook is wired)"
+	exit 0
+fi
 
-echo "== Files Matching Date =="
-find "${existing_roots[@]}" -type f -mtime "-$days" \
-	\( -name "*${date_filter}*" -o -name "*.log" -o -name "*.out" \) |
-	sort | tail -40
-echo
+# awk program shared by the overview/timeline/failure passes. Extracts the
+# header timestamp and status, and the CMD that follows each header.
+read -r -d '' AWK_HDR <<'AWK' || true
+function hdr(line,   s) {
+	match(line, /\[[0-9-]+ [0-9:]+\]/); stamp = substr(line, RSTART + 1, RLENGTH - 2)
+	st = "?"
+	if (match(line, /status=[a-z]+/)) st = substr(line, RSTART + 7, RLENGTH - 7)
+}
+AWK
 
-echo "== Failure Pattern Counts =="
-rg -i --no-heading --stats \
-	"error|failed|traceback|permission denied|exit code|exception|fatal" \
-	"${existing_roots[@]}" 2>/dev/null | tail -20 || true
-echo
-
-echo "== Failure Pattern Breakdown =="
-for pattern in "error" "failed" "traceback" "permission denied" "exit code" "exception" "fatal"; do
-	count=$(rg -i --count-matches "$pattern" "${existing_roots[@]}" 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')
-	printf "%-18s %s\n" "$pattern" "$count"
+echo "== Sessions (newest first) =="
+for f in "${logs[@]}"; do
+	awk -v file="${f##*/}" -v df="$date_filter" "$AWK_HDR"'
+		/^## \[/ { hdr($0); if (df != "" && index(stamp, df) != 1) { skip=1; next } skip=0
+			recs++; laststamp=stamp; laststatus=st
+			if (st=="stderr") nerr++; else if (st=="interrupted") nint++; next }
+		/^CMD: / && !skip { lastcmd=substr($0,6) }
+		END {
+			if (recs==0) exit
+			c = (length(lastcmd)>64) ? substr(lastcmd,1,64) "…" : lastcmd
+			printf "  %-34s cmds=%-4d stderr=%-3d intr=%-3d  last[%s]=%s\n      └ %s\n", \
+				file, recs, nerr+0, nint+0, laststamp, laststatus, c
+		}' "$f"
 done
 echo
 
-echo "== Candidate Resume Points (Last 5 Matching Lines) =="
-rg -i -n "task switch|nix run|home-manager|darwin-rebuild|ops-agent|jira|copilot|claude|exit code|failed" \
-	"${existing_roots[@]}" 2>/dev/null | tail -5 || true
+recent="${logs[0]}"
+echo "== Recent commands (last $limit, from ${recent##*/}) =="
+awk "$AWK_HDR"'
+	/^## \[/ { hdr($0); pstamp=stamp; pst=st; pend=1; next }
+	/^CMD: / && pend { printf "  [%s] %-11s %s\n", pstamp, pst, substr($0,6); pend=0 }
+' "$recent" | tail -n "$limit"
+echo
+
+echo "== Likely failures (status=stderr|interrupted) =="
+fail_out=$(for f in "${logs[@]}"; do
+	awk -v file="${f##*/}" "$AWK_HDR"'
+		/^## \[/ { hdr($0); bad=(st=="stderr"||st=="interrupted"); pstamp=stamp; pst=st; next }
+		/^CMD: / && bad { printf "  %-30s [%s] %-11s %s\n", file, pstamp, pst, substr($0,6); bad=0 }
+	' "$f"
+done | tail -n 40)
+if [[ -n "$fail_out" ]]; then
+	printf '%s\n' "$fail_out"
+else
+	echo "  none in window (or logs predate structured status headers)"
+fi
+echo
+
+echo "== Keyword hits in output text (heuristic) =="
+# Scope to the session logs in the window — not the whole cache root, which may
+# hold unrelated trees (e.g. Copilot's bundled node_modules under ~/.cache).
+kw_out=$(rg -i --no-heading -c \
+	"error|failed|traceback|permission denied|exception|fatal" \
+	"${logs[@]}" 2>/dev/null | short | tail -20 || true)
+if [[ -n "$kw_out" ]]; then
+	printf '%s\n' "$kw_out"
+else
+	echo "  none"
+fi
+echo
+echo "Open a session_*.log for full STDOUT/STDERR. Header: ## [ts] status= cwd="

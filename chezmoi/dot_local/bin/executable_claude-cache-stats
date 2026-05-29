@@ -1,0 +1,82 @@
+#!/bin/zsh
+# claude-cache-stats — report prompt-cache effectiveness for Claude Code sessions.
+#
+# ZERO model-token cost: this reads the local JSONL transcript(s) only and never
+# emits anything back into the model's context. It is meant to run as a
+# SessionEnd hook (which fires AFTER the session is over, so there is no
+# subsequent model turn to bill) and/or to be invoked by hand.
+#
+# Usage:
+#   claude-cache-stats [TRANSCRIPT.jsonl]   # one transcript, human-readable
+#   claude-cache-stats                      # aggregate over all transcripts
+#   <SessionEnd hook JSON on stdin>         # reads .transcript_path/.session_id,
+#                                           # appends one line to the log below
+#
+# Per-session log (append-only, one line per session):
+#   $HOME/.cache/claude/cache-stats.log
+set -euo pipefail
+
+LOG="${HOME}/.cache/claude/cache-stats.log"
+mkdir -p "${LOG:h}"
+
+command -v jq >/dev/null 2>&1 || { print -u2 "claude-cache-stats: jq not found"; exit 0; }
+
+transcript=""
+session_id=""
+hook_mode=0
+
+if [ -n "${1:-}" ]; then
+  transcript="$1"
+elif [ ! -t 0 ]; then
+  # stdin is not a tty -> assume SessionEnd hook JSON payload
+  payload="$(/bin/cat)"
+  if [ -n "$payload" ]; then
+    transcript="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
+    session_id="$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    hook_mode=1
+  fi
+fi
+
+# Resolve the set of transcripts to read.
+typeset -a files
+if [ -n "$transcript" ] && [ -f "$transcript" ]; then
+  files=("$transcript")
+else
+  files=(
+    "${HOME}/.config/claude/projects"/**/*.jsonl(N)
+    "${HOME}/.claude/projects"/**/*.jsonl(N)
+  )
+fi
+
+[ ${#files} -gt 0 ] || { [ "$hook_mode" -eq 1 ] && exit 0; print -u2 "claude-cache-stats: no transcripts found"; exit 0; }
+
+# Aggregate usage. read = cache hits, creation = cache writes, fresh = uncached.
+stats="$(/bin/cat -- "${files[@]}" 2>/dev/null | jq -s '
+  [ .[] | select(.message.usage) | .message.usage ] as $u
+  | (([$u[].cache_read_input_tokens]     | add) // 0) as $r
+  | (([$u[].cache_creation_input_tokens] | add) // 0) as $c
+  | (([$u[].input_tokens]                | add) // 0) as $f
+  | (([$u[].output_tokens]               | add) // 0) as $o
+  | ($r + $c + $f) as $in
+  | {read:$r, creation:$c, fresh:$f, output:$o, msgs:($u|length),
+     hit_pct: (if $in>0 then ($r/$in*1000|round)/10 else 0 end)}' )"
+
+read -r r c f o msgs hit <<<"$(printf '%s' "$stats" | jq -r '"\(.read) \(.creation) \(.fresh) \(.output) \(.msgs) \(.hit_pct)"')"
+
+# Hook mode: append one compact line, stay silent on stdout.
+if [ "$hook_mode" -eq 1 ]; then
+  printf '%s session=%s msgs=%s hit=%s%% read=%s creation=%s fresh=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${session_id:-?}" "$msgs" "$hit" "$r" "$c" "$f" >> "$LOG"
+  exit 0
+fi
+
+# Manual mode: human-readable summary.
+scope="all transcripts (${#files})"
+[ ${#files} -eq 1 ] && scope="${files[1]:t}"
+print -r -- "Cache stats — ${scope}"
+print -r -- "  assistant messages : ${msgs}"
+print -r -- "  cache reads (hits) : ${r}"
+print -r -- "  cache creation     : ${c}"
+print -r -- "  fresh (uncached)   : ${f}"
+print -r -- "  output             : ${o}"
+print -r -- "  cache hit rate     : ${hit}%"

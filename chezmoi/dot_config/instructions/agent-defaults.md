@@ -129,8 +129,31 @@ they fit the task.
   Uses the unison profile at `$UNISON/gdrive-dotfiles.prf`. Sensitive dirs
   (sops, ops-agent, gh tokens) and large regenerable caches are excluded.
   Run: `sync-to-gdrive` or `sync-to-gdrive --verbose`.
-- **`ops-agent`** / **`cache-scan`** — Deployed via `home-manager/common.nix`
-  as `writeShellScriptBin`; source in `home-manager/local/bin/`.
+- **`log-bash.sh`** — Bash `PostToolUse` hook logger; **not run by hand**. Wired
+  for Claude via `~/.config/claude/settings.json` and for Copilot via
+  `~/.config/copilot/hooks/log-bash.json`. For every Bash tool call it appends a
+  structured record to `~/.cache/@@AGENT@@/session_<id>.log`:
+
+  ```text
+  ## [YYYY-MM-DD HH:MM:SS] status=ok|stderr|interrupted cwd=<dir>
+  CMD: <command>
+  STDOUT:   (large output truncated)
+  STDERR:   (only when stderr is non-empty)
+  ```
+
+  `status` is a heuristic — the hook payload carries no exit code, so it is
+  `interrupted`, else `stderr` when stderr is non-empty, else `ok`. When reading
+  logs directly, grep `^##` for a command timeline and
+  `status=stderr|interrupted` for likely failures.
+- **`cache-scan`** — Scan the agent log dir for recent activity. Parses the
+  `log-bash.sh` records and prints a per-session overview (command / stderr /
+  interrupt counts, last status), a recent-command timeline, the commands that
+  hit stderr or were interrupted, and a heuristic keyword scan. Flags:
+  `--days N` (default 2), `--date YYYY-MM-DD`, `--session ID`, `--limit N`.
+  De-duplicates the `~/.cache/claude → ~/.cache/copilot` symlink. Prefer this
+  over hand-rolled `rg` sweeps of the log dir.
+- **`ops-agent`** — Deployed via `home-manager/common.nix` as
+  `writeShellScriptBin` (source `home-manager/scripts/ops-agent.py`).
 
 ## Agent Instruction Sources
 

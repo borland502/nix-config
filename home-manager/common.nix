@@ -236,14 +236,16 @@ in {
         source = claude;
         force = true;
       };
-      "claude/log-bash.sh".source = ./scripts/log-bash.sh;
-      "copilot/log-bash.sh".source = ./scripts/log-bash.sh;
+      # log-bash.sh is deployed to ~/.local/bin by chezmoi
+      # (chezmoi/dot_local/bin/executable_log-bash.sh); only the Copilot hook
+      # manifest is generated here. The Claude hook is injected into
+      # settings.json by the ensureClaudeHook activation below.
       "copilot/hooks/log-bash.json".text = builtins.toJSON {
         version = 1;
         hooks.postToolUse = [
           {
             type = "command";
-            bash = ''AGENT_NAME=copilot exec bash "$HOME/.config/copilot/log-bash.sh"'';
+            bash = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/log-bash.sh"'';
             timeoutSec = 10;
           }
         ];
@@ -348,7 +350,15 @@ in {
         if ! jq -e '.hooks.PostToolUse[]? | select(.matcher == "Bash")' "$_settings" > /dev/null 2>&1; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq \
-            '.hooks.PostToolUse |= (. // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"''${CLAUDE_CONFIG_DIR:-$HOME/.config/claude}/log-bash.sh\"","async":true}]}]' \
+            '.hooks.PostToolUse |= (. // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/log-bash.sh\"","async":true}]}]' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+        # SessionEnd: append a one-line prompt-cache summary per session. Fires
+        # after the session ends, so it never feeds tokens back into the model.
+        if ! jq -e '.hooks.SessionEnd[]? | .hooks[]? | select(.command | test("claude-cache-stats"))' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq \
+            '.hooks.SessionEnd |= (. // []) + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/claude-cache-stats","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
         if ! jq -e '.attribution' "$_settings" > /dev/null 2>&1; then
@@ -614,6 +624,13 @@ in {
       starship.enable = true;
       # Keep qt disabled unless explicitly requested as the override is causing issues
       qt.enable = false;
+      # Stylix's gnome target auto-enables on every Linux build and fetches the
+      # gnome-shell source tarball from gitlab.gnome.org at eval time to derive
+      # gnome-shell.css. That endpoint is unreliable (HTTP/2 stream truncation,
+      # 503s) and has been failing `nix flake check` in CI on every run. No host
+      # here runs GNOME Shell, so disable the target outright. (No-op on macOS,
+      # where the target does not auto-enable.)
+      gnome.enable = false;
     };
   };
 
