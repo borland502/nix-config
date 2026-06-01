@@ -376,21 +376,38 @@ in {
             '.hooks.SessionEnd |= (. // []) + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/claude-cache-stats","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
-        # Stop / SubagentStop: capture new reasoning from the transcript to
-        # ~/.cache/claude. Silent + async (zero model-token cost). Best-effort —
-        # Claude persists thinking text for most turns but stores signature-only
-        # for some (e.g. fast mode), which the script skips. See log-thinking.sh.
-        for _evt in Stop SubagentStop; do
-          if ! jq -e --arg e "$_evt" '.hooks[$e][]? | .hooks[]? | select(.command | test("log-thinking"))' "$_settings" > /dev/null 2>&1; then
-            _tmp=$(${pkgs.coreutils}/bin/mktemp)
-            jq --arg e "$_evt" \
-              '.hooks[$e] |= (. // []) + [{"hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/log-thinking.sh\"","async":true}]}]' \
-              "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
-          fi
-        done
+        # Claude reasoning capture via log-thinking.sh is DISABLED. Claude Code
+        # 2.1.69+ stores thinking blocks signature-only (empty text + encrypted
+        # signature) in the transcript, so the hook's Claude path can never
+        # capture anything — see anthropics/claude-code #31326 / #32810 / #63147.
+        # The Copilot path (events.jsonl reasoningText) still works and is wired
+        # separately in the Copilot hooks below. Strip any log-thinking entries
+        # previously installed under Stop/SubagentStop so old generations are
+        # cleaned, and drop hook groups / event keys left empty by the removal.
+        if jq -e '.hooks.Stop[]?,.hooks.SubagentStop[]? | .hooks[]? | select((.command // "") | test("log-thinking"))' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq '
+            reduce ("Stop","SubagentStop") as $e (.;
+              .hooks[$e] = ([ .hooks[$e][]?
+                              | .hooks |= map(select((.command // "") | test("log-thinking") | not))
+                              | select((.hooks | length) > 0) ])
+              | if (.hooks[$e] | length) == 0 then del(.hooks[$e]) else . end)
+          ' "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
         if ! jq -e '.attribution' "$_settings" > /dev/null 2>&1; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq '.attribution = {"commit": "", "pr": ""}' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+        # skillListingBudgetFraction: fraction of the context window reserved for
+        # the skill listing sent to Claude (decimal, not percent; default 0.01 =
+        # 1%). Raised to 0.03 (3%) because this repo registers many skills whose
+        # combined descriptions overflow the default budget, which silently drops
+        # the least-used skills' descriptions and disables their auto-triggers.
+        # Self-healing: reconciles to 0.03 whenever the value drifts.
+        if [ "$(jq -r '.skillListingBudgetFraction // empty' "$_settings")" != "0.03" ]; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq '.skillListingBudgetFraction = 0.03' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
       '';
