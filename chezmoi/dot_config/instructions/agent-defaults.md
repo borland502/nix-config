@@ -161,6 +161,18 @@ they fit the task.
   `interrupted`, else `stderr` when stderr is non-empty, else `ok`. When reading
   logs directly, grep `^##` for a command timeline and
   `status=stderr|interrupted` for likely failures.
+- **`log-thinking.sh`** — agent-reasoning logger; **not run by hand**. Wired as
+  Claude `Stop`/`SubagentStop` hooks and a Copilot `postToolUse` hook. Appends
+  new reasoning to `~/.cache/@@AGENT@@/session_<id>.thinking.log`, deduped by a
+  per-source line cursor. Sources differ per agent: Claude's session transcript
+  (`thinking` blocks) and Copilot's `events.jsonl` (`data.reasoningText`).
+  - **Best-effort for Claude**: thinking text is captured when persisted, but
+    some turns/sessions (e.g. fast mode) store only the encrypted `signature`
+    with empty text — those are skipped, not an error.
+  - **Security**: reasoning can contain secret *values* the agent saw. Known
+    secrets on disk and token-shaped strings are redacted before write, files
+    are `0600`, and `*.thinking.log` is excluded from the gdrive sync profile.
+    Treat these logs as sensitive regardless.
 - **`cache-scan`** — Scan the agent log dir for recent activity. Parses the
   `log-bash.sh` records and prints a per-session overview (command / stderr /
   interrupt counts, last status), a recent-command timeline, the commands that

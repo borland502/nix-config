@@ -244,12 +244,23 @@ in {
       # (chezmoi/dot_local/bin/executable_log-bash.sh); only the Copilot hook
       # manifest is generated here. The Claude hook is injected into
       # settings.json by the ensureClaudeHook activation below.
+      # Wires both Copilot logging hooks. log-bash.sh logs the command+output;
+      # log-thinking.sh flushes new reasoning (data.reasoningText) from the
+      # session events.jsonl. postToolUse is the trigger for both — reasoning is
+      # written to events.jsonl before a tool completes, so per-tool-call capture
+      # catches it. (A turn with reasoning but no tool call is captured on the
+      # next tool call; switch to a stop/session-end event if Copilot adds one.)
       "copilot/hooks/log-bash.json".text = builtins.toJSON {
         version = 1;
         hooks.postToolUse = [
           {
             type = "command";
             bash = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/log-bash.sh"'';
+            timeoutSec = 10;
+          }
+          {
+            type = "command";
+            bash = ''AGENT_NAME=copilot bash "$HOME/.local/bin/log-thinking.sh"'';
             timeoutSec = 10;
           }
         ];
@@ -365,6 +376,18 @@ in {
             '.hooks.SessionEnd |= (. // []) + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/claude-cache-stats","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
+        # Stop / SubagentStop: capture new reasoning from the transcript to
+        # ~/.cache/claude. Silent + async (zero model-token cost). Best-effort —
+        # Claude persists thinking text for most turns but stores signature-only
+        # for some (e.g. fast mode), which the script skips. See log-thinking.sh.
+        for _evt in Stop SubagentStop; do
+          if ! jq -e --arg e "$_evt" '.hooks[$e][]? | .hooks[]? | select(.command | test("log-thinking"))' "$_settings" > /dev/null 2>&1; then
+            _tmp=$(${pkgs.coreutils}/bin/mktemp)
+            jq --arg e "$_evt" \
+              '.hooks[$e] |= (. // []) + [{"hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/log-thinking.sh\"","async":true}]}]' \
+              "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+          fi
+        done
         if ! jq -e '.attribution' "$_settings" > /dev/null 2>&1; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq '.attribution = {"commit": "", "pr": ""}' \
