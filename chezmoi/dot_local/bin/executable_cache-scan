@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 # cache-scan — surface recent agent activity from the ~/.cache/<agent> log dir.
 #
-# Reads the structured per-session logs written by log-bash.sh and prints:
-#   - a per-session overview (command / stderr / interrupt counts, last status)
-#   - a timeline of the most recent commands with their status
-#   - the commands that produced stderr or were interrupted (likely failures)
-#   - a heuristic keyword scan of output text (catches errors a status=ok line
-#     would miss, and still works on pre-structured logs)
+# Reads the structured per-session logs written by log-bash.sh and prints a
+# compact, low-token summary by default: a one-line-per-session overview and the
+# commands that hit stderr or were interrupted. Pass --verbose for the
+# command timeline, the heuristic keyword scan, and un-abbreviated paths.
 #
-# log-bash.sh record format the parser keys on:
-#   ## [YYYY-MM-DD HH:MM:SS] status=ok|stderr|interrupted cwd=<dir>
-#   CMD: <command>
-#   STDOUT: / STDERR: sections
+# Output is deliberately terse — it is consumed by an agent, so every line costs
+# tokens. Keep the default lean; put detail behind --verbose.
+#
+# Assumes GNU coreutils (stat -c). Guaranteed on PATH by this nix config:
+# coreutils is in the darwin system profile and native on Linux/WSL.
 set -euo pipefail
 
 usage() {
 	cat <<'EOF'
-Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
+Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N] [-v|--verbose]
 
   --days N      Look back N days by file mtime (default: 2)
   --date DATE   Only show records whose header timestamp starts with DATE
   --session ID  Restrict to session log files matching ID
-  --limit N     Number of recent commands in the timeline (default: 15)
+  --limit N     Timeline length under --verbose (default: 10)
+  -v|--verbose  Add the command timeline, keyword scan, and full paths
 
 Scans the agent log dir (~/.cache/claude, symlinked to ~/.cache/copilot).
 EOF
@@ -30,7 +30,8 @@ EOF
 days=2
 date_filter=""
 session=""
-limit=15
+limit=10
+verbose=0
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -62,6 +63,9 @@ while [[ $# -gt 0 ]]; do
 			exit 1
 		}
 		;;
+	-v | --verbose)
+		verbose=1
+		;;
 	-h | --help)
 		usage
 		exit 0
@@ -91,94 +95,76 @@ if [[ ${#roots[@]} -eq 0 ]]; then
 	exit 0
 fi
 
-# mtime format args, detecting GNU (-c) vs BSD (-f) stat. Probe -c first: only
-# GNU supports it, so BSD falls through cleanly (BSD -f would otherwise be
-# misread as --file-system on GNU and print filesystem info).
-if stat -c '%Y' . >/dev/null 2>&1; then
-	statfmt=(-c '%Y')
-else
-	statfmt=(-f '%m')
-fi
-
-# Discover session logs (by mtime), newest first.
+# Discover session logs (by mtime, newest first). GNU stat (-c) — see header.
 name_glob='session_*.log'
 [[ -n "$session" ]] && name_glob="session_*${session}*.log"
 mapfile -t logs < <(find "${roots[@]}" -type f -name "$name_glob" -mtime "-$days" 2>/dev/null |
-	while read -r p; do printf '%s\t%s\n' "$(stat "${statfmt[@]}" "$p" 2>/dev/null || echo 0)" "$p"; done |
+	while read -r p; do printf '%s\t%s\n' "$(stat -c '%Y' "$p" 2>/dev/null || echo 0)" "$p"; done |
 	sort -rn | cut -f2-)
 
-short() { sed "s#$HOME#~#g"; }
-
-echo "== cache-scan =="
-echo "roots:    ${roots[*]/#$HOME/\~}"
-echo "lookback: ${days}d${date_filter:+   date~$date_filter}${session:+   session~$session}"
-echo "sessions: ${#logs[@]}"
-echo
+roots_disp="${roots[*]/#$HOME/\~}"
+printf 'cache-scan  roots=%s  lookback=%dd  sessions=%d%s\n' \
+	"$roots_disp" "$days" "${#logs[@]}" "${session:+  session~$session}"
 
 if [[ ${#logs[@]} -eq 0 ]]; then
-	echo "No session_*.log files in the last ${days} day(s)."
-	echo "(raise --days, or check that the log-bash.sh PostToolUse hook is wired)"
+	echo "(none in window; raise --days or check the log-bash PostToolUse hook)"
 	exit 0
 fi
 
-# awk program shared by the overview/timeline/failure passes. Extracts the
-# header timestamp and status, and the CMD that follows each header.
+# Shared header parser: pull the timestamp + status from a "## [...] status=" line.
 read -r -d '' AWK_HDR <<'AWK' || true
-function hdr(line,   s) {
+function hdr(line) {
 	match(line, /\[[0-9-]+ [0-9:]+\]/); stamp = substr(line, RSTART + 1, RLENGTH - 2)
 	st = "?"
 	if (match(line, /status=[a-z]+/)) st = substr(line, RSTART + 7, RLENGTH - 7)
 }
+function hhmmss(s) { return (match(s, /[0-9:]+$/)) ? substr(s, RSTART, RLENGTH) : s }
+function idof(f,   b) { b = f; sub(/^session_/, "", b); sub(/\.log$/, "", b); return substr(b, 1, 8) }
 AWK
 
-echo "== Sessions (newest first) =="
+# One line per session: id, counts, last status + command. (Was two lines —
+# halving it is the biggest default-output token saving.)
+echo "SESSIONS (newest first)"
 for f in "${logs[@]}"; do
 	awk -v file="${f##*/}" -v df="$date_filter" "$AWK_HDR"'
 		/^## \[/ { hdr($0); if (df != "" && index(stamp, df) != 1) { skip=1; next } skip=0
-			recs++; laststamp=stamp; laststatus=st
+			recs++; laststatus=st
 			if (st=="stderr") nerr++; else if (st=="interrupted") nint++; next }
 		/^CMD: / && !skip { lastcmd=substr($0,6) }
 		END {
 			if (recs==0) exit
-			c = (length(lastcmd)>64) ? substr(lastcmd,1,64) "…" : lastcmd
-			printf "  %-34s cmds=%-4d stderr=%-3d intr=%-3d  last[%s]=%s\n      └ %s\n", \
-				file, recs, nerr+0, nint+0, laststamp, laststatus, c
+			c = (length(lastcmd)>52) ? substr(lastcmd,1,52) "…" : lastcmd
+			printf "  %-8s cmds=%-3d err=%-2d intr=%-2d %-11s :: %s\n", \
+				idof(file), recs, nerr+0, nint+0, laststatus, c
 		}' "$f"
 done
-echo
+
+# Likely failures — compact (time-only stamp, capped). The high-signal section.
+echo "FAILURES (stderr|interrupted)"
+fail_out=$(for f in "${logs[@]}"; do
+	awk -v file="${f##*/}" "$AWK_HDR"'
+		/^## \[/ { hdr($0); bad=(st=="stderr"||st=="interrupted"); pstamp=stamp; pst=st; next }
+		/^CMD: / && bad { printf "  %-8s %s %-11s :: %s\n", idof(file), hhmmss(pstamp), pst, substr($0,6); bad=0 }
+	' "$f"
+done | tail -n 12)
+if [[ -n "$fail_out" ]]; then
+	printf '%s\n' "$fail_out"
+else
+	echo "  none"
+fi
+
+# Everything below is detail — verbose only, to keep the default token-cheap.
+((verbose)) || exit 0
 
 recent="${logs[0]}"
-echo "== Recent commands (last $limit, from ${recent##*/}) =="
+echo "TIMELINE (last $limit, ${recent##*/})"
 awk "$AWK_HDR"'
 	/^## \[/ { hdr($0); pstamp=stamp; pst=st; pend=1; next }
 	/^CMD: / && pend { printf "  [%s] %-11s %s\n", pstamp, pst, substr($0,6); pend=0 }
 ' "$recent" | tail -n "$limit"
-echo
 
-echo "== Likely failures (status=stderr|interrupted) =="
-fail_out=$(for f in "${logs[@]}"; do
-	awk -v file="${f##*/}" "$AWK_HDR"'
-		/^## \[/ { hdr($0); bad=(st=="stderr"||st=="interrupted"); pstamp=stamp; pst=st; next }
-		/^CMD: / && bad { printf "  %-30s [%s] %-11s %s\n", file, pstamp, pst, substr($0,6); bad=0 }
-	' "$f"
-done | tail -n 40)
-if [[ -n "$fail_out" ]]; then
-	printf '%s\n' "$fail_out"
-else
-	echo "  none in window (or logs predate structured status headers)"
-fi
-echo
-
-echo "== Keyword hits in output text (heuristic) =="
-# Scope to the session logs in the window — not the whole cache root, which may
-# hold unrelated trees (e.g. Copilot's bundled node_modules under ~/.cache).
+echo "KEYWORD HITS (heuristic, output text)"
 kw_out=$(rg -i --no-heading -c \
 	"error|failed|traceback|permission denied|exception|fatal" \
-	"${logs[@]}" 2>/dev/null | short | tail -20 || true)
-if [[ -n "$kw_out" ]]; then
-	printf '%s\n' "$kw_out"
-else
-	echo "  none"
-fi
-echo
-echo "Open a session_*.log for full STDOUT/STDERR. Header: ## [ts] status= cwd="
+	"${logs[@]}" 2>/dev/null | sed "s#$HOME#~#g" | tail -20 || true)
+[[ -n "$kw_out" ]] && printf '%s\n' "$kw_out" || echo "  none"

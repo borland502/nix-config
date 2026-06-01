@@ -269,6 +269,29 @@ task generate:agent-instructions
 
 The pre-commit hook and CI catch drift automatically via `task check:agent-instructions`.
 
+### Agent activity logs & `cache-scan`
+
+Agent sessions are logged to `~/.cache/<agent>/` (with `~/.cache/claude` symlinked
+to `~/.cache/copilot` so both share one dir) by hooks deployed from
+`chezmoi/dot_local/bin/`:
+
+| Script | Hook | Captures → file |
+|---|---|---|
+| `log-bash.sh` | Bash `PostToolUse` | each command + stdout/stderr → `session_<id>.log` (`## [ts] status=ok\|stderr\|interrupted cwd=…`) |
+| `log-thinking.sh` | Claude `Stop`/`SubagentStop`, Copilot `postToolUse` | agent reasoning → `session_<id>.thinking.log` (best-effort for Claude) |
+| `claude-cache-stats` | Claude `SessionEnd` | one-line prompt-cache-hit summary → `cache-stats.log` |
+
+Read it back with **`cache-scan`** — terse by default (one line per session plus
+the commands that hit stderr/were interrupted), `--verbose` adds the command
+timeline and a keyword scan. Flags: `--days N` (default 2), `--date`,
+`--session ID`, `--limit N`, `-v|--verbose`. Output is kept token-lean because an
+agent consumes it. The scripts assume GNU coreutils (`stat -c`), guaranteed by
+`coreutils` in the darwin system profile (native on Linux/WSL).
+
+**Security:** `*.thinking.log` can contain secret *values* the agent reasoned
+about; reasoning logs redact known secrets, are written `0600`, and are excluded
+from the gdrive sync profile. Treat the cache logs as sensitive.
+
 ## AI Tooling (Skills + Agents)
 
 Custom skills and agents live in [`ai-tools/`](ai-tools/) as the single source of truth, modeled on the

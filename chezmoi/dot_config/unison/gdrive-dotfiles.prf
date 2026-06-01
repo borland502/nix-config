@@ -50,6 +50,10 @@ ignore = Path .local/pipx
 ignore = Name .tmp.driveupload
 # Unison log files shouldn't be synced (avoid self-modification errors)
 ignore = Name unison-gdrive.log
+# Agent reasoning logs may contain secret VALUES the agent reasoned about; keep
+# them on local disk only (they live under .cache/<agent>, which IS synced).
+ignore = Name *.thinking.log
+ignore = Name .thinking-cursor
 ignore = Name .git
 ignore = Name .gitignore
 ignore = Name node_modules
