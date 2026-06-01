@@ -62,22 +62,27 @@ total=$(wc -l <"$src" 2>/dev/null | tr -d ' ')
 ((total > cursor)) || exit 0   # nothing new
 
 new_lines=$(tail -n +"$((cursor + 1))" "$src" 2>/dev/null || true)
-# Advance the cursor up front so empty/non-thinking turns are not reprocessed.
-printf '%s' "$total" >"$cursor_file"
 
 if [[ "$flavor" == claude ]]; then
-	blocks=$(printf '%s\n' "$new_lines" | jq -r '
-		select(.message.role == "assistant")
+	# Parse NDJSON defensively: ignore malformed lines instead of dropping the full batch.
+	blocks=$(printf '%s\n' "$new_lines" | jq -Rr '
+		fromjson?
+		| select(.message.role == "assistant")
 		| .message.content[]?
 		| if .type == "thinking" then .thinking
 			elif .type == "redacted_thinking" then "[redacted_thinking block omitted]"
 			else empty end' 2>/dev/null || true)
 else
-	blocks=$(printf '%s\n' "$new_lines" | jq -r '
-		select(.type == "assistant.message")
+	# Copilot emits NDJSON events; fromjson? tolerates occasional partial/invalid rows.
+	blocks=$(printf '%s\n' "$new_lines" | jq -Rr '
+		fromjson?
+		| select(.type == "assistant.message")
 		| .data.reasoningText // empty
 		| select(. != "")' 2>/dev/null || true)
 fi
+
+# Advance cursor after processing so failed parses do not silently skip data.
+printf '%s' "$total" >"$cursor_file"
 
 [[ -n "$blocks" ]] || exit 0
 

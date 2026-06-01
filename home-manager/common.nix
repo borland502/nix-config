@@ -261,7 +261,7 @@ in {
           {
             type = "command";
             bash = ''AGENT_NAME=copilot bash "$HOME/.local/bin/log-thinking.sh"'';
-            timeoutSec = 10;
+            timeoutSec = 30;
           }
         ];
       };
