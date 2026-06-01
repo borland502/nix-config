@@ -15,6 +15,10 @@
       htop
       tree
       base16-schemes # Required for Stylix theming
+      # GNU coreutils ahead of the BSD userland so shell scripts (cache-scan,
+      # log-bash.sh, etc.) can rely on GNU flags like `stat -c`. Linux/WSL have
+      # GNU coreutils natively; this makes darwin match.
+      coreutils
     ];
 
     # Ensure Homebrew is in PATH for all shells and applications

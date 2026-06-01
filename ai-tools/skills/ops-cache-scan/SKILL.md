@@ -26,25 +26,29 @@ This is *not* something a session needs to wire up — if the host has had `home
 - `--days N` lookback by file mtime (defaults to `2`).
 - `--date YYYY-MM-DD` to restrict records to a header date.
 - `--session ID` to focus a single session log.
-- `--limit N` recent-command timeline length (defaults to `15`).
+- `--limit N` timeline length under `--verbose` (defaults to `10`).
+- `-v|--verbose` add the command timeline and keyword scan (default output is
+  intentionally terse to keep token cost low — read the default first and only
+  reach for `--verbose` when you need the full timeline).
 
 ## Procedure
 
-1. Run the helper script:
-   `cache-scan`
-2. For a wider lookback:
-   `cache-scan --days 5`
-3. For a single session:
-   `cache-scan --session 4e8838e2`
+1. Run the helper script (terse): `cache-scan`
+2. Wider lookback: `cache-scan --days 5`
+3. Single session, full detail: `cache-scan --session 4e8838e2 --verbose`
 
 ## What To Extract
 
-`cache-scan` already structures most of this; read its sections directly:
+`cache-scan` already structures this; read its sections directly:
 
-- **Sessions** — per-session command / stderr / interrupt counts and last status.
-- **Recent commands** — the timeline (`[ts] status :: cmd`) from the newest session; the tail is where work was interrupted.
-- **Likely failures** — commands with `status=stderr|interrupted`; these are the concrete resume points.
-- **Keyword hits** — heuristic backstop for errors a `status=ok` line missed (and for pre-structured logs).
+- **SESSIONS** (default) — one line per session: id, command / stderr / interrupt
+  counts, last status + command.
+- **FAILURES** (default) — commands with `status=stderr|interrupted`; the concrete
+  resume points.
+- **TIMELINE** (`--verbose`) — `[ts] status :: cmd` from the newest session; the
+  tail is where work was interrupted.
+- **KEYWORD HITS** (`--verbose`) — heuristic backstop for errors a `status=ok`
+  line missed (and for pre-structured logs).
 
 ## Output Contract
 

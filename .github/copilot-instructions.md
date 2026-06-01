@@ -173,13 +173,13 @@ they fit the task.
     secrets on disk and token-shaped strings are redacted before write, files
     are `0600`, and `*.thinking.log` is excluded from the gdrive sync profile.
     Treat these logs as sensitive regardless.
-- **`cache-scan`** — Scan the agent log dir for recent activity. Parses the
-  `log-bash.sh` records and prints a per-session overview (command / stderr /
-  interrupt counts, last status), a recent-command timeline, the commands that
-  hit stderr or were interrupted, and a heuristic keyword scan. Flags:
-  `--days N` (default 2), `--date YYYY-MM-DD`, `--session ID`, `--limit N`.
-  De-duplicates the `~/.cache/claude → ~/.cache/copilot` symlink. Prefer this
-  over hand-rolled `rg` sweeps of the log dir.
+- **`cache-scan`** — Scan the agent log dir for recent activity. **Terse by
+  default** (token-lean, since an agent reads it): a one-line-per-session
+  overview plus the commands that hit stderr or were interrupted. `-v|--verbose`
+  adds the command timeline and heuristic keyword scan. Flags: `--days N`
+  (default 2), `--date YYYY-MM-DD`, `--session ID`, `--limit N`, `-v|--verbose`.
+  De-duplicates the `~/.cache/copilot` symlink. Prefer this over hand-rolled
+  `rg` sweeps of the log dir.
 - **`ops-agent`** — Deployed via `home-manager/common.nix` as
   `writeShellScriptBin` (source `home-manager/scripts/ops-agent.py`).
 
