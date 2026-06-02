@@ -648,6 +648,48 @@ in {
     };
   };
 
+  # Time-based compression of old agent cache files, independent of agent
+  # activity. The throttled Stop/postToolUse hooks only fire while an agent is
+  # running, so caches could linger uncompressed during long idle stretches.
+  # This OS-level timer runs ~daily at zero token cost even when no agent is
+  # open; the script's 30-min throttle means it coexists harmlessly with the
+  # hooks. AGENT_NAME=copilot targets ~/.cache/copilot (the real dir that
+  # ~/.cache/claude symlinks to). Off-minute (03:17) by habit.
+  launchd.agents.compress-old-cache = lib.mkIf pkgs.stdenv.isDarwin {
+    enable = true;
+    config = {
+      ProgramArguments = ["${xdgBinHome}/ai-tools/compress-old-cache"];
+      EnvironmentVariables.AGENT_NAME = "copilot";
+      StartCalendarInterval = [
+        {
+          Hour = 3;
+          Minute = 17;
+        }
+      ];
+      StandardOutPath = "${xdgCacheHome}/compress-old-cache.launchd.log";
+      StandardErrorPath = "${xdgCacheHome}/compress-old-cache.launchd.log";
+    };
+  };
+
+  systemd.user = lib.mkIf pkgs.stdenv.isLinux {
+    services.compress-old-cache = {
+      Unit.Description = "Compress old agent cache files with zstd";
+      Service = {
+        Type = "oneshot";
+        Environment = "AGENT_NAME=copilot";
+        ExecStart = "${xdgBinHome}/ai-tools/compress-old-cache";
+      };
+    };
+    timers.compress-old-cache = {
+      Unit.Description = "Daily compression of old agent cache files";
+      Timer = {
+        OnCalendar = "*-*-* 03:17:00";
+        Persistent = true;
+      };
+      Install.WantedBy = ["timers.target"];
+    };
+  };
+
   # Common Stylix configuration
   stylix = {
     enable = true;
