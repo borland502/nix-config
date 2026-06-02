@@ -412,6 +412,25 @@ in {
         fi
       '';
 
+      # Copilot CLI default model = "auto": let Copilot route each request to a
+      # capability-appropriate model. Under GitHub's usage-based billing (from
+      # June 2026) the CLI is token-metered, so the model choice is the primary
+      # cost lever. Merged (not overwritten) so Copilot can still persist its
+      # other settings; self-healing — reconciles whenever the value drifts.
+      # COPILOT_HOME (zsh.nix) points the config dir at ~/.config/copilot.
+      ensureCopilotSettings = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        _settings="${xdgConfigHome}/copilot/settings.json"
+        if [ ! -f "$_settings" ]; then
+          ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/copilot"
+          ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
+        fi
+        if [ "$(jq -r '.model // empty' "$_settings")" != "auto" ]; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq '.model = "auto"' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+      '';
+
       # Register Claude Code marketplaces in ~/.config/claude/settings.json:
       #
       #   nix-config-dev          (local)  — this repo's ai-tools/ directory.
