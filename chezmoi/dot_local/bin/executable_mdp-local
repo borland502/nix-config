@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# mdp-local — preflight-checked launcher for the mdp-application local stack.
+#
+# Wraps `./run local` with the environment setup and prevention checks that
+# the in-repo CLI assumes are already in place. Each misstep below has bitten a
+# cold start of the stack:
+#   - direnv not loaded  -> nvm/sdk/DOCKER_HOST/PROJECT unset, build uses wrong
+#                           node/java, docker talks to the wrong socket
+#   - Colima not started -> DOCKER_HOST points at a dead socket; the CLI's
+#                           checkIfDockerIsRunning() fails late
+#   - stale Kion creds    -> checkIfAuthenticated() / aws calls ExpiredToken
+#   - missing bun         -> CLI build (`bun build:cli`) fails
+#
+# Resolves node/java/DOCKER_HOST/PROJECT from the project's own .envrc via
+# direnv (single source of truth) rather than duplicating them here, then
+# verifies the results and hands off to `./run local "$@"` (passes through
+# flags like --clean / --overmind).
+#
+# Override the repo location with MDP_DIR; defaults to the standard checkout.
+set -euo pipefail
+
+MDP_DIR="${MDP_DIR:-$HOME/Development/cmcs/mdp-application}"
+
+# ---- output helpers (respect NO_COLOR) -------------------------------------
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+	c_g=$'\033[32m' c_y=$'\033[33m' c_r=$'\033[31m' c_b=$'\033[34m' c_0=$'\033[0m'
+else
+	c_g='' c_y='' c_r='' c_b='' c_0=''
+fi
+step() { printf '%s==>%s %s\n' "$c_b" "$c_0" "$*"; }
+ok() { printf '  %s✓%s %s\n' "$c_g" "$c_0" "$*"; }
+warn() { printf '  %s!%s %s\n' "$c_y" "$c_0" "$*" >&2; }
+die() {
+	printf '  %s✗%s %s\n' "$c_r" "$c_0" "$*" >&2
+	exit 1
+}
+
+# ---- 0. repo -----------------------------------------------------------------
+step "Repository"
+[[ -d "$MDP_DIR" ]] || die "MDP_DIR not found: $MDP_DIR (set MDP_DIR=/path/to/mdp-application)"
+cd "$MDP_DIR"
+[[ -x ./run ]] || die "no ./run launcher in $MDP_DIR — wrong directory?"
+ok "$MDP_DIR"
+
+# ---- 1. project env via direnv (.envrc: nvm use, sdk env, DOCKER_HOST, …) ---
+step "Project environment (.envrc)"
+if command -v direnv >/dev/null 2>&1; then
+	direnv allow . >/dev/null 2>&1 || true
+	# Load .envrc into this shell so node/java/DOCKER_HOST/PROJECT/PATH are set
+	# exactly as the project defines them. Tolerate non-zero on partial loads.
+	eval "$(direnv export bash 2>/dev/null)" || true
+	ok "direnv loaded .envrc"
+else
+	warn "direnv not installed — falling back to manual nvm/sdk setup"
+fi
+
+# ---- 2. node (nvm + .nvmrc) ---------------------------------------------------
+step "Node (.nvmrc)"
+want_node="$(tr -d '[:space:]' <.nvmrc 2>/dev/null || true)"
+if ! command -v node >/dev/null 2>&1 || { [[ -n "$want_node" ]] && [[ "v$(node -v 2>/dev/null | sed 's/^v//')" != "${want_node/v/v}" ]]; }; then
+	# shellcheck disable=SC1090,SC1091
+	[[ -s "$HOME/.nvm/nvm.sh" ]] && source "$HOME/.nvm/nvm.sh"
+	command -v nvm >/dev/null 2>&1 && nvm use >/dev/null 2>&1 || true
+fi
+command -v node >/dev/null 2>&1 || die "node unavailable — install/activate ${want_node:-the .nvmrc version} via nvm"
+ok "node $(node -v) (wanted ${want_node:-any})"
+
+# ---- 3. java (sdkman + .sdkmanrc) — best effort ------------------------------
+step "Java (.sdkmanrc)"
+if ! command -v java >/dev/null 2>&1 && [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]]; then
+	# shellcheck disable=SC1090,SC1091
+	source "$HOME/.sdkman/bin/sdkman-init.sh" && sdk env >/dev/null 2>&1 || true
+fi
+if command -v java >/dev/null 2>&1; then
+	ok "$(java -version 2>&1 | head -1 | tr -d '"')"
+else
+	warn "java not on PATH — sdkman (sdk env) may not have loaded; the Java containers build in Docker so this is usually non-fatal"
+fi
+
+# ---- 4. bun (builds the ./run CLI) -------------------------------------------
+step "bun"
+command -v bun >/dev/null 2>&1 || die "bun not found — required for 'bun build:cli'. Install bun (it's in the home-manager package set)."
+ok "$(bun --version)"
+
+# ---- 5. Colima + Docker daemon -----------------------------------------------
+step "Container runtime (Colima)"
+if command -v colima >/dev/null 2>&1; then
+	if ! colima status >/dev/null 2>&1; then
+		warn "Colima not running — starting it (this can take ~30s)…"
+		colima start || die "colima start failed"
+	fi
+	ok "Colima running"
+else
+	warn "colima not installed — relying on whatever DOCKER_HOST points at"
+fi
+command -v docker >/dev/null 2>&1 || die "docker CLI not found"
+if ! docker info >/dev/null 2>&1; then
+	die "Docker daemon unreachable (DOCKER_HOST=${DOCKER_HOST:-unset}). Is Colima up?"
+fi
+ok "Docker daemon reachable${DOCKER_HOST:+ ($DOCKER_HOST)}"
+
+# ---- 6. AWS credentials (Kion) -----------------------------------------------
+# ./run local calls checkIfAuthenticated() and `aws s3` for the db-export
+# dataset; load fresh creds from the Kion cache and verify before handing off.
+step "AWS credentials"
+: "${AWS_REGION:=${REGION_A:-us-east-1}}"
+export AWS_REGION AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-$AWS_REGION}"
+kion="$HOME/.cache/kion-aws-cache"
+if [[ -r "$kion/AWS_ACCESS_KEY_ID" ]]; then
+	AWS_ACCESS_KEY_ID="$(/bin/cat "$kion/AWS_ACCESS_KEY_ID")"
+	AWS_SECRET_ACCESS_KEY="$(/bin/cat "$kion/AWS_SECRET_ACCESS_KEY")"
+	AWS_SESSION_TOKEN="$(/bin/cat "$kion/AWS_SESSION_TOKEN")"
+	export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+fi
+if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1; then
+	acct="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo '?')"
+	ok "authenticated (account $acct, region $AWS_REGION)"
+else
+	die "AWS creds missing/expired. Refresh in your zsh shell, then re-run:
+       source ~/.local/bin/kac ensure   # or: gkion
+     (kac is zsh-only and must be sourced, so this bash launcher can't refresh for you.)"
+fi
+
+# ---- launch ------------------------------------------------------------------
+step "Launching: ./run local $*"
+exec ./run local "$@"
