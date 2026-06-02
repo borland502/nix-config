@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# mdp-status — readiness/health check for the mdp-application local stack.
+#
+# Companion to mdp-local. Reports whether the stack is actually serving, based
+# on container health + HTTP probes of the app/SAM ports — NOT on container age
+# (the local stack reuses already-healthy containers, so "recently recreated"
+# is the wrong signal).
+#
+#   mdp-status              one-shot: print status, exit 0 if ready
+#   mdp-status --wait       poll until ready (or --timeout), then exit
+#   mdp-status --timeout N  cap the wait at N seconds (default 600)
+#
+# Exit 0 = ready, 1 = not ready / timed out.
+set -uo pipefail
+
+wait=0
+timeout=600
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--wait) wait=1 ;;
+	--timeout)
+		shift
+		timeout="${1:-600}"
+		;;
+	--timeout=*) timeout="${1#*=}" ;;
+	-h | --help)
+		grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'
+		exit 0
+		;;
+	*) printf 'unknown arg: %s\n' "$1" >&2 && exit 2 ;;
+	esac
+	shift
+done
+[[ "$timeout" =~ ^[0-9]+$ ]] || timeout=600
+
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+	c_g=$'\033[32m' c_y=$'\033[33m' c_r=$'\033[31m' c_0=$'\033[0m'
+else
+	c_g='' c_y='' c_r='' c_0=''
+fi
+mark() { # $1=ok|warn|bad  $2=text
+	case "$1" in
+	ok) printf '  %s✓%s %s\n' "$c_g" "$c_0" "$2" ;;
+	warn) printf '  %s!%s %s\n' "$c_y" "$c_0" "$2" ;;
+	bad) printf '  %s✗%s %s\n' "$c_r" "$c_0" "$2" ;;
+	esac
+}
+
+container_running() { [[ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" == "true" ]]; }
+container_healthy() { # healthy, or running with no healthcheck defined
+	local h
+	h="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$1" 2>/dev/null)" || return 1
+	[[ "$h" == "healthy" || "$h" == "none" ]] && container_running "$1"
+}
+http_alive() { # any HTTP status (incl 404/502) = process is serving; 000 = no
+	local code
+	code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$1" 2>/dev/null)"
+	[[ -n "$code" && "$code" != "000" ]]
+}
+port_open() { # bash /dev/tcp fallback for non-HTTP listeners
+	(exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && exec 3>&- 3<&-
+}
+
+check() {
+	local ready=0 detail=()
+	# DB layer (healthchecked)
+	if container_healthy db; then detail+=("ok|db container healthy"); else
+		detail+=("bad|db container not healthy")
+		ready=1
+	fi
+	# App containers
+	for c in data web; do
+		if container_running "$c"; then detail+=("ok|$c container running"); else
+			detail+=("bad|$c container not running")
+			ready=1
+		fi
+	done
+	# App HTTP (web 8080, data 8081 respond — 404 at / is normal/alive)
+	if http_alive http://127.0.0.1:8080/; then detail+=("ok|web app responding (:8080)"); else
+		detail+=("bad|web app not responding (:8080)")
+		ready=1
+	fi
+	if http_alive http://127.0.0.1:8081/; then detail+=("ok|data app responding (:8081)"); else
+		detail+=("bad|data app not responding (:8081)")
+		ready=1
+	fi
+	# SAM local (API gateway listens immediately; lambdas are LAZY-warm)
+	if port_open 3000; then detail+=("ok|SAM local API listening (:3000)"); else
+		detail+=("warn|SAM local API not listening (:3000) — may still be starting")
+	fi
+	printf '%s\n' "${detail[@]}"
+	return $ready
+}
+
+render() {
+	while IFS='|' read -r kind text; do mark "$kind" "$text"; done
+}
+
+if [[ "$wait" -eq 1 ]]; then
+	deadline=$(($(date +%s) + timeout))
+	while :; do
+		out="$(check)"
+		rc=$?
+		if [[ $rc -eq 0 ]]; then
+			printf '%s\n' "$out" | render
+			mark ok "stack READY"
+			exit 0
+		fi
+		if (($(date +%s) >= deadline)); then
+			printf '%s\n' "$out" | render
+			mark bad "stack NOT ready after ${timeout}s"
+			exit 1
+		fi
+		sleep 10
+	done
+else
+	out="$(check)"
+	rc=$?
+	printf '%s\n' "$out" | render
+	if [[ $rc -eq 0 ]]; then mark ok "stack READY"; else mark bad "stack NOT ready"; fi
+	exit $rc
+fi
