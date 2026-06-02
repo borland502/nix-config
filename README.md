@@ -293,6 +293,10 @@ agent consumes it. The scripts assume GNU coreutils (`stat -c`), guaranteed by
 about; reasoning logs redact known secrets, are written `0600`, and are excluded
 from the gdrive sync profile. Treat the cache logs as sensitive.
 
+**Token/credit cost:** for keeping Claude Code and Copilot CLI token usage down
+(and which levers are codified in this repo), see
+[docs/agent-token-cost-levers.md](docs/agent-token-cost-levers.md).
+
 ## AI Tooling (Skills + Agents)
 
 Custom skills and agents live in [`ai-tools/`](ai-tools/) as the single source of truth, modeled on the

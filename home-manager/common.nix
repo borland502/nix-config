@@ -272,6 +272,18 @@ in {
         ];
       };
 
+      # Copilot CLI MCP servers, managed declaratively so the set stays lean.
+      # Every enabled MCP server injects its tool definitions into context on
+      # each agent step — input tokens on every turn under Copilot's
+      # usage-based billing. Empty is the leanest default; add a server here
+      # only when it's actually needed (e.g. an `aws-api` entry mirroring
+      # chezmoi/dot_claude/settings.json, pointing at
+      # ~/.local/bin/ai-tools/aws-mcp-server) rather than accumulating
+      # always-on servers via interactive `/mcp add`.
+      "copilot/mcp-config.json".text = builtins.toJSON {
+        mcpServers = {};
+      };
+
       # Single source of truth for custom agent/skill definitions is the
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
       # Deploy those definitions into both Claude's and Copilot's XDG config
@@ -428,6 +440,25 @@ in {
         if [ "$(jq -r '.skillListingBudgetFraction // empty' "$_settings")" != "0.03" ]; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq '.skillListingBudgetFraction = 0.03' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+      '';
+
+      # Copilot CLI default model = "auto": let Copilot route each request to a
+      # capability-appropriate model. Under GitHub's usage-based billing (from
+      # June 2026) the CLI is token-metered, so the model choice is the primary
+      # cost lever. Merged (not overwritten) so Copilot can still persist its
+      # other settings; self-healing — reconciles whenever the value drifts.
+      # COPILOT_HOME (zsh.nix) points the config dir at ~/.config/copilot.
+      ensureCopilotSettings = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        _settings="${xdgConfigHome}/copilot/settings.json"
+        if [ ! -f "$_settings" ]; then
+          ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/copilot"
+          ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
+        fi
+        if [ "$(jq -r '.model // empty' "$_settings")" != "auto" ]; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq '.model = "auto"' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
       '';
