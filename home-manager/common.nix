@@ -240,10 +240,11 @@ in {
         source = claude;
         force = true;
       };
-      # log-bash.sh is deployed to ~/.local/bin by chezmoi
-      # (chezmoi/dot_local/bin/executable_log-bash.sh); only the Copilot hook
-      # manifest is generated here. The Claude hook is injected into
-      # settings.json by the ensureClaudeHook activation below.
+      # Automation scripts not meant for manual invocation live under
+      # ~/.local/bin/ai-tools/ (deployed by chezmoi from
+      # chezmoi/dot_local/bin/ai-tools/); only the Copilot hook manifest is
+      # generated here. The Claude hook is injected into settings.json by the
+      # ensureClaudeHook activation below.
       # Wires Copilot cache/logging hooks. log-bash.sh logs command+output;
       # log-thinking.sh flushes reasoning (data.reasoningText) from the
       # session events.jsonl. postToolUse is the trigger for both — reasoning is
@@ -255,17 +256,17 @@ in {
         hooks.postToolUse = [
           {
             type = "command";
-            command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/log-bash.sh"'';
+            command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
             timeoutSec = 10;
           }
           {
             type = "command";
-            command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/log-thinking.sh"'';
+            command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/log-thinking.sh"'';
             timeoutSec = 30;
           }
           {
             type = "command";
-            command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/compress-old-cache"'';
+            command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/compress-old-cache"'';
             timeoutSec = 20;
           }
         ];
@@ -367,10 +368,24 @@ in {
         if [ ! -f "$_settings" ]; then
           ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
         fi
+        # Migrate hook command paths from the flat ~/.local/bin/<script> layout to
+        # ~/.local/bin/ai-tools/<script> (automation scripts moved into ai-tools/).
+        # The add-guards below match on matcher/substring, so they won't rewrite an
+        # already-present entry — this self-heals old generations. Idempotent: the
+        # regex only matches the pre-move path (no ai-tools/ segment).
+        if jq -e '[.. | objects | select(has("command")) | .command | strings | select(test("/\\.local/bin/(log-bash\\.sh|log-thinking\\.sh|compress-old-cache|claude-cache-stats|aws-mcp-server)"))] | length > 0' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq '
+            walk(
+              if type == "object" and (.command? | type) == "string"
+              then .command |= gsub("/\\.local/bin/(?<s>log-bash\\.sh|log-thinking\\.sh|compress-old-cache|claude-cache-stats|aws-mcp-server)"; "/.local/bin/ai-tools/\(.s)")
+              else . end)
+          ' "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
         if ! jq -e '.hooks.PostToolUse[]? | select(.matcher == "Bash")' "$_settings" > /dev/null 2>&1; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq \
-            '.hooks.PostToolUse |= (. // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/log-bash.sh\"","async":true}]}]' \
+            '.hooks.PostToolUse |= (. // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/ai-tools/log-bash.sh\"","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
         # SessionEnd: append a one-line prompt-cache summary per session. Fires
@@ -378,7 +393,7 @@ in {
         if ! jq -e '.hooks.SessionEnd[]? | .hooks[]? | select(.command | test("claude-cache-stats"))' "$_settings" > /dev/null 2>&1; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq \
-            '.hooks.SessionEnd |= (. // []) + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/claude-cache-stats","async":true}]}]' \
+            '.hooks.SessionEnd |= (. // []) + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/ai-tools/claude-cache-stats","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
         # Claude reasoning capture via log-thinking.sh is DISABLED. Claude Code

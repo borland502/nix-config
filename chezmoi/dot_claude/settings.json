@@ -3,7 +3,7 @@
     "mcpServers": {
         "aws-api": {
             "type": "stdio",
-            "command": "$HOME/.local/bin/aws-mcp-server",
+            "command": "$HOME/.local/bin/ai-tools/aws-mcp-server",
             "env": {
                 "AWS_REGION": "us-east-1"
             }
@@ -21,7 +21,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "$HOME/.local/bin/compress-old-cache"
+                        "command": "$HOME/.local/bin/ai-tools/compress-old-cache"
                     }
                 ]
             }

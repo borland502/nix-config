@@ -30,7 +30,7 @@ repository.
 │   ├── dot_Documents/
 │   │   ├── PowerShell/                     # PowerShell 7 profile (Windows, create-only)
 │   │   └── WindowsPowerShell/              # PowerShell 5.1 redirector (Windows, create-only)
-│   ├── dot_local/bin/                      # User scripts deployed to ~/.local/bin
+│   ├── dot_local/bin/                      # Manual user scripts → ~/.local/bin (ai-tools/ = hook/MCP scripts, not on PATH)
 │   └── run_onchange_deploy-vscode-instructions.ps1.tmpl  # Windows APPDATA sync
 ├── hosts/                                  # System-level host definitions
 │   ├── darwin/default.nix                  # nix-darwin system configuration
@@ -273,7 +273,8 @@ The pre-commit hook and CI catch drift automatically via `task check:agent-instr
 
 Agent sessions are logged to `~/.cache/<agent>/` (with `~/.cache/claude` symlinked
 to `~/.cache/copilot` so both share one dir) by hooks deployed from
-`chezmoi/dot_local/bin/`:
+`chezmoi/dot_local/bin/ai-tools/` (automation scripts not meant for manual use;
+deployed to `~/.local/bin/ai-tools/`, which is intentionally not on `$PATH`):
 
 | Script | Hook | Captures → file |
 |---|---|---|

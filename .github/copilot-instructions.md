@@ -117,6 +117,13 @@ Source files live in `chezmoi/dot_local/bin/` (and `chezmoi/dot_local/lib/`)
 within the nix-config repo. Prefer these over ad-hoc shell one-liners when
 they fit the task.
 
+Automation scripts **not** intended for manual invocation (the hook loggers
+`log-bash.sh` / `log-thinking.sh`, `compress-old-cache`, `claude-cache-stats`,
+and the `aws-mcp-server` MCP wrapper) live one level down in
+`~/.local/bin/ai-tools/` (source: `chezmoi/dot_local/bin/ai-tools/`). That
+subdirectory is deliberately **not** on `$PATH` — these are invoked by agent
+hooks / MCP clients via absolute path, not by name.
+
 - **`kac`** — Kion AWS credential cache proxy. Must be **sourced** (not
   executed). Backed by `~/.local/lib/kion-aws-cache`. Commands:
   - `source ~/.local/bin/kac ensure` — **(preferred)** load valid creds into
