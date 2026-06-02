@@ -374,6 +374,7 @@ tasks:
       deadnix .
       task check:copilot-instructions
       task check:agent-instructions
+      task check:instruction-size
 
   lint:md:
     desc: Lint markdown files (skips ai-tools/ and chezmoi-generated agent instructions)
@@ -412,6 +413,30 @@ tasks:
   check:copilot-instructions:
     desc: Verify duplicated Copilot instruction files stay in sync
     cmd: bash ./scripts/check-copilot-instructions-sync.sh
+
+  check:instruction-size:
+    desc: Guard the per-turn agent instruction source against token bloat
+    platforms: [linux, darwin]
+    cmd: |
+      src="chezmoi/dot_config/instructions/agent-defaults.md"
+      max_lines=280
+      max_bytes=16000
+      lines=$(wc -l <"$src" | tr -d ' ')
+      bytes=$(wc -c <"$src" | tr -d ' ')
+      fail=0
+      if [ "$lines" -gt "$max_lines" ]; then
+        printf 'agent-defaults.md: %s lines exceeds budget %s\n' "$lines" "$max_lines" >&2
+        fail=1
+      fi
+      if [ "$bytes" -gt "$max_bytes" ]; then
+        printf 'agent-defaults.md: %s bytes exceeds budget %s\n' "$bytes" "$max_bytes" >&2
+        fail=1
+      fi
+      if [ "$fail" -ne 0 ]; then
+        printf '%s\n' "This file is rendered into every agent session's system prompt (the cached prefix); growth raises the per-turn token cost on every Claude AND Copilot session. Trim it, or raise the budget deliberately in taskfile.yaml." >&2
+        exit 1
+      fi
+      printf 'instruction size OK: %s lines / %s bytes (budget %s / %s)\n' "$lines" "$bytes" "$max_lines" "$max_bytes"
 
   generate:agent-instructions:
     desc: Render agent-defaults.md into chezmoi-managed files for Windows deployment

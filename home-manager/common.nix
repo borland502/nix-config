@@ -266,6 +266,18 @@ in {
         ];
       };
 
+      # Copilot CLI MCP servers, managed declaratively so the set stays lean.
+      # Every enabled MCP server injects its tool definitions into context on
+      # each agent step — input tokens on every turn under Copilot's
+      # usage-based billing. Empty is the leanest default; add a server here
+      # only when it's actually needed (e.g. an `aws-api` entry mirroring
+      # chezmoi/dot_claude/settings.json, pointing at
+      # ~/.local/bin/ai-tools/aws-mcp-server) rather than accumulating
+      # always-on servers via interactive `/mcp add`.
+      "copilot/mcp-config.json".text = builtins.toJSON {
+        mcpServers = {};
+      };
+
       # Single source of truth for custom agent/skill definitions is the
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
       # Deploy those definitions into both Claude's and Copilot's XDG config
