@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Compress cache files older than 15 days with zstd.
+# Invoked by agent hooks; supports both Claude and Copilot caches.
+# Files already ending in .zst are skipped; originals are removed on success.
+set -euo pipefail
+
+# Resolve agent/cache target.
+# Priority: explicit CACHE_DIR > AGENT_NAME cache > claude default.
+agent_raw="${AGENT_NAME:-claude}"
+agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
+[[ -n "$agent" ]] || agent="claude"
+cache_dir="${CACHE_DIR:-${HOME}/.cache/${agent}}"
+
+[ -d "$cache_dir" ] || exit 0
+command -v zstd >/dev/null 2>&1 || exit 0
+command -v fd >/dev/null 2>&1 || exit 0
+
+# Throttle repeated invocations from per-tool hooks.
+# Default: run at most once every 30 minutes per agent cache.
+min_interval_sec="${COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC:-1800}"
+[[ "$min_interval_sec" =~ ^[0-9]+$ ]] || min_interval_sec=1800
+stamp_file="$cache_dir/.compress-old-cache.last_run"
+now_epoch=$(date +%s)
+if [[ -f "$stamp_file" ]]; then
+	last_epoch=$(tr -d '[:space:]' <"$stamp_file" 2>/dev/null || echo 0)
+	[[ "$last_epoch" =~ ^[0-9]+$ ]] || last_epoch=0
+	if ((now_epoch - last_epoch < min_interval_sec)); then
+		exit 0
+	fi
+fi
+
+fd --max-depth 1 --type f --changed-before 15days --exclude '*.zst' . "$cache_dir" --print0 |
+	xargs -0 -r zstd -q --rm --
+
+printf '%s\n' "$now_epoch" >"$stamp_file"

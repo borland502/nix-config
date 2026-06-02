@@ -1,0 +1,11 @@
+# Targets to remove from the destination on every `chezmoi apply`.
+#
+# These automation scripts moved from ~/.local/bin/ to ~/.local/bin/ai-tools/.
+# chezmoi no longer manages the old flat paths, so it leaves them orphaned on
+# disk; list them here so the pre-move copies are removed on hosts that already
+# deployed them. Idempotent — removing an absent path is a no-op.
+.local/bin/log-bash.sh
+.local/bin/log-thinking.sh
+.local/bin/compress-old-cache
+.local/bin/claude-cache-stats
+.local/bin/aws-mcp-server
