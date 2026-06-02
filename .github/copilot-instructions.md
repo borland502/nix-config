@@ -17,8 +17,9 @@
 - When investigating tool or command failures, inspect relevant logs under
   ~/.cache/copilot first; use prior successful executions there as concrete
   examples before retrying or changing approach. Cache files are archived as
-  `.zst` (Zstandard) by a Stop hook when older than 30 days or larger than 10
-  MB. Search uncompressed files first. If no useful example is found, locate the
+  `.zst` (Zstandard) when older than 15 days — Claude via a Stop hook, Copilot
+  via a postToolUse hook (throttled to once every 30 min per cache). Search
+  uncompressed files first. If no useful example is found, locate the
   relevant `.zst` archives and decompress on the fly with `zstdcat <file>` via
   Bash before reading. Do not decompress speculatively; only decompress when
   uncompressed logs contain no useful example.
@@ -137,7 +138,10 @@ they fit the task.
   `~/.config/ops-agent/jira-token` and email from
   `~/.config/ops-agent/jira-email` (falls back to `git config user.email`).
 - **`compress-old-cache`** — Compress `~/.cache/copilot/` files older than
-  30 days with zstd. Invoked automatically by the copilot Stop hook.
+  15 days with zstd. Agent-aware via `AGENT_NAME` (or explicit `CACHE_DIR`),
+  and self-throttling (`COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC`, default 1800s) so
+  per-tool hooks don't run it on every call. Invoked automatically by the
+  Claude Stop hook and the Copilot postToolUse hook.
 - **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
   Safari (darwin only).
 - **`sync-to-gdrive`** — Sync `~/.config`, `~/.local`, and `~/.cache/copilot`

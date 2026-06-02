@@ -244,8 +244,8 @@ in {
       # (chezmoi/dot_local/bin/executable_log-bash.sh); only the Copilot hook
       # manifest is generated here. The Claude hook is injected into
       # settings.json by the ensureClaudeHook activation below.
-      # Wires both Copilot logging hooks. log-bash.sh logs the command+output;
-      # log-thinking.sh flushes new reasoning (data.reasoningText) from the
+      # Wires Copilot cache/logging hooks. log-bash.sh logs command+output;
+      # log-thinking.sh flushes reasoning (data.reasoningText) from the
       # session events.jsonl. postToolUse is the trigger for both — reasoning is
       # written to events.jsonl before a tool completes, so per-tool-call capture
       # catches it. (A turn with reasoning but no tool call is captured on the
@@ -255,13 +255,18 @@ in {
         hooks.postToolUse = [
           {
             type = "command";
-            bash = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/log-bash.sh"'';
+            command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/log-bash.sh"'';
             timeoutSec = 10;
           }
           {
             type = "command";
-            bash = ''AGENT_NAME=copilot bash "$HOME/.local/bin/log-thinking.sh"'';
+            command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/log-thinking.sh"'';
             timeoutSec = 30;
+          }
+          {
+            type = "command";
+            command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/compress-old-cache"'';
+            timeoutSec = 20;
           }
         ];
       };
