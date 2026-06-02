@@ -437,6 +437,11 @@ tasks:
       cp chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md \
          chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md
 
+      # Repo-root Copilot mirror (no frontmatter); kept in sync by
+      # check:copilot-instructions via scripts/check-copilot-instructions-sync.sh.
+      mkdir -p .github
+      sed 's|@@AGENT@@|copilot|g' "$src" > .github/copilot-instructions.md
+
   check:agent-instructions:
     desc: Verify chezmoi agent instruction files match the rendered source
     platforms: [linux, darwin]
