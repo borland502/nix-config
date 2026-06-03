@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # mdp-local — preflight-checked launcher for the mdp-application local stack.
 #
-# Wraps `./run local` with the environment setup and prevention checks that
-# the in-repo CLI assumes are already in place. Each misstep below has bitten a
-# cold start of the stack:
+# Wraps `./run local --overmind` with the environment setup and prevention
+# checks the in-repo CLI assumes are already in place, then attaches to the
+# running overmind session. Each misstep below has bitten a cold start:
 #   - direnv not loaded  -> nvm/sdk/DOCKER_HOST/PROJECT unset, build uses wrong
 #                           node/java, docker talks to the wrong socket
 #   - Colima not started -> DOCKER_HOST points at a dead socket; the CLI's
@@ -11,12 +11,23 @@
 #   - stale Kion creds    -> checkIfAuthenticated() / aws calls ExpiredToken
 #   - missing bun         -> CLI build (`bun build:cli`) fails
 #
-# Resolves node/java/DOCKER_HOST/PROJECT from the project's own .envrc via
-# direnv (single source of truth) rather than duplicating them here, then
-# verifies the results and hands off to `./run local "$@"` (passes through
-# flags like --clean / --overmind).
+# Overmind model (see bin/cli/src/commands/local/services/overmind.ts):
+#   `./run local --overmind` runs the processes in a tmux session ('mdp-dev'),
+#   creates ./.overmind.sock, and blocks while that socket exists — running
+#   cleanup() (docker-compose down + overmind stop) when it exits. Because its
+#   lifetime IS the stack's, we run overmind as a daemon (OVERMIND_DAEMONIZE=1)
+#   AND daemonize the wrapper (own process group + nohup + disown + detached
+#   stdio) so the stack survives both our `overmind connect` detach and this
+#   launcher exiting, then wait for the socket and attach. Detaching (Ctrl-b d)
+#   leaves the stack running; `overmind quit` from $MDP_DIR is what removes the
+#   socket, ends the wrapper's loop, and tears it all down.
 #
-# Override the repo location with MDP_DIR; defaults to the standard checkout.
+# Resolves node/java/DOCKER_HOST/PROJECT from the project's own .envrc via
+# direnv (single source of truth) rather than duplicating them here.
+#
+# Usage:  mdp-local [./run local flags]   # e.g. --clean
+#         mdp-local --no-overmind         # legacy: hand off to ./run local, no attach
+# Env:    MDP_DIR (repo path), MDP_LOCAL_TIMEOUT (socket wait secs, default 600)
 set -euo pipefail
 
 MDP_DIR="${MDP_DIR:-$HOME/Development/cmcs/mdp-application}"
@@ -35,12 +46,81 @@ die() {
 	exit 1
 }
 
+# ---- arg parsing: default to overmind, honor an explicit --no-overmind ------
+use_overmind=1
+clean=0
+declare -a run_args=()
+for a in "$@"; do
+	case "$a" in
+	--no-overmind) use_overmind=0 ;; # opt out; drop the flag
+	--overmind) ;;                   # dedupe; we re-add it on launch
+	--clean) clean=1 run_args+=("$a") ;;
+	*) run_args+=("$a") ;;
+	esac
+done
+
 # ---- 0. repo -----------------------------------------------------------------
 step "Repository"
 [[ -d "$MDP_DIR" ]] || die "MDP_DIR not found: $MDP_DIR (set MDP_DIR=/path/to/mdp-application)"
 cd "$MDP_DIR"
 [[ -x ./run ]] || die "no ./run launcher in $MDP_DIR — wrong directory?"
 ok "$MDP_DIR"
+
+# overmind connect/status default to ./.overmind.sock in cwd (== MDP_DIR).
+sock="$MDP_DIR/.overmind.sock"
+overmind_live() { command -v overmind >/dev/null 2>&1 && overmind status >/dev/null 2>&1; }
+# Count processes overmind reports as running. With OVERMIND_ANY_CAN_DIE the
+# daemon stays up even when every process has died, so "the socket answers" is
+# NOT the same as "the stack is serving" — a dead stack leaves a zombie daemon.
+overmind_running() { overmind status 2>/dev/null | awk 'NR>1 && $NF=="running"{c++} END{print c+0}'; }
+have_tty() { [[ -t 0 && -t 1 ]]; } # `overmind connect` is a tmux attach — needs a TTY
+# overmind connect IS a tmux attach; unset $TMUX so it works when mdp-local is
+# run from inside an existing tmux session (otherwise: "sessions should be
+# nested with care… exit status 1").
+ov_connect() { env -u TMUX overmind connect; }
+
+# Overmind starts a tmux server per run but leaves its socket file behind on
+# exit, so they pile up in the tmux tmpdir. Reap the orphaned (server-dead)
+# ones each launch so we clean up after ourselves; live sessions are left be.
+prune_dead_overmind_sockets() {
+	local dir s n=0
+	dir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
+	[[ -d "$dir" ]] || return 0
+	for s in "$dir"/overmind-*; do
+		[[ -S "$s" ]] || continue
+		tmux -S "$s" list-sessions >/dev/null 2>&1 || { rm -f "$s" && n=$((n + 1)); }
+	done
+	((n > 0)) && ok "pruned $n dead overmind tmux socket(s)"
+	return 0
+}
+[[ "$use_overmind" == 1 ]] && command -v tmux >/dev/null 2>&1 && prune_dead_overmind_sockets
+
+# ---- fast path / zombie reap: an overmind daemon is already present ----------
+# A --clean request always forces a fresh launch instead.
+if [[ "$use_overmind" == 1 && "$clean" == 0 ]] && [[ -S "$sock" ]] && overmind_live; then
+	if [[ "$(overmind_running)" -gt 0 ]]; then
+		# Healthy: processes are actually running — just attach.
+		if ! have_tty; then
+			ok "overmind already running — but no TTY to attach; status:"
+			overmind status || true
+			exit 0
+		fi
+		ok "overmind already running — attaching to the live socket"
+		step "Connecting (detach: Ctrl-b d — stack keeps running)"
+		ov_connect || true
+		step "Detached — the stack is still running"
+		ok "re-attach:  mdp-local"
+		ok "status:     mdp-status"
+		ok "stop all:   (cd $MDP_DIR && overmind quit)"
+		exit 0
+	fi
+	# Zombie: daemon answers but every process is dead (an OVERMIND_ANY_CAN_DIE
+	# side-effect). Don't attach to a corpse — quit it and launch fresh.
+	warn "overmind daemon present but all processes are dead — clearing it and rebuilding"
+	overmind quit >/dev/null 2>&1 || true
+	sleep 1
+	rm -f "$sock" 2>/dev/null || true
+fi
 
 # ---- 1. project env via direnv (.envrc: nvm use, sdk env, DOCKER_HOST, …) ---
 step "Project environment (.envrc)"
@@ -121,6 +201,110 @@ else
      (kac is zsh-only and must be sourced, so this bash launcher can't refresh for you.)"
 fi
 
-# ---- launch ------------------------------------------------------------------
-step "Launching: ./run local $*"
-exec ./run local "$@"
+# ---- legacy hand-off: caller opted out of overmind ---------------------------
+if [[ "$use_overmind" == 0 ]]; then
+	step "Launching: ./run local ${run_args[*]} (overmind disabled)"
+	exec ./run local "${run_args[@]}"
+fi
+
+# ---- launch (overmind) + attach ----------------------------------------------
+step "Launching: ./run local --overmind ${run_args[*]}"
+command -v overmind >/dev/null 2>&1 || die "overmind not found — required for the default launch mode (install it, or use: mdp-local --no-overmind)"
+
+# Without a TTY (CI, piped, detached) we can't drive the interactive
+# `overmind connect`, so just run the overmind-managed stack in the foreground.
+# It blocks while ./.overmind.sock exists, managing the processes and cleaning
+# up on SIGINT/SIGTERM — exactly what a non-interactive caller wants.
+if ! have_tty; then
+	warn "no TTY — running ./run local --overmind in the foreground (no interactive attach)"
+	exec ./run local --overmind "${run_args[@]}"
+fi
+# Keeping the stack up — through both our `overmind connect` detach AND this
+# launcher exiting — took three independent fixes, each hit the hard way and
+# each verified in isolation:
+#
+# 1. Daemonize overmind itself (OVERMIND_DAEMONIZE=1, read from env by the
+#    wrapper's `overmind start`). Otherwise the team wrapper runs a
+#    non-daemonized `overmind start` with stdio redirected to a file, so
+#    detaching an `overmind connect` client can take the master down → socket
+#    removed → cleanup (symptom: "dies on detach"). A real daemon is safe to
+#    connect/detach and is quit with `overmind quit`.
+#
+# 2. Stop the death-cascade (OVERMIND_ANY_CAN_DIE=1, also env-read). Overmind
+#    otherwise kills EVERY process the moment one exits; the flaky SAM
+#    emulators abort when a tmux client attaches/detaches (symptom: "abort"
+#    then the whole stack drops). This lets one process die without the rest.
+#
+# 3. Daemonize the `./run local --overmind` wrapper (below). Its lifetime IS
+#    the stack's — on exit/signal it runs cleanup() (docker-compose down +
+#    overmind stop). As an ordinary background child it dies when this script
+#    exits (symptom: "Stopping all services…" right after "Detached"), so we
+#    fully detach it: set -m (own process group, away from terminal Ctrl-C),
+#    nohup (ignore SIGHUP), </dev/null + redirect (no tty), disown (job table).
+#
+# `overmind quit` then removes the socket → ends the wrapper's blocking loop →
+# triggers the docker-compose teardown.
+export OVERMIND_DAEMONIZE=1 OVERMIND_ANY_CAN_DIE=1
+# Keep our scratch (wrapper log, generated tmux config) out of the team repo.
+wrap_dir="${XDG_CACHE_HOME:-$HOME/.cache}/mdp-local"
+mkdir -p "$wrap_dir" 2>/dev/null || wrap_dir="${TMPDIR:-/tmp}"
+wrap_log="$wrap_dir/wrapper.log"
+: >"$wrap_log" 2>/dev/null || wrap_log="${TMPDIR:-/tmp}/mdp-local-wrapper.$$.log"
+# Custom tmux config for the connect UI: Ctrl-b prefix + mouse on, reproducing
+# overmind's dark status bar (chezmoi: dot_config/overmind/tmux.conf). Only
+# applied if deployed; otherwise overmind's default (Ctrl-a) stands. When we're
+# launched from INSIDE a tmux session (nesting), Ctrl-b would collide with the
+# outer tmux, so append a Ctrl-a override for the inner overmind session.
+ov_tmux_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/overmind/tmux.conf"
+if [[ -r "$ov_tmux_cfg" ]]; then
+	if [[ -n "${TMUX:-}" ]]; then
+		ov_nested="$wrap_dir/tmux-nested.conf"
+		if {
+			cat "$ov_tmux_cfg"
+			printf '\n# nested under an outer tmux: use Ctrl-a inside to avoid a prefix clash\nset -g prefix C-a\nbind C-a send-prefix\nunbind C-b\n'
+		} >"$ov_nested" 2>/dev/null; then
+			ov_tmux_cfg="$ov_nested"
+		fi
+	fi
+	export OVERMIND_TMUX_CONFIG="$ov_tmux_cfg"
+fi
+set -m
+nohup ./run local --overmind "${run_args[@]}" >"$wrap_log" 2>&1 </dev/null &
+wrap_pid=$!
+set +m
+disown "$wrap_pid" 2>/dev/null || true
+ok "stack wrapper daemonized (pid $wrap_pid)"
+
+# Stream the wrapper's build output (bun install, buildx bake, …) to this
+# terminal while we wait for the socket, then stop tailing and attach.
+tail -n +1 -f "$wrap_log" 2>/dev/null &
+tail_pid=$!
+stop_tail() {
+	kill "$tail_pid" 2>/dev/null || true
+	wait "$tail_pid" 2>/dev/null || true
+}
+
+timeout="${MDP_LOCAL_TIMEOUT:-600}"
+elapsed=0
+until overmind_live; do
+	if ! kill -0 "$wrap_pid" 2>/dev/null; then
+		stop_tail
+		die "stack wrapper exited before overmind came up — see $wrap_log and $MDP_DIR/overmind.log"
+	fi
+	if ((elapsed >= timeout)); then
+		stop_tail
+		die "timed out after ${timeout}s waiting for $sock (wrapper still running, pid $wrap_pid). Check $wrap_log"
+	fi
+	sleep 2
+	elapsed=$((elapsed + 2))
+done
+stop_tail
+ok "overmind socket live ($sock)"
+
+step "Connecting to overmind (detach: Ctrl-b d — stack keeps running)"
+ov_connect || true
+
+step "Detached — the stack is still running (wrapper pid $wrap_pid)"
+ok "re-attach:  mdp-local"
+ok "status:     mdp-status"
+ok "stop all:   (cd $MDP_DIR && overmind stop)"
