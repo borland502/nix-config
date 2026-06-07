@@ -800,6 +800,8 @@ in {
         };
         merge.conflictStyle = "zdiff3";
         diff.colorMoved = "default";
+        credential."https://github.com".helper = "!/usr/bin/env gh auth git-credential";
+        credential."https://gist.github.com".helper = "!/usr/bin/env gh auth git-credential";
       };
     };
 
