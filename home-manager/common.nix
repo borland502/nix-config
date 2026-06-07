@@ -41,28 +41,6 @@
     dontCheckRuntimeDeps = true;
     pythonRelaxDeps = (old.pythonRelaxDeps or []) ++ ["click"];
   });
-  python3Patched =
-    pkgs.python3
-    // {
-      override = args:
-        pkgs.python3.override (args
-          // {
-            packageOverrides =
-              lib.composeExtensions
-              (args.packageOverrides or (_: _: {}))
-              (_: prev: {
-                imageio-ffmpeg = prev.imageio-ffmpeg.overridePythonAttrs (_: {
-                  doCheck = false;
-                });
-                imageio = prev.imageio.overridePythonAttrs (_: {
-                  doCheck = false;
-                });
-              });
-          });
-    };
-  checkovPatched = pkgs.callPackage (pkgs.path + "/pkgs/by-name/ch/checkov/package.nix") {
-    python3 = python3Patched;
-  };
   direnvPatched =
     if pkgs.stdenv.isDarwin
     then
@@ -71,6 +49,11 @@
         doCheck = false;
       })
     else pkgs.direnv;
+  # pipx 1.8.0 has test failures in nixos-26.05 due to PEP 508 spacing
+  # differences in the packaging library — skip tests, the package itself works.
+  pipxPatched = pkgs.pipx.overridePythonAttrs (_old: {
+    doCheck = false;
+  });
   commonPackages = with pkgs; [
     # Version control
     git
@@ -97,7 +80,7 @@
 
     # Python
     python3
-    pipx
+    pipxPatched
     uv
 
     # JavaScript
@@ -107,10 +90,10 @@
     awscli2
     awslogs
     awsSamCliPatched
-    checkovPatched
+    checkov
 
     # Containers & process management
-    docker
+    docker_29
     docker-buildx
     docker-compose
     overmind
@@ -589,13 +572,27 @@ in {
           fi
         fi
       '';
+
+      setDefaultShell = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        _zsh="${homeDirectory}/.nix-profile/bin/zsh"
+        _username="${config.home.username}"
+        if [ -x "$_zsh" ]; then
+          if ! ${pkgs.gnugrep}/bin/grep -qxF "$_zsh" /etc/shells 2>/dev/null; then
+            ${pkgs.coreutils}/bin/printf '%s\n' "$_zsh" | sudo -n tee -a /etc/shells >/dev/null 2>&1 || true
+          fi
+          # -n: non-interactive; silently skipped if sudo requires a password.
+          # The taskfile's home-switch/upgrade tasks run the same command
+          # interactively as a fallback.
+          sudo -n /usr/sbin/usermod -s "$_zsh" "$_username" 2>/dev/null || true
+        fi
+      '';
     };
 
     # Common packages shared across Linux, WSL, and macOS.
     packages = lib.filter availableOnHost commonPackages;
 
     # Common home-manager settings
-    stateVersion = "25.05";
+    stateVersion = "26.05";
 
     # Make Copilot defaults visible to desktop, remote, and shared IDE sessions.
     # Source paths come from copilotInstructionPaths in the let-block above so
@@ -825,6 +822,7 @@ in {
     # Direnv for automatic environment loading
     direnv = {
       enable = true;
+      enableBashIntegration = true;
       enableZshIntegration = true;
       package = direnvPatched;
     };

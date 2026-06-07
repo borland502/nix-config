@@ -1,20 +1,29 @@
 {
   description = "NixOS configuration";
 
+  nixConfig = {
+    extra-substituters = [
+      "https://nix-community.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCUSeBs="
+    ];
+  };
+
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
     nixos-wsl = {
       url = "github:nix-community/NixOS-WSL/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # nix-darwin for macOS system management
     nix-darwin = {
-      url = "github:LnL7/nix-darwin/nix-darwin-25.11";
+      url = "github:LnL7/nix-darwin/nix-darwin-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # home-manager, used for managing user configuration
     home-manager = {
-      url = "github:nix-community/home-manager/release-25.11";
+      url = "github:nix-community/home-manager/release-26.05";
       # The `follows` keyword in inputs is used for inheritance.
       # Here, `inputs.nixpkgs` of home-manager is kept consistent with
       # the `inputs.nixpkgs` of the current flake,
@@ -27,7 +36,7 @@
       inputs.home-manager.follows = "home-manager";
     };
     stylix = {
-      url = "github:danth/stylix/release-25.11";
+      url = "github:danth/stylix/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     sops-nix = {
@@ -54,31 +63,31 @@
         libGL
         libxkbcommon
         wayland
-        xorg.libX11
-        xorg.libXcursor
-        xorg.libXext
-        xorg.libXrender
-        xorg.libXfixes
-        xorg.libXi
-        xorg.libXinerama
-        xorg.libXrandr
-        xorg.libXxf86vm
+        libx11
+        libxcursor
+        libxext
+        libxrender
+        libxfixes
+        libxi
+        libxinerama
+        libxrandr
+        libxxf86vm
       ];
     goGuiDevPackagesFor = pkgs:
       with pkgs; [
         libGL.dev
         libxkbcommon.dev
         wayland.dev
-        xorg.xorgproto
-        xorg.libX11.dev
-        xorg.libXcursor.dev
-        xorg.libXext.dev
-        xorg.libXrender.dev
-        xorg.libXfixes.dev
-        xorg.libXi.dev
-        xorg.libXinerama.dev
-        xorg.libXrandr.dev
-        xorg.libXxf86vm.dev
+        xorgproto
+        libx11.dev
+        libxcursor.dev
+        libxext.dev
+        libxrender.dev
+        libxfixes.dev
+        libxi.dev
+        libxinerama.dev
+        libxrandr.dev
+        libxxf86vm.dev
       ];
     goGuiPkgConfigPathFor = pkgs: let
       goGuiDevPackages = goGuiDevPackagesFor pkgs;

@@ -33,30 +33,30 @@
     libGL
     libxkbcommon
     wayland
-    xorg.libX11
-    xorg.libXcursor
-    xorg.libXext
-    xorg.libXrender
-    xorg.libXfixes
-    xorg.libXi
-    xorg.libXinerama
-    xorg.libXrandr
-    xorg.libXxf86vm
+    libx11
+    libxcursor
+    libxext
+    libxrender
+    libxfixes
+    libxi
+    libxinerama
+    libxrandr
+    libxxf86vm
   ];
   guiDevPackages = with pkgs; [
     libGL.dev
     libxkbcommon.dev
     wayland.dev
-    xorg.xorgproto
-    xorg.libX11.dev
-    xorg.libXcursor.dev
-    xorg.libXext.dev
-    xorg.libXrender.dev
-    xorg.libXfixes.dev
-    xorg.libXi.dev
-    xorg.libXinerama.dev
-    xorg.libXrandr.dev
-    xorg.libXxf86vm.dev
+    xorgproto
+    libx11.dev
+    libxcursor.dev
+    libxext.dev
+    libxrender.dev
+    libxfixes.dev
+    libxi.dev
+    libxinerama.dev
+    libxrandr.dev
+    libxxf86vm.dev
   ];
   guiPkgConfigPath =
     (lib.makeSearchPath "lib/pkgconfig" guiDevPackages)
