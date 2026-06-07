@@ -75,6 +75,8 @@ for _pkg in "${_conflicting_packages[@]}"; do
 done
 
 echo "==> Applying configuration via go-task..."
+echo "    (sops secrets are skipped on first switch — they are unlocked after"
+echo "     the age key is provisioned in step 7 and re-applied in step 8)"
 cd "$SCRIPT_DIR"
 
 nix shell nixpkgs#go-task nixpkgs#chezmoi --command bash -euo pipefail -c '

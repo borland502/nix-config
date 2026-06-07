@@ -1,14 +1,22 @@
 # Home-manager sops-nix configuration
 # Decrypts user-level secrets at home-manager activation time using an age key.
 # Generate a key with: age-keygen -o ~/.config/sops/age/keys.txt
+#
+# The entire sops block is guarded by builtins.pathExists so that an initial
+# install (where the age key has not yet been provisioned) can complete
+# home-manager switch without errors.  After provision-secrets.sh writes the
+# key, the next switch will find the key present and decrypt all secrets.
 {
   config,
   pkgs,
   lib,
   ...
-}: {
-  sops = {
-    age.keyFile = "${config.home.homeDirectory}/.config/sops/age/keys.txt";
+}: let
+  ageKeyFile = "${config.home.homeDirectory}/.config/sops/age/keys.txt";
+  ageKeyPresent = builtins.pathExists ageKeyFile;
+in {
+  sops = lib.mkIf ageKeyPresent {
+    age.keyFile = ageKeyFile;
     defaultSopsFormat = "yaml";
 
     secrets = {
