@@ -71,6 +71,7 @@
     };
     "https://*.gov/*" = true;
   };
+  "claudeCode.useTerminal" = true;
   "cSpell.enabled" = false;
   "git.blame.editorDecoration.enabled" = true;
   "git.autofetch" = true;
