@@ -6,6 +6,12 @@ vars:
   IS_LINUX: '{{eq OS "linux"}}'
   IS_DARWIN: '{{eq OS "darwin"}}'
 
+  # Resolve chezmoi from PATH or fall back to a temporary nix shell. This
+  # covers the bootstrap window where home-manager has not yet activated the
+  # nix profile (and therefore chezmoi is not yet on PATH).
+  CHEZMOI:
+    sh: command -v chezmoi 2>/dev/null || printf 'nix shell nixpkgs#chezmoi --command chezmoi'
+
   # Auto-detect host based on hostname or allow override.
   # The generic names in this repo are placeholder install targets for new systems.
   DETECTED_HOST:
@@ -123,37 +129,37 @@ tasks:
         platforms: [linux, darwin]
       - |
         _src=$(printf '%s/chezmoi' "$PWD" | tr '\\' '/')
-        chezmoi init --source "$_src"
+        {{.CHEZMOI}} init --source "$_src"
 
   chezmoi-apply:
     desc: Apply chezmoi dotfiles to the home directory
-    cmd: chezmoi apply
+    cmd: '{{.CHEZMOI}} apply'
 
   _chezmoi-ensure:
     internal: true
     desc: Initialize chezmoi if needed, then apply
     cmd: |
       _src=$(printf '%s/chezmoi' "$PWD" | tr '\\' '/')
-      chezmoi init --source "$_src"
-      chezmoi apply --force
+      {{.CHEZMOI}} init --source "$_src"
+      {{.CHEZMOI}} apply --force
 
   chezmoi-diff:
     desc: Show pending chezmoi changes without applying them
-    cmd: chezmoi diff
+    cmd: '{{.CHEZMOI}} diff'
 
   chezmoi-status:
     desc: Show chezmoi managed file status
-    cmd: chezmoi status
+    cmd: '{{.CHEZMOI}} status'
 
   chezmoi-add:
     desc: Add a file to the chezmoi source (FILE=<path>)
-    cmd: chezmoi add "{{.FILE}}"
+    cmd: '{{.CHEZMOI}} add "{{.FILE}}"'
     requires:
       vars: [FILE]
 
   chezmoi-edit:
     desc: Edit a chezmoi-managed file (FILE=<path>)
-    cmd: chezmoi edit "{{.FILE}}"
+    cmd: '{{.CHEZMOI}} edit "{{.FILE}}"'
     requires:
       vars: [FILE]
 
@@ -277,6 +283,11 @@ tasks:
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
+        _zsh="$HOME/.nix-profile/bin/zsh"
+        if [ -x "$_zsh" ] && [ "$(grep -m1 "^$USER:" /etc/passwd | cut -d: -f7)" != "$_zsh" ]; then
+          grep -qxF "$_zsh" /etc/shells 2>/dev/null || printf '%s\n' "$_zsh" | sudo tee -a /etc/shells >/dev/null
+          sudo usermod -s "$_zsh" "$USER" || chsh -s "$_zsh" || printf 'Note: run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
+        fi
       {{end}}
 
   # Maintenance
@@ -571,4 +582,9 @@ tasks:
         {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
+        _zsh="$HOME/.nix-profile/bin/zsh"
+        if [ -x "$_zsh" ] && [ "$(grep -m1 "^$USER:" /etc/passwd | cut -d: -f7)" != "$_zsh" ]; then
+          grep -qxF "$_zsh" /etc/shells 2>/dev/null || printf '%s\n' "$_zsh" | sudo tee -a /etc/shells >/dev/null
+          sudo usermod -s "$_zsh" "$USER" || chsh -s "$_zsh" || printf 'Note: run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
+        fi
       {{end}}

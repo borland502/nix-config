@@ -11,10 +11,22 @@ exit 0
 
 set -euo pipefail
 
-command -v go >/dev/null 2>&1 || {
-  printf 'install-go-tools: go is required but not on PATH\n' >&2
-  exit 1
-}
+# Augment PATH with common go/nix locations in case the profile isn't sourced yet.
+for _gobin in \
+  "$HOME/.nix-profile/bin" \
+  "/nix/var/nix/profiles/default/bin" \
+  "/usr/local/go/bin" \
+  "$HOME/go/bin"; do
+  if [[ -x "$_gobin/go" ]]; then
+    export PATH="$_gobin:$PATH"
+    break
+  fi
+done
+
+if ! command -v go >/dev/null 2>&1; then
+  printf 'install-go-tools: go not on PATH — skipping (run chezmoi apply again after home-manager activates)\n' >&2
+  exit 0
+fi
 
 src_root="${HOME}/.local/src"
 bin_dir="${HOME}/.local/bin"

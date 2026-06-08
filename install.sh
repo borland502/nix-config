@@ -27,6 +27,31 @@ else
 	echo "==> Nix already installed ($(nix --version))"
 fi
 
+# ── 1b. Trust this user and wire the nix-community binary cache ───────────────
+# nixConfig in flake.nix sets extra-substituters only when the calling user is
+# trusted. For non-NixOS (Determinate Systems installer), write the settings
+# directly to /etc/nix/nix.conf so every subsequent nix invocation picks them up
+# without interactive prompts.
+# The Determinate Systems installer owns /etc/nix/nix.conf and will overwrite it
+# on upgrades. User settings go in nix.custom.conf (included via !include).
+_nix_custom_conf=/etc/nix/nix.custom.conf
+if [[ -d /etc/nix ]]; then
+	[[ -f "$_nix_custom_conf" ]] || sudo touch "$_nix_custom_conf"
+	if ! grep -qE '^\s*trusted-users\s*=' "$_nix_custom_conf"; then
+		echo "==> Adding $USER to nix trusted-users in $_nix_custom_conf..."
+		printf 'trusted-users = root %s\n' "$USER" | sudo tee -a "$_nix_custom_conf" >/dev/null
+	fi
+	if ! grep -q 'nix-community.cachix.org' "$_nix_custom_conf"; then
+		echo "==> Registering nix-community binary cache in $_nix_custom_conf..."
+		printf 'extra-trusted-substituters = https://nix-community.cachix.org\n' | sudo tee -a "$_nix_custom_conf" >/dev/null
+		printf 'extra-trusted-public-keys = nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCUSeBs=\n' | sudo tee -a "$_nix_custom_conf" >/dev/null
+	fi
+	# Restart the daemon so the new settings take effect before the build steps.
+	if command -v systemctl >/dev/null 2>&1; then
+		sudo systemctl restart nix-daemon.service 2>/dev/null || true
+	fi
+fi
+
 # ── 2. Bootstrap configuration via go-task ────────────────────────────────────
 # Remove any standalone profile entries that conflict with home-manager — home-manager
 # owns these packages and will fail activation if duplicates exist in the nix profile.
@@ -50,6 +75,8 @@ for _pkg in "${_conflicting_packages[@]}"; do
 done
 
 echo "==> Applying configuration via go-task..."
+echo "    (sops secrets are skipped on first switch — they are unlocked after"
+echo "     the age key is provisioned in step 7 and re-applied in step 8)"
 cd "$SCRIPT_DIR"
 
 nix shell nixpkgs#go-task nixpkgs#chezmoi --command bash -euo pipefail -c '
@@ -126,7 +153,7 @@ fi
 # the flake inputs to current and re-switches so the freshly-installed shell is
 # already on the latest before the user's first interactive session.
 echo "==> Upgrading flake inputs and re-switching (task upgrade)..."
-nix shell nixpkgs#go-task --command bash -c '
+nix shell nixpkgs#go-task nixpkgs#chezmoi --command bash -c '
   cd "'"$SCRIPT_DIR"'"
   task upgrade
 '
