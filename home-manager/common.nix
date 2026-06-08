@@ -272,6 +272,22 @@ in {
         ];
       };
 
+      # Wires the Copilot skill-invocation logger. log-skill.sh self-filters on
+      # toolName == "Skill" and appends a record to
+      # ~/.cache/copilot/session_<id>.skills.log. Mirrors the Claude PostToolUse
+      # "Skill" hook injected by ensureClaudeHook below, so automatic
+      # (model-initiated) and slash-command skill calls are tracked for both agents.
+      "copilot/hooks/log-skill.json".text = builtins.toJSON {
+        version = 1;
+        hooks.postToolUse = [
+          {
+            type = "command";
+            command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
+            timeoutSec = 10;
+          }
+        ];
+      };
+
       # Copilot CLI MCP servers, managed declaratively so the set stays lean.
       # Every enabled MCP server injects its tool definitions into context on
       # each agent step — input tokens on every turn under Copilot's
@@ -398,6 +414,17 @@ in {
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq \
             '.hooks.PostToolUse |= (. // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/ai-tools/log-bash.sh\"","async":true}]}]' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+        # PostToolUse "Skill": log skill invocations (model-initiated auto-calls
+        # and skill slash-commands) to ~/.cache/claude/session_<id>.skills.log via
+        # log-skill.sh. The Skill tool carries the skill name in tool_input.skill;
+        # built-in commands like /model never route through it. Idempotent guard
+        # mirrors the Bash hook above.
+        if ! jq -e '.hooks.PostToolUse[]? | select(.matcher == "Skill")' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq \
+            '.hooks.PostToolUse |= (. // []) + [{"matcher":"Skill","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/ai-tools/log-skill.sh\"","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
         # SessionEnd: append a one-line prompt-cache summary per session. Fires

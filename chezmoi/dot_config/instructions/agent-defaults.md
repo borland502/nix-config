@@ -118,8 +118,8 @@ within the nix-config repo. Prefer these over ad-hoc shell one-liners when
 they fit the task.
 
 Automation scripts **not** intended for manual invocation (the hook loggers
-`log-bash.sh` / `log-thinking.sh`, `compress-old-cache`, `claude-cache-stats`,
-and the `aws-mcp-server` MCP wrapper) live one level down in
+`log-bash.sh` / `log-skill.sh` / `log-thinking.sh`, `compress-old-cache`,
+`claude-cache-stats`, and the `aws-mcp-server` MCP wrapper) live one level down in
 `~/.local/bin/ai-tools/` (source: `chezmoi/dot_local/bin/ai-tools/`). That
 subdirectory is deliberately **not** on `$PATH` — these are invoked by agent
 hooks / MCP clients via absolute path, not by name.
@@ -172,6 +172,24 @@ hooks / MCP clients via absolute path, not by name.
   `interrupted`, else `stderr` when stderr is non-empty, else `ok`. When reading
   logs directly, grep `^##` for a command timeline and
   `status=stderr|interrupted` for likely failures.
+- **`log-skill.sh`** — Skill-invocation hook logger; **not run by hand**. Wired
+  for Claude via the `PostToolUse` `Skill` matcher in
+  `~/.config/claude/settings.json` (injected by the `ensureClaudeHook`
+  activation) and for Copilot via `~/.config/copilot/hooks/log-skill.json`. For
+  every `Skill` tool call — **model-initiated (automatic) invocations as well as
+  skill slash-commands** — it appends a record to
+  `~/.cache/@@AGENT@@/session_<id>.skills.log`:
+
+  ```text
+  ## [YYYY-MM-DD HH:MM:SS] skill=<name> cwd=<dir>
+  ARGS: <args>
+  RESULT:   (only when the tool response carries text; large output truncated)
+  ```
+
+  Built-in commands like `/model` or `/clear` do **not** route through the Skill
+  tool and are intentionally not captured. Grep `^## ` across
+  `session_*.skills.log` for a skill-usage timeline. Handles both Claude
+  (`tool_input.skill`) and Copilot (`toolName`) payload shapes.
 - **`log-thinking.sh`** — agent-reasoning logger; **not run by hand**. Wired as
   Claude `Stop`/`SubagentStop` hooks and a Copilot `postToolUse` hook. Appends
   new reasoning to `~/.cache/@@AGENT@@/session_<id>.thinking.log`, deduped by a
