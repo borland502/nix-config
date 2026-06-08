@@ -120,7 +120,8 @@ they fit the task.
 Automation scripts **not** intended for manual invocation (the hook loggers
 `log-bash.sh` / `log-skill.sh` / `log-thinking.sh`, `compress-old-cache`,
 `claude-cache-stats`, and the `aws-mcp-server` MCP wrapper) live one level down in
-`~/.local/bin/ai-tools/` (source: `chezmoi/dot_local/bin/ai-tools/`). That
+`~/.local/bin/ai-tools/` (source: `ai-tools/scripts/`, deployed by
+home-manager). That
 subdirectory is deliberately **not** on `$PATH` — these are invoked by agent
 hooks / MCP clients via absolute path, not by name.
 
@@ -210,7 +211,7 @@ hooks / MCP clients via absolute path, not by name.
   De-duplicates the `~/.cache/copilot` symlink. Prefer this over hand-rolled
   `rg` sweeps of the log dir.
 - **`ops-agent`** — Deployed via `home-manager/common.nix` as
-  `writeShellScriptBin` (source `home-manager/scripts/ops-agent.py`).
+  `writeShellScriptBin` (source `ai-tools/scripts/ops-agent.py`).
 
 ## Agent Instruction Sources
 

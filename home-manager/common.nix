@@ -189,8 +189,21 @@
     ++ map (p: "${homeDirectory}/${p}") (copilotInstructionPaths ++ copilotInstructionDirPaths);
   opsAgentPython = pkgs.python3.withPackages (ps: [ps.anthropic]);
   opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
-    exec ${opsAgentPython}/bin/python ${./scripts/ops-agent.py} "$@"
+    exec ${opsAgentPython}/bin/python ${../ai-tools/scripts/ops-agent.py} "$@"
   '';
+  # Automation scripts (hook loggers, cache compaction, MCP wrapper) deployed to
+  # ~/.local/bin/ai-tools/ from the top-level ai-tools/scripts/ source. Listed
+  # explicitly so ops-agent.py (consumed by the writeShellScriptBin above, not a
+  # standalone bin) is excluded. executable = true because the bit is forced here
+  # rather than relying on the repo file mode.
+  aiToolsScriptNames = [
+    "aws-mcp-server"
+    "claude-cache-stats"
+    "compress-old-cache"
+    "log-bash.sh"
+    "log-skill.sh"
+    "log-thinking.sh"
+  ];
 in {
   nixpkgs.config = {
     allowUnfree = true;
@@ -224,10 +237,10 @@ in {
         force = true;
       };
       # Automation scripts not meant for manual invocation live under
-      # ~/.local/bin/ai-tools/ (deployed by chezmoi from
-      # chezmoi/dot_local/bin/ai-tools/); only the Copilot hook manifest is
-      # generated here. The Claude hook is injected into settings.json by the
-      # ensureClaudeHook activation below.
+      # ~/.local/bin/ai-tools/ (deployed by home-manager from the top-level
+      # ai-tools/scripts/ source — see home.file below); only the Copilot hook
+      # manifest is generated here. The Claude hook is injected into
+      # settings.json by the ensureClaudeHook activation below.
       # Wires Copilot cache/logging hooks. log-bash.sh logs command+output;
       # log-thinking.sh flushes reasoning (data.reasoningText) from the
       # session events.jsonl. postToolUse is the trigger for both — reasoning is
@@ -673,7 +686,21 @@ in {
           source = claude;
           force = true;
         };
-      };
+      }
+      // (
+        # Deploy the ai-tools automation scripts to ~/.local/bin/ai-tools/ (the
+        # path the Claude/Copilot hooks and the compress-old-cache launchd timer
+        # invoke). Replaces the former chezmoi deployment now that the source
+        # lives in the top-level ai-tools/scripts/ directory.
+        builtins.listToAttrs (map (n: {
+            name = "${xdgBinHome}/ai-tools/${n}";
+            value = {
+              source = ../ai-tools/scripts + "/${n}";
+              executable = true;
+            };
+          })
+          aiToolsScriptNames)
+      );
   };
 
   # Common font configuration

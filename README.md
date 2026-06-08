@@ -285,8 +285,8 @@ restores it.
 
 Agent sessions are logged to `~/.cache/<agent>/` (with `~/.cache/claude` symlinked
 to `~/.cache/copilot` so both share one dir) by hooks deployed from
-`chezmoi/dot_local/bin/ai-tools/` (automation scripts not meant for manual use;
-deployed to `~/.local/bin/ai-tools/`, which is intentionally not on `$PATH`):
+`ai-tools/scripts/` (automation scripts not meant for manual use; deployed by
+home-manager to `~/.local/bin/ai-tools/`, which is intentionally not on `$PATH`):
 
 | Script | Hook | Captures → file |
 |---|---|---|
