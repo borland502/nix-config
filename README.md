@@ -269,6 +269,18 @@ task generate:agent-instructions
 
 The pre-commit hook and CI catch drift automatically via `task check:agent-instructions`.
 
+### Claude Code VS Code extension
+
+The shared VS Code user settings in `home-manager/lib/code-editor-user-settings.nix`
+set `claudeCode.useTerminal = true`, which launches the Claude CLI in the integrated
+terminal instead of the extension's native UI. This is **required** for this config:
+the terminal session is what loads the managed zsh environment (nix-provided `rg`/`fd`/
+`jq` and friends, aliases, PATH) and triggers the `log-bash.sh` / `log-skill.sh` /
+`log-thinking.sh` hooks that feed `~/.cache/claude` and `cache-scan`. Running Claude in
+the native UI bypasses that shell and its hook pipeline. If you toggle it off in the VS
+Code Settings UI (Extensions → Claude Code → "Use Terminal"), the next `home-switch`
+restores it.
+
 ### Agent activity logs & `cache-scan`
 
 Agent sessions are logged to `~/.cache/<agent>/` (with `~/.cache/claude` symlinked
