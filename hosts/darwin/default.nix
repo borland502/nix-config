@@ -204,6 +204,9 @@
       autoUpdate = true;
       upgrade = true;
       cleanup = "zap"; # Uninstall packages not listed in configuration
+      # Homebrew 4.7+ refuses `brew bundle install --cleanup` without an
+      # explicit force flag; nix-darwin doesn't add one, so pass it here.
+      extraFlags = ["--force-cleanup"];
     };
 
     # Taps (third-party repositories)
