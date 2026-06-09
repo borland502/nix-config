@@ -213,7 +213,7 @@ tasks:
         brew update --quiet
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else if eq .IS_NIXOS "true"}}
-        {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
+        bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
       {{end}}
@@ -248,7 +248,7 @@ tasks:
     desc: Build and switch to the NixOS configuration
     platforms: [linux]
     deps: [_record-nix-config-dir, _chezmoi-ensure]
-    cmd: '{{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"'
+    cmd: 'bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'This task is unavailable inside the devcontainer'
@@ -310,7 +310,7 @@ tasks:
         # standalone homeConfiguration — there is no `{{.HOME_ATTR}}` attr to
         # build. Apply via the system rebuild; the login shell is set by
         # users.defaultUserShell, so the chsh fixup below is unnecessary.
-        {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
+        bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
         _zsh="$HOME/.nix-profile/bin/zsh"
@@ -609,7 +609,7 @@ tasks:
       {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
       {{else if eq .IS_NIXOS "true"}}
-        {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
+        bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
         _zsh="$HOME/.nix-profile/bin/zsh"
