@@ -1,4 +1,5 @@
 {{- if ne .chezmoi.os "windows" }}
+.local/bin/Install-NixOSWSL.ps1
 .local/bin/update_scoop.ps1
 Documents/PowerShell
 Documents/WindowsPowerShell
