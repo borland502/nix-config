@@ -1,0 +1,27 @@
+# This repo targets Linux / NixOS / WSL. Cloning it with Windows git.exe (which
+# defaults to core.autocrlf=true) would rewrite shell scripts with CRLF line
+# endings, breaking their shebangs (e.g. `env: 'bash\r': No such file or
+# directory`). Force LF on every text file regardless of the client's autocrlf
+# setting so a git.exe clone is safe.
+* text=auto eol=lf
+
+# Scripts and config that MUST stay LF (some have no extension, but the rule
+# above already covers them; these are explicit for clarity / safety).
+*.sh    text eol=lf
+*.bash  text eol=lf
+*.ps1   text eol=lf
+*.nix   text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.toml  text eol=lf
+
+# Never normalize binary assets.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.zst   binary
+*.gz    binary
+*.zip   binary
+*.7z    binary

@@ -12,6 +12,13 @@ if grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
 	IS_WSL=true
 fi
 
+# The flake-based `nix shell nixpkgs#…` invocations and task commands below need
+# the nix-command/flakes experimental features. The Determinate installer enables
+# them, but a fresh NixOS-WSL uses the system nix with them OFF by default, so
+# enable them for every nix invocation in this script (and the tasks it spawns).
+export NIX_CONFIG="experimental-features = nix-command flakes${NIX_CONFIG:+
+$NIX_CONFIG}"
+
 # ── 1. Nix ────────────────────────────────────────────────────────────────────
 if ! command -v nix >/dev/null 2>&1; then
 	echo "==> Installing Nix via Determinate Systems installer..."
@@ -79,7 +86,9 @@ echo "    (sops secrets are skipped on first switch — they are unlocked after"
 echo "     the age key is provisioned in step 7 and re-applied in step 8)"
 cd "$SCRIPT_DIR"
 
-nix shell nixpkgs#go-task nixpkgs#chezmoi --command bash -euo pipefail -c '
+# Provide git from nixpkgs for this bootstrap so chezmoi's git-repo externals
+# resolve with native git instead of relying on Windows git.exe interop.
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -euo pipefail -c '
   task chezmoi-init
   task chezmoi-apply
   task home-switch
@@ -153,7 +162,7 @@ fi
 # the flake inputs to current and re-switches so the freshly-installed shell is
 # already on the latest before the user's first interactive session.
 echo "==> Upgrading flake inputs and re-switching (task upgrade)..."
-nix shell nixpkgs#go-task nixpkgs#chezmoi --command bash -c '
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -c '
   cd "'"$SCRIPT_DIR"'"
   task upgrade
 '

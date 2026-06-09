@@ -13,6 +13,11 @@
   };
   starshipToml = pkgs.formats.toml {};
   windowsStarshipConfig = starshipToml.generate "windows-starship.toml" starshipSettings;
+  # PowerShell helper scripts from this repo's chezmoi/dot_local/bin, filtered to
+  # *.ps1 only. Mirrored into the Windows user's ~/.local/bin on every switch by
+  # the windowsPowerShellBootstrap activation below. Only git-tracked files are
+  # included (flake source), so new scripts must be `git add`ed to ship.
+  powershellBinScripts = lib.sources.sourceFilesBySuffices ../chezmoi/dot_local/bin [".ps1"];
   linuxPackages = with pkgs; [
     iotop
     iftop
@@ -25,6 +30,11 @@
     usbutils
     dbus
     nerd-fonts.fira-code
+    # PowerShell (pwsh) inside the WSL Linux guest. Gated to WSL by living in
+    # this file: native Linux (home.nix) and macOS (home-darwin.nix) omit it.
+    # Distinct from the windowsPowerShellBootstrap activation below, which
+    # installs pwsh on the Windows host via winget.
+    powershell
   ];
 
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
@@ -99,58 +109,75 @@ in {
       ''
     );
 
-    activation.windowsPowerShellBootstrap = lib.hm.dag.entryAfter ["writeBoundary"] ''
-      windows_powershell_exe="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
-      wslpath_exe="/sbin/wslpath"
+    # Deploy this repo's PowerShell helper scripts and the Windows starship
+    # config into the Windows user's home on every switch — WITHOUT Windows
+    # interop on the hot path. The Windows home comes from
+    # windowsBootstrap.userProfilePath if set, else a cached value, else is
+    # resolved once via a single bounded interop call and cached; after the
+    # first resolution every switch is pure filesystem. wslpath is a local WSL
+    # tool (/init), not Windows interop. Execution policy and broader Windows
+    # tooling live in `task wsl-bootstrap-windows`, not here.
+    activation.windowsHelperScripts = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      cat_exe="${pkgs.coreutils}/bin/cat"
+      dirname_exe="${pkgs.coreutils}/bin/dirname"
       mkdir_exe="${pkgs.coreutils}/bin/mkdir"
       install_exe="${pkgs.coreutils}/bin/install"
       tr_exe="${pkgs.coreutils}/bin/tr"
-      windows_terminal_package_family='${windowsBootstrap.terminalPackageFamily}'
+      timeout_exe="${pkgs.coreutils}/bin/timeout"
+      windows_powershell_exe="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+      cache_file="$HOME/.local/state/nix-config/windows-home"
 
-      if [ ! -x "$windows_powershell_exe" ]; then
-        echo "Skipping Windows PowerShell bootstrap: $windows_powershell_exe is unavailable."
-      elif [ ! -x "$wslpath_exe" ]; then
-        echo "Skipping Windows PowerShell bootstrap: $wslpath_exe is unavailable."
-      elif ! "$windows_powershell_exe" -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' >/dev/null 2>&1; then
-        echo "Skipping Windows PowerShell bootstrap: Windows executable interop is unavailable."
-      else
-        ${
-        if windowsBootstrap.userProfilePath != null
-        then "windows_home_win='${windowsBootstrap.userProfilePath}'"
-        else ''windows_home_win="$($windows_powershell_exe -NoProfile -Command "[Environment]::GetFolderPath('UserProfile')" | $tr_exe -d '\r')"''
-      }
+      # wslpath is distro-dependent (NixOS-WSL: /bin/wslpath -> /init;
+      # Debian/Ubuntu: /usr/bin/wslpath). It is a local tool, not interop.
+      wslpath_exe=""
+      for _wslpath_cand in /usr/bin/wslpath /bin/wslpath /sbin/wslpath; do
+        if [ -x "$_wslpath_cand" ]; then wslpath_exe="$_wslpath_cand"; break; fi
+      done
+      if [ -z "$wslpath_exe" ]; then
+        wslpath_exe="$(command -v wslpath 2>/dev/null || true)"
+      fi
 
-        if [ -z "$windows_home_win" ]; then
-          echo "Skipping Windows PowerShell bootstrap: could not resolve Windows profile paths."
-        else
-          windows_home_unix="$($wslpath_exe -u "$windows_home_win")"
-          windows_config_dir="$windows_home_unix/.config"
-
-          $mkdir_exe -p "$windows_config_dir"
-          $install_exe -m 0644 ${windowsStarshipConfig} "$windows_config_dir/starship.toml"
-
-          if ! "$windows_powershell_exe" -NoProfile -Command '$starship = Get-Command starship -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1; if (-not $starship) { $starship = Resolve-Path (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages\Starship.Starship_*\starship.exe") -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -First 1 }; if ($starship) { exit 0 } else { exit 1 }'; then
-            if "$windows_powershell_exe" -NoProfile -Command 'Get-Command winget -ErrorAction SilentlyContinue | Out-Null; if ($?) { exit 0 } else { exit 1 }'; then
-              echo "Installing starship on Windows via winget..."
-              if ! "$windows_powershell_exe" -NoProfile -Command 'winget install --id Starship.Starship -e --scope user --silent --accept-package-agreements --accept-source-agreements'; then
-                echo "Warning: failed to install starship via winget."
-              fi
-            else
-              echo "Skipping starship bootstrap: winget is unavailable in Windows PowerShell."
-            fi
-          fi
-
-          if ! "$windows_powershell_exe" -NoProfile -Command 'Get-Command pwsh -ErrorAction SilentlyContinue | Out-Null; if ($?) { exit 0 } else { exit 1 }'; then
-            if "$windows_powershell_exe" -NoProfile -Command 'Get-Command winget -ErrorAction SilentlyContinue | Out-Null; if ($?) { exit 0 } else { exit 1 }'; then
-              echo "Installing PowerShell 7 on Windows via winget..."
-              if ! "$windows_powershell_exe" -NoProfile -Command 'winget install --id Microsoft.PowerShell -e --scope user --silent --accept-package-agreements --accept-source-agreements'; then
-                echo "Warning: failed to install PowerShell 7 via winget."
-              fi
-            else
-              echo "Skipping PowerShell 7 bootstrap: winget is unavailable in Windows PowerShell."
-            fi
+      windows_home_unix=""
+      # 1) Explicit config override — no interop.
+      ${lib.optionalString (windowsBootstrap.userProfilePath != null) ''
+        if [ -n "$wslpath_exe" ]; then
+          windows_home_unix="$("$wslpath_exe" -u '${windowsBootstrap.userProfilePath}' 2>/dev/null || true)"
+        fi
+      ''}
+      # 2) Cached value from a previous resolution — no interop.
+      if { [ -z "$windows_home_unix" ] || [ ! -d "$windows_home_unix" ]; } && [ -r "$cache_file" ]; then
+        windows_home_unix="$("$cat_exe" "$cache_file" 2>/dev/null || true)"
+      fi
+      # 3) One-time bounded interop resolution, then cache (never repeats once
+      #    cached). This is the only interop this activation can do, and only on
+      #    a cold cache.
+      if { [ -z "$windows_home_unix" ] || [ ! -d "$windows_home_unix" ]; } && [ -x "$windows_powershell_exe" ] && [ -n "$wslpath_exe" ]; then
+        _win_path="$($timeout_exe -k 5 15 "$windows_powershell_exe" -NoProfile -Command "[Environment]::GetFolderPath('UserProfile')" 2>/dev/null | $tr_exe -d '\r' || true)"
+        if [ -n "$_win_path" ]; then
+          windows_home_unix="$("$wslpath_exe" -u "$_win_path" 2>/dev/null || true)"
+          if [ -n "$windows_home_unix" ] && [ -d "$windows_home_unix" ]; then
+            $mkdir_exe -p "$("$dirname_exe" "$cache_file")" || true
+            printf '%s\n' "$windows_home_unix" > "$cache_file" || true
           fi
         fi
+      fi
+
+      if [ -n "$windows_home_unix" ] && [ -d "$windows_home_unix" ]; then
+        _win_localbin="$windows_home_unix/.local/bin"
+        _win_config="$windows_home_unix/.config"
+        $mkdir_exe -p "$_win_localbin" "$_win_config" || true
+        $install_exe -m 0644 ${windowsStarshipConfig} "$_win_config/starship.toml" || true
+        for ps_script in ${powershellBinScripts}/*.ps1; do
+          [ -e "$ps_script" ] || continue
+          # Drop chezmoi's executable_ source prefix; deploy 0755 (cosmetic on
+          # NTFS — .ps1 execution is gated by the PowerShell execution policy,
+          # which `task wsl-bootstrap-windows` sets to RemoteSigned).
+          ps_name="''${ps_script##*/}"
+          ps_name="''${ps_name#executable_}"
+          $install_exe -m 0755 "$ps_script" "$_win_localbin/$ps_name" || true
+        done
+      else
+        echo "Skipping Windows helper-script deploy: Windows home not resolved. Run 'task wsl-bootstrap-windows' once, or set windowsBootstrap.userProfilePath."
       fi
     '';
 
