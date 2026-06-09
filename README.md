@@ -69,6 +69,29 @@ repository.
 > interactive secret provisioning. It is not needed on macOS (use Homebrew + nix-darwin) or on an existing NixOS
 > system (use the task commands below directly).
 
+### Cloning the repo
+
+NixOS-WSL ships Nix but **no native `git`** until this configuration is applied, and its Nix has
+`nix-command`/`flakes` disabled by default. Clone with an ephemeral Nix-provided git, enabling the features
+inline — do **not** use Windows `git.exe`, which clones with `core.autocrlf=true` and rewrites the scripts with
+CRLF endings (you'll get `env: 'bash\r': No such file or directory` when running `install.sh`):
+
+```bash
+nix --extra-experimental-features 'nix-command flakes' shell nixpkgs#git \
+  --command git clone https://github.com/borland502/nix-config ~/.config/nix
+cd ~/.config/nix
+./install.sh
+```
+
+Equivalent with the stable CLI (no experimental features needed), if your NixOS has a `nixpkgs` channel:
+
+```bash
+nix-shell -p git --run 'git clone https://github.com/borland502/nix-config ~/.config/nix'
+```
+
+On a fresh Debian/Ubuntu WSL (no Nix yet) install the distro git first (`sudo apt-get install -y git`). The repo's
+`.gitattributes` also forces LF, so even an accidental `git.exe` clone keeps the scripts runnable.
+
 ### Platform Auto-Detection
 
 The taskfile detects the host platform at runtime and routes to the correct configuration automatically:
