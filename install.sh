@@ -86,11 +86,65 @@ echo "    (sops secrets are skipped on first switch — they are unlocked after"
 echo "     the age key is provisioned in step 7 and re-applied in step 8)"
 cd "$SCRIPT_DIR"
 
+# On a NixOS-WSL host the system rebuild switches wsl.defaultUser to the target
+# user (jhettenh) and removes the bootstrap user the script is running as
+# (typically the tarball default `nixos`). That switch activates the new system
+# and the target user's home, but then fails to reload the *outgoing* user's
+# systemd session (no D-Bus in a headless WSL shell), so switch-to-configuration
+# exits 4. Detect that one-time user swap so we can tolerate the benign exit,
+# relocate the repo into the new user's home, and hand off to a clean resume.
+_target_user=jhettenh
+_is_nixos_user_swap=false
+if command -v nixos-rebuild >/dev/null 2>&1 && [[ "$(id -un)" != "$_target_user" ]]; then
+	_is_nixos_user_swap=true
+fi
+
 # Provide git from nixpkgs for this bootstrap so chezmoi's git-repo externals
 # resolve with native git instead of relying on Windows git.exe interop.
 nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -euo pipefail -c '
   task chezmoi-init
   task chezmoi-apply
+'
+
+if [[ "$_is_nixos_user_swap" == true ]]; then
+	_bootstrap_user="$(id -un)"
+	echo "==> NixOS-WSL: applying system configuration (switches default user to $_target_user)..."
+	nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -c 'task home-switch' || {
+		rc=$?
+		echo "==> System switch returned $rc — expected on the first NixOS-WSL switch:"
+		echo "    the new system and ${_target_user}'s home activated, but reloading the"
+		echo "    outgoing '$_bootstrap_user' user session failed (no D-Bus in a headless"
+		echo "    WSL shell). Continuing."
+	}
+
+	# Relocate the repo into the new default user's home — the current $HOME
+	# belongs to the bootstrap user being removed, so the resume run (as
+	# $_target_user) needs its own copy at the documented path.
+	_target_home="$(getent passwd "$_target_user" | cut -d: -f6)"
+	_target_home="${_target_home:-/home/$_target_user}"
+	_dest="$_target_home/.config/nix"
+	if [[ "$SCRIPT_DIR" != "$_dest" ]]; then
+		echo "==> Copying the repo to $_dest for the $_target_user resume run..."
+		sudo mkdir -p "$_target_home/.config"
+		sudo rm -rf "$_dest"
+		sudo cp -aT "$SCRIPT_DIR" "$_dest"
+		sudo chown -R "$_target_user":users "$_dest" 2>/dev/null || sudo chown -R "$_target_user" "$_dest"
+	fi
+
+	cat <<EOF
+
+==> First-stage NixOS-WSL bootstrap complete. The default user is now '$_target_user'.
+
+    Finish setup:
+      1. From Windows:  wsl --shutdown
+      2. Start WSL again (you will be logged in as $_target_user).
+      3. cd ~/.config/nix && ./install.sh
+         (re-running provisions secrets and upgrades as $_target_user)
+EOF
+	exit 0
+fi
+
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -euo pipefail -c '
   task home-switch
 '
 
