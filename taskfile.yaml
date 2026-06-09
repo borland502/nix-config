@@ -305,6 +305,12 @@ tasks:
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
         sudo darwin-rebuild switch --flake .#{{.HOST}}
+      {{else if eq .IS_NIXOS "true"}}
+        # On NixOS (incl. NixOS-WSL) home is managed as a NixOS module, not a
+        # standalone homeConfiguration — there is no `{{.HOME_ATTR}}` attr to
+        # build. Apply via the system rebuild; the login shell is set by
+        # users.defaultUserShell, so the chsh fixup below is unnecessary.
+        {{.NIX_CONFIG_PREFIX}}{{.ROOT_CMD}} nixos-rebuild switch --flake "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}"
         _zsh="$HOME/.nix-profile/bin/zsh"
