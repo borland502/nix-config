@@ -6,6 +6,10 @@ applyTo: "**"
 - Minimize use of interactive terminal flows that can mangle command output in the IDE.
 - If a shared shell shows prompt fragments, reused partial commands, or quote mangling,
   stop reusing it and rerun the workflow from an isolated shell.
+- If image or screenshot analysis is requested but agent vision is disabled,
+  check the Pictures directory first for screenshot files:
+  - macOS/Linux: `$HOME/Pictures`
+  - Windows: `%HOME%\\Pictures`
 - When running terminal commands, also write the exact command and the resulting
   output to files under ~/.cache/copilot.
 - Ensure ~/.cache/copilot exists once per session before attempting to write
@@ -104,6 +108,10 @@ applyTo: "**"
   ordering matter.
 - In zsh wrappers, avoid `status` as a shell variable name; it is read-only. Use
   `rc` or `exit_code` instead.
+- In zsh, avoid `path` (and `PATH`) as loop/read variable names. `path` is a
+  special array tied to `PATH`; assigning to it can clobber command lookup and
+  cause spurious `command not found` errors for tools like `gh`, `jq`, `head`,
+  and `base64`.
 - Shell may alias `cat` to `bat`; use `/bin/cat` when you need raw file contents
   without pager/formatting behavior.
 - If a cache-path script shows `permission denied` only inside a wrapped capture
@@ -191,6 +199,7 @@ hooks / MCP clients via absolute path, not by name.
   ```
 
   Built-in commands like `/model` or `/clear` do **not** route through the Skill
+  <!-- markdownlint-disable-next-line MD038 -->
   tool and are intentionally not captured. Grep `^## ` across
   `session_*.skills.log` for a skill-usage timeline. Handles both Claude
   (`tool_input.skill`) and Copilot (`toolName`) payload shapes.

@@ -776,7 +776,7 @@ in {
   stylix = {
     enable = true;
     base16Scheme = let
-      raw = builtins.fromTOML (builtins.readFile ../chezmoi/dot_config/colors/monokai.toml);
+      raw = fromTOML (builtins.readFile ../chezmoi/dot_config/colors/monokai.toml);
     in {
       inherit (raw) system name author variant palette;
     };
