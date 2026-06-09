@@ -138,10 +138,34 @@ tasks:
   _chezmoi-ensure:
     internal: true
     desc: Initialize chezmoi if needed, then apply
+    # chezmoi's git-repo externals pull from github.com, which is configured here
+    # to use the `gh auth git-credential` helper. Without these guards a transient
+    # 401/rate-limit (or a stalled helper) drops git into an interactive
+    # credential prompt that hangs the whole switch. Force non-interactive,
+    # fail-fast git so a problem external errors out instead of blocking.
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+      GIT_ASKPASS: "true"
+      SSH_ASKPASS: "true"
+      GCM_INTERACTIVE: "never"
+      GIT_SSH_COMMAND: "ssh -oBatchMode=yes -oConnectTimeout=10"
     cmd: |
       _src=$(printf '%s/chezmoi' "$PWD" | tr '\\' '/')
       {{.CHEZMOI}} init --source "$_src"
-      {{.CHEZMOI}} apply --force
+      # --keep-going: a failing external (unreachable/private/rate-limited/deleted
+      # repo) is reported but does NOT abort — chezmoi applies every other
+      # external and all dotfiles. The timeout is a last-resort backstop against a
+      # total network stall; only on a genuine timeout do we re-apply without
+      # externals so the dotfiles still land.
+      timeout -k 10 300 {{.CHEZMOI}} apply --force --keep-going || {
+        rc=$?
+        echo "chezmoi apply reported errors (rc=$rc; one or more externals unavailable) — continuing with the switch."
+        if [ "$rc" -eq 124 ]; then
+          echo "chezmoi timed out; re-applying without externals so dotfiles still land."
+          {{.CHEZMOI}} apply --force --keep-going --exclude=externals || true
+        fi
+      }
+
 
   chezmoi-diff:
     desc: Show pending chezmoi changes without applying them
