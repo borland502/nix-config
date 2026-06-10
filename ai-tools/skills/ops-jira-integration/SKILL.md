@@ -1,16 +1,30 @@
 ---
 name: ops-jira-integration
-description: Use this skill when retrieving Jira tickets, analyzing requirements, updating ticket status, adding comments, or transitioning issues. Provides Jira API patterns via MCP or direct REST calls.
+description: Use this skill when retrieving Jira tickets, analyzing requirements, updating ticket status, adding comments, transitioning issues, or reading/updating Confluence pages. Provides Jira/Confluence standalone (Server/Data Center) API patterns via direct REST calls or MCP.
 origin: ECC
 ---
 
 # Jira Integration Skill
 
-Retrieve, analyze, and update Jira tickets directly from your AI coding workflow.
+Retrieve, analyze, and update Jira tickets (and Confluence pages) directly from your AI coding workflow.
 
 > **This repo's policy: prefer direct REST API calls over CLI wrappers.**
 > [chezmoi/dot_config/instructions/agent-defaults.md L12](../../../chezmoi/dot_config/instructions/agent-defaults.md): *"For Jira and Confluence operations, prefer direct REST/API-spec requests with configured tokens over dedicated `jira-cli` or `confluence-cli` wrappers."*
 > Use the **REST API path (Option A below)** by default. The MCP integration (Option B) is a valid alternative when it's already configured for this user, but don't introduce or recommend `jira-cli`/`confluence-cli` wrappers.
+
+## Standalone, Not Cloud
+
+**The configured Jira (`jiraent.cms.gov`) and Confluence (`confluenceent.cms.gov`)
+are self-hosted standalone (Server/Data Center) deployments, not Atlassian
+Cloud.** Everything cloud-shaped fails here:
+
+| Aspect | Cloud (do NOT use) | Standalone (use this) |
+| ------ | ------------------ | --------------------- |
+| Auth | Basic `-u email:api-token` | `Authorization: Bearer <PAT>` |
+| Jira REST version | `/rest/api/3` | `/rest/api/2` |
+| Comment/description bodies | ADF `{"type":"doc",...}` | Plain string (wiki markup) |
+| Token origin | id.atlassian.com | Instance profile → Personal Access Tokens |
+| Confluence page move | `PUT /pages/{id}` v2 API or `/move` | `PUT /rest/api/content/{id}` with `ancestors` (the `/move` endpoint 404s on this DC version) |
 
 ## When to Activate
 
@@ -25,24 +39,30 @@ Retrieve, analyze, and update Jira tickets directly from your AI coding workflow
 
 ### Option A: Direct REST API (default)
 
-Use the Jira REST API v3 directly via `curl` or a helper script. This is the loud default per the policy above — no extra dependencies, no opaque wrapper layer, and the auth flow lives in plain shell.
+Use the Jira REST API **v2** (Server/DC) directly via `curl` or a helper script. This is the loud default per the policy above — no extra dependencies, no opaque wrapper layer, and the auth flow lives in plain shell.
 
-**Required environment variables:**
+**Credential files (sops-decrypted at activation, preferred over env vars):**
 
-| Variable | Description |
-|----------|-------------|
-| `JIRA_URL` | Your Jira instance URL (e.g., `https://yourorg.atlassian.net`) |
-| `JIRA_EMAIL` | Your Atlassian account email |
-| `JIRA_API_TOKEN` | API token from id.atlassian.com |
+| File | Contents |
+| ---- | -------- |
+| `~/.config/ops-agent/jira-base-url` | Jira base URL **including** `/rest/api/2` (e.g. `https://jiraent.cms.gov/rest/api/2`) |
+| `~/.config/ops-agent/jira-token` | Jira personal access token (PAT) — send as `Authorization: Bearer` |
+| `~/.config/confluence/base-url` | Confluence base URL (e.g. `https://confluenceent.cms.gov`) |
+| `~/.config/confluence/token` | Confluence PAT — send as `Authorization: Bearer` |
 
-**Where to find the token in this repo's setup:**
-- sops-decrypted runtime path (preferred): `~/.config/ops-agent/jira-token` — populated by [home-manager/modules/sops.nix](../../../home-manager/modules/sops.nix) when `~/.config/sops/age/keys.txt` is present.
-- See [sec-credentials](../sec-credentials/SKILL.md) for the full lookup precedence.
+Populated by [home-manager/modules/sops.nix](../../../home-manager/modules/sops.nix) when `~/.config/sops/age/keys.txt` is present. See [sec-credentials](../sec-credentials/SKILL.md) for the full lookup precedence. A typical preamble:
 
-**To create a fresh token:**
-1. Go to <https://id.atlassian.com/manage-profile/security/api-tokens>
-2. Click **Create API token**
-3. Add it to the encrypted secrets via [sec-sops-encrypt](../sec-sops-encrypt/SKILL.md) — never paste it into source code.
+```bash
+JIRA_URL=$(/bin/cat ~/.config/ops-agent/jira-base-url)   # already ends in /rest/api/2
+JIRA_TOKEN=$(/bin/cat ~/.config/ops-agent/jira-token)
+CONFLUENCE_URL=$(/bin/cat ~/.config/confluence/base-url)
+CONFLUENCE_TOKEN=$(/bin/cat ~/.config/confluence/token)
+```
+
+**To create a fresh token** (standalone instances — NOT id.atlassian.com):
+
+1. In the Jira/Confluence instance: avatar → **Profile** → **Personal Access Tokens** → **Create token**
+2. Add it to the encrypted secrets via [sec-sops-encrypt](../sec-sops-encrypt/SKILL.md) — never paste it into source code.
 
 ### Option B: MCP Server (alternative when already configured)
 
@@ -56,25 +76,26 @@ If the `mcp-atlassian` MCP server is already configured for the user, the JSON-R
     "command": "uvx",
     "args": ["mcp-atlassian==0.21.0"],
     "env": {
-      "JIRA_URL": "https://YOUR_ORG.atlassian.net",
-      "JIRA_EMAIL": "your.email@example.com",
-      "JIRA_API_TOKEN": "your-api-token"
+      "JIRA_URL": "https://jiraent.cms.gov",
+      "JIRA_PERSONAL_TOKEN": "your-pat",
+      "CONFLUENCE_URL": "https://confluenceent.cms.gov",
+      "CONFLUENCE_PERSONAL_TOKEN": "your-pat"
     },
     "description": "Jira issue tracking — search, create, update, comment, transition"
   }
 }
 ```
 
-**Requirements:** Python 3.10+, `uvx` (from `uv`).
+**Requirements:** Python 3.10+, `uvx` (from `uv`). For standalone instances use the `*_PERSONAL_TOKEN` variables (PAT/Bearer); the cloud-style `JIRA_EMAIL` + `JIRA_API_TOKEN` pair is wrong for this setup.
 
-> **Security:** Never hardcode secrets. Prefer setting `JIRA_URL`, `JIRA_EMAIL`, and `JIRA_API_TOKEN` in your system environment (or sops-managed paths — see `sec-credentials`). Only use the MCP `env` block for local, uncommitted config files.
+> **Security:** Never hardcode secrets. Prefer setting the URL/token values in your system environment (or sops-managed paths — see `sec-credentials`). Only use the MCP `env` block for local, uncommitted config files.
 
 ## MCP Tools Reference
 
 When the `mcp-atlassian` MCP server is configured, these tools are available:
 
 | Tool | Purpose | Example |
-|------|---------|---------|
+| ---- | ------- | ------- |
 | `jira_search` | JQL queries | `project = PROJ AND status = "In Progress"` |
 | `jira_get_issue` | Fetch full issue details by key | `PROJ-1234` |
 | `jira_create_issue` | Create issues (Task, Bug, Story, Epic) | New bug report |
@@ -87,14 +108,15 @@ When the `mcp-atlassian` MCP server is configured, these tools are available:
 
 > **Tip:** Always call `jira_get_transitions` before transitioning — transition IDs vary per project workflow.
 
-## Direct REST API Reference
+## Direct REST API Reference (Jira standalone, v2)
+
+`$JIRA_URL` below already ends in `/rest/api/2` (it comes straight from `~/.config/ops-agent/jira-base-url`). All auth is `Authorization: Bearer`.
 
 ### Fetch a Ticket
 
 ```bash
-curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  "$JIRA_URL/rest/api/3/issue/PROJ-1234" | jq '{
+curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
+  "$JIRA_URL/issue/PROJ-1234" | jq '{
     key: .key,
     summary: .fields.summary,
     status: .fields.status.name,
@@ -106,63 +128,95 @@ curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
   }'
 ```
 
-### Fetch Comments
+### Fetch Comments and Remote Links
 
 ```bash
-curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  "$JIRA_URL/rest/api/3/issue/PROJ-1234?fields=comment" | jq '.fields.comment.comments[] | {
+curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
+  "$JIRA_URL/issue/PROJ-1234/comment" | jq '.comments[] | {
     author: .author.displayName,
     created: .created[:10],
     body: .body
   }'
+
+# Remote links (Confluence RFC pages, PRs, etc.)
+curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
+  "$JIRA_URL/issue/PROJ-1234/remotelink" | jq '[.[] | {title: .object.title, url: .object.url}]'
 ```
 
 ### Add a Comment
 
+The v2 body is a **plain string** (wiki markup allowed) — not a cloud ADF document.
+
 ```bash
-curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+curl -s -X POST -H "Authorization: Bearer $JIRA_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "body": {
-      "version": 1,
-      "type": "doc",
-      "content": [{
-        "type": "paragraph",
-        "content": [{"type": "text", "text": "Your comment here"}]
-      }]
-    }
-  }' \
-  "$JIRA_URL/rest/api/3/issue/PROJ-1234/comment"
+  -d '{"body": "Your comment here"}' \
+  "$JIRA_URL/issue/PROJ-1234/comment"
 ```
 
 ### Transition a Ticket
 
 ```bash
 # 1. Get available transitions
-curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
-  "$JIRA_URL/rest/api/3/issue/PROJ-1234/transitions" | jq '.transitions[] | {id, name: .name}'
+curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
+  "$JIRA_URL/issue/PROJ-1234/transitions" | jq '.transitions[] | {id, name: .name}'
 
 # 2. Execute transition (replace TRANSITION_ID)
-curl -s -X POST -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+curl -s -X POST -H "Authorization: Bearer $JIRA_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"transition": {"id": "TRANSITION_ID"}}' \
-  "$JIRA_URL/rest/api/3/issue/PROJ-1234/transitions"
+  "$JIRA_URL/issue/PROJ-1234/transitions"
 ```
 
 ### Search with JQL
 
 ```bash
-curl -s -G -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+curl -s -G -H "Authorization: Bearer $JIRA_TOKEN" \
   --data-urlencode "jql=project = PROJ AND status = 'In Progress'" \
-  "$JIRA_URL/rest/api/3/search"
+  "$JIRA_URL/search"
 ```
+
+## Direct REST API Reference (Confluence standalone)
+
+Confluence Server/DC uses the v1 content API under `$CONFLUENCE_URL/rest/api/content`; the cloud v2 `/pages` API does not exist here.
+
+### Fetch a Page (body, version, ancestors)
+
+```bash
+curl -s -H "Authorization: Bearer $CONFLUENCE_TOKEN" \
+  "$CONFLUENCE_URL/rest/api/content/PAGE_ID?expand=body.storage,version,ancestors,space" | jq '{
+    title, version: .version.number, space: .space.key,
+    ancestors: [.ancestors[] | {id, title}]
+  }'
+```
+
+The storage body is XHTML with `<ac:structured-macro>` elements; strip/convert it before analysis rather than reading it raw.
+
+### Update or Re-parent a Page
+
+Updates go through `PUT /rest/api/content/{id}` with the version bumped by one. To move a page, set `ancestors` in the same PUT — **the `/rest/api/content/{id}/move/...` endpoint 404s on this DC version.** Always re-fetch the current body first and send it back unchanged, or the update wipes the page content.
+
+```bash
+curl -s -X PUT -H "Authorization: Bearer $CONFLUENCE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "PAGE_ID", "type": "page", "title": "Current Title",
+    "space": {"key": "SPACEKEY"},
+    "ancestors": [{"id": "NEW_PARENT_ID"}],
+    "body": {"storage": {"value": "<refetched storage body>", "representation": "storage"}},
+    "version": {"number": CURRENT_PLUS_ONE, "minorEdit": true, "message": "why"}
+  }' \
+  "$CONFLUENCE_URL/rest/api/content/PAGE_ID"
+```
+
+For payloads this size, write a small Python/shell script under `~/.cache/claude` instead of inlining the JSON in the command string.
 
 ## Analyzing a Ticket
 
 When retrieving a ticket for development or test automation, extract:
 
 ### 1. Testable Requirements
+
 - **Functional requirements** — What the feature does
 - **Acceptance criteria** — Conditions that must be met
 - **Testable behaviors** — Specific actions and expected outcomes
@@ -171,12 +225,14 @@ When retrieving a ticket for development or test automation, extract:
 - **Integration points** — APIs, services, or systems involved
 
 ### 2. Test Types Needed
+
 - **Unit tests** — Individual functions and utilities
 - **Integration tests** — API endpoints and service interactions
 - **E2E tests** — User-facing UI flows
 - **API tests** — Endpoint contracts and error handling
 
 ### 3. Edge Cases & Error Scenarios
+
 - Invalid inputs (empty, too long, special characters)
 - Unauthorized access
 - Network failures or timeouts
@@ -187,7 +243,7 @@ When retrieving a ticket for development or test automation, extract:
 
 ### 4. Structured Analysis Output
 
-```
+```text
 Ticket: PROJ-1234
 Summary: [ticket title]
 Status: [current status]
@@ -221,7 +277,7 @@ Dependencies:
 ### When to Update
 
 | Workflow Step | Jira Update |
-|---|---|
+| --- | --- |
 | Start work | Transition to "In Progress" |
 | Tests written | Comment with test coverage summary |
 | Branch created | Comment with branch name |
@@ -232,13 +288,15 @@ Dependencies:
 ### Comment Templates
 
 **Starting Work:**
-```
+
+```text
 Starting implementation for this ticket.
 Branch: feat/PROJ-1234-feature-name
 ```
 
 **Tests Implemented:**
-```
+
+```text
 Automated tests implemented:
 
 Unit Tests:
@@ -252,7 +310,8 @@ All tests passing locally. Coverage: XX%
 ```
 
 **PR Created:**
-```
+
+```text
 Pull request created:
 [PR Title](https://github.com/org/repo/pull/XXX)
 
@@ -260,7 +319,8 @@ Ready for review.
 ```
 
 **Work Complete:**
-```
+
+```text
 Implementation complete.
 
 PR merged: [link]
@@ -280,10 +340,13 @@ Coverage: XX%
 ## Troubleshooting
 
 | Error | Cause | Fix |
-|---|---|---|
-| `401 Unauthorized` | Invalid or expired API token | Regenerate at id.atlassian.com |
+| --- | --- | --- |
+| `401 Unauthorized` | Invalid or expired PAT, or basic auth used | Send `Authorization: Bearer`; regenerate the PAT in the instance profile (NOT id.atlassian.com) |
 | `403 Forbidden` | Token lacks project permissions | Check token scopes and project access |
-| `404 Not Found` | Wrong ticket key or base URL | Verify `JIRA_URL` and ticket key |
+| `404 Not Found` | Wrong ticket key or base URL | Verify the base-url file contents and ticket key; remember the Jira base URL already includes `/rest/api/2` |
+| `404` on `/rest/api/3/...` | Cloud API version against a standalone instance | Use `/rest/api/2` |
+| `400` posting a comment | ADF document body sent to Server/DC | Body is a plain string: `{"body": "text"}` |
+| `404` on Confluence `/move` or `/api/v2/pages` | Cloud-only endpoints | Use `PUT /rest/api/content/{id}` with `ancestors` + version bump |
 | `spawn uvx ENOENT` | IDE cannot find `uvx` on PATH | Use full path (e.g., `~/.local/bin/uvx`) or set PATH in `~/.zprofile` |
 | Connection timeout | Network/VPN issue | Check VPN connection and firewall rules |
 
