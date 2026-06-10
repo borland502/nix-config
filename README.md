@@ -9,8 +9,11 @@ repository.
 ```text
 ├── flake.nix                               # Flake inputs and platform outputs
 ├── flake.lock                              # Locked flake input revisions
+├── AGENTS.md                               # Repo guide for coding agents (layout, tasks, rules)
+├── CLAUDE.md                               # One-line @AGENTS.md pointer for Claude Code
 ├── install.sh                              # Bootstrap script for fresh Linux / WSL installs
 ├── taskfile.yaml                           # Common build, switch, and maintenance tasks
+├── docs/                                   # Design notes (e.g. agent-token-cost-levers.md)
 ├── scripts/
 │   ├── check-copilot-instructions-sync.sh  # CI check: .github/copilot-instructions.md in sync
 │   ├── provision-secrets.sh                # Interactive secret provisioning (age key)
@@ -23,7 +26,8 @@ repository.
 │   ├── dot_config/
 │   │   ├── colors/monokai.toml             # Monokai Spectrum palette (single source of truth)
 │   │   ├── flameshot/flameshot.ini.tmpl    # Flameshot config (OS-conditional shortcuts)
-│   │   ├── instructions/agent-defaults.md  # Single source for all agent instructions
+│   │   ├── instructions/agent-defaults.md  # Single source for the always-on agent prefix
+│   │   ├── instructions/agent-reference.md # On-demand reference detail (read by agents, never in prompt)
 │   │   ├── kitty/kitty.conf                # Kitty terminal base configuration
 │   │   ├── github-copilot/                 # Copilot instructions (VS Code, IntelliJ)
 │   │   └── Code/User/prompts/              # VS Code Copilot prompt files
@@ -54,10 +58,15 @@ repository.
 │   └── profiles/
 │       ├── development-linux.nix           # Linux development packages
 │       └── desktop-linux.nix              # Linux desktop packages
+├── ai-tools/
+│   ├── skills/                             # Always-on skills (deployed globally to both agent CLIs)
+│   ├── skills-stack/                       # Stack-specific skills, opt-in per project (task skills:enable)
+│   ├── agents/                             # Custom sub-agents
+│   └── scripts/                            # Hook loggers and automation (→ ~/.local/bin/ai-tools)
 ├── .devcontainer/devcontainer.json         # Devcontainer bootstrap for Home Manager outputs
 ├── .github/
 │   ├── copilot-instructions.md             # Mirror of agent-defaults.md for GitHub Copilot
-│   └── workflows/nix-validation.yml
+│   └── workflows/                          # nix-validation, secrets-scan, update-flake
 └── .vscode/                                # Repo-local VS Code recommendations/settings
 ```
 
@@ -271,13 +280,23 @@ Stylix applies the palette automatically to bat, btop, fzf, kitty, Starship, Vim
 
 ## Agent Instructions
 
-All agent instructions derive from a single source file:
+Agent instructions are split into an always-on prefix and an on-demand reference
+(the tiny-root pattern from [khaneliman/khanelinix](https://github.com/khaneliman/khanelinix),
+whose root `CLAUDE.md` is a one-line `@AGENTS.md` pointer with detail pushed to files read only when needed):
 
 ```text
-chezmoi/dot_config/instructions/agent-defaults.md
+chezmoi/dot_config/instructions/agent-defaults.md   # behavioral rules only — rendered into every session prompt
+chezmoi/dot_config/instructions/agent-reference.md  # credential catalog, script usage, deployment paths — read on demand
 ```
 
-The `@@AGENT@@` placeholder is substituted per agent at render time.
+`agent-defaults.md` is budgeted by `task check:instruction-size` (120 lines / 7 KB); reference material belongs in
+`agent-reference.md`, which chezmoi deploys to `~/.config/instructions/agent-reference.md` and costs zero prompt
+tokens until an agent actually opens it.
+
+The repo itself carries [`AGENTS.md`](AGENTS.md) (layout map, key `task` targets, repo rules) so agent sessions in
+this repo don't re-derive the workflows each time; [`CLAUDE.md`](CLAUDE.md) is a one-line `@AGENTS.md` include.
+
+In `agent-defaults.md`, the `@@AGENT@@` placeholder is substituted per agent at render time.
 
 | Platform | Renderer | Deployed paths |
 |---|---|---|
@@ -343,8 +362,24 @@ ai-tools/
 │   ├── marketplace.json     # registers nix-config-tools as a Claude Code plugin
 │   └── plugin.json          # plugin metadata
 ├── agents/                  # *.agent.md — four custom sub-agents
-└── skills/                  # <name>/SKILL.md (+ optional references/, scripts/)
+├── skills/                  # always-on core set: <name>/SKILL.md (+ references/, scripts/)
+└── skills-stack/            # stack-specific set (Angular, Spring Boot, Go, Python, JS/TS, …) — opt-in per project
 ```
+
+### Core vs. stack skills
+
+Every globally deployed skill injects its description into **every** session's system prompt, so only the core set in
+`skills/` (flow, git, ops, sec, web, shell) deploys globally. Language/framework pattern skills live in
+`skills-stack/` and are linked into the projects that actually use them:
+
+```bash
+task skills:enable SKILL=springboot-patterns DIR=~/src/my-service
+```
+
+This symlinks the skill into `<project>/.claude/skills/`, where it loads only for sessions in that project. Stack
+skills also remain reachable on demand in VS Code Copilot Chat — the generated `*.prompt.md` bridges cover both
+directories. (Scoping pattern from [khaneliman/khanelinix](https://github.com/khaneliman/khanelinix), whose always-on
+agent config references a single skill and defers everything else to per-directory rules.)
 
 [`home-manager/lib/agent-instructions.nix`](home-manager/lib/agent-instructions.nix) generates bridge files and
 [`home-manager/common.nix`](home-manager/common.nix) deploys them:
@@ -376,8 +411,8 @@ pointing at the XDG locations.
 
 ### Upstream credits
 
-Skills under `ai-tools/skills/` other than the project-local ones (`ops-cache-scan`, `ops-chezmoi`,
-`ops-nix-pitfalls`, `ops-agent`, `flow-reconciliation`, `sec-credentials`, `sec-sops-encrypt`,
+Skills under `ai-tools/skills/` and `ai-tools/skills-stack/` other than the project-local ones (`ops-cache-scan`,
+`ops-chezmoi`, `ops-nix-pitfalls`, `ops-agent`, `flow-reconciliation`, `sec-credentials`, `sec-sops-encrypt`,
 `shell-pitfalls`) were ingested from upstream repositories. Each
 retains its `origin:` frontmatter for traceability, and any required attribution / license text is preserved verbatim
 alongside the skill.
@@ -390,7 +425,7 @@ alongside the skill.
 | [appautomaton/webmaton](https://github.com/appautomaton/webmaton) | MIT | `web-chrome-devtools-cli`, `web-html-to-markdown`, `web-nodriver-browser`, `web-playwright-cli` |
 | [angular/skills](https://github.com/angular/skills) | MIT (Google LLC) | `angular-developer`, `angular-new-app` |
 
-### Reconciling against upstream
+### Reconciling against upstream (experiment)
 
 The chezmoi externals at `~/.local/src/ai-tools/<repo>` refresh every 720h (~1 month). When upstream updates land,
 follow the [`flow-reconciliation` skill](ai-tools/skills/flow-reconciliation/SKILL.md) — it documents the
@@ -399,6 +434,18 @@ diff/classify/apply procedure (and the namespace + path rewrites required after 
 isn't silently overwritten.
 
 This project's own MIT-licensed code is governed by [LICENSE](LICENSE); ingested upstream content retains its original license.
+
+### Pattern credits
+
+Beyond the ingested skills above, several organizational patterns in this repo were extracted from other public
+nix configurations (no code was copied — the patterns were reimplemented for this layout):
+
+| Repo | Pattern adopted here |
+|---|---|
+| [khaneliman/khanelinix](https://github.com/khaneliman/khanelinix) | Tiny-root agent instructions (`CLAUDE.md` → `@AGENTS.md` pointer; detail in on-demand files), lean always-on skill surface (core vs. opt-in `skills-stack/` split), repo-level agent rules |
+| [wimpysworld/nix-config](https://github.com/wimpysworld/nix-config) | Task-runner recipes as the documented agent/human interface (their justfile ↔ this repo's `taskfile.yaml` + `AGENTS.md`), Determinate Systems CI automation |
+| [budimanjojo/nix-config](https://github.com/budimanjojo/nix-config) | Scheduled bot-driven dependency updates (their Renovate setup ↔ this repo's weekly `update-flake.yml` PR workflow); validation of the chezmoi + Nix hybrid layout |
+| [dhupee/dotfiles](https://github.com/dhupee/dotfiles) and [dc-tec/nixos-config](https://github.com/dc-tec/nixos-config) | Prior art for the chezmoi/Nix hybrid and the single-flake NixOS + nix-darwin + WSL platform triad |
 
 ## PowerShell Profile
 
@@ -470,12 +517,14 @@ task logs SERVICE=pipewire.service             # tail logs via journalctl --user
 ## Maintenance
 
 ```bash
-task update && task switch          # keep the system updated
+task update && task switch          # keep the system updated (CI also opens a weekly update PR)
 task gc                             # clean up old generations
 task optimize                       # optimize the Nix store
 task generate:agent-instructions    # re-render agent-defaults.md into chezmoi files
 task check:agent-instructions       # verify chezmoi files match the source (also in CI)
 task check:copilot-instructions     # verify .github/copilot-instructions.md stays in sync
+task check:instruction-size         # guard the always-on agent prefix against token bloat
+task skills:enable SKILL=x DIR=y    # link an opt-in stack skill into a project
 ```
 
 ## Git Hooks
@@ -530,4 +579,8 @@ task check:copilot-instructions     # verify .github/copilot-instructions.md sta
 - The WSL target is validated by building `nixosConfigurations.wsl`.
 - GitHub-hosted runners do not provide a real WSL2 runtime, so end-to-end WSL boot tests require a self-hosted Windows
   runner with WSL2 enabled.
-- The workflow lives at `.github/workflows/nix-validation.yml`.
+- The validation workflow lives at `.github/workflows/nix-validation.yml`.
+- `.github/workflows/update-flake.yml` bumps `flake.lock` weekly (Mondays 05:17 UTC, or on demand via
+  `workflow_dispatch`) and opens a labeled PR, so routine input updates never consume an interactive agent session.
+  PRs opened with the default `GITHUB_TOKEN` do not trigger `nix-validation.yml` automatically — close/reopen the PR
+  or push to its branch to run CI before merging.
