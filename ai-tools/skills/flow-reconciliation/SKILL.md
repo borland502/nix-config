@@ -7,6 +7,8 @@ description: Use when ingesting new skills/agents from upstream repos, refreshin
 
 Use this skill when reconciling `ai-tools/skills/` and `ai-tools/agents/` against the chezmoi-managed upstream sources under `~/.local/src/ai-tools/`. The goal is **deliberate**, not automatic, propagation: surface what changed, decide what to do, then act.
 
+> **Note:** stack-specific skills (language/framework patterns) live in `ai-tools/skills-stack/`, not `ai-tools/skills/` — they are opt-in per project (`task skills:enable`) rather than always-on. Every `ai-tools/skills/` path or loop in this document applies equally to `ai-tools/skills-stack/`; sweep both directories when reconciling.
+
 ## When To Use
 
 - Ingesting a new skill from one of the upstream repos for the first time.

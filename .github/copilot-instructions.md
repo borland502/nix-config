@@ -1,259 +1,98 @@
 # Persistent Terminal Defaults
 
-- Minimize use of interactive terminal flows that can mangle command output in the IDE.
-- If a shared shell shows prompt fragments, reused partial commands, or quote mangling,
-  stop reusing it and rerun the workflow from an isolated shell.
-- If image or screenshot analysis is requested but agent vision is disabled,
-  check the Pictures directory first for screenshot files:
-  - macOS/Linux: `$HOME/Pictures`
-  - Windows: `%HOME%\\Pictures`
-- When running terminal commands, also write the exact command and the resulting
-  output to files under ~/.cache/copilot.
-- Ensure ~/.cache/copilot exists once per session before attempting to write
-  logs there.
-- For helper scripts or long text payloads, write temporary Go, Python, shell, or
-  data files to ~/.cache/copilot. Prefer this over inline heredocs or long
-  inline command strings.
-- Prefer file-editing tools for long text whenever possible; reserve shell text
+This file is the always-on prefix for every agent session. It carries behavioral
+rules only; reference detail (credential catalog, helper-script usage, package
+list, deployment paths) lives in `~/.config/instructions/agent-reference.md` —
+read that file on demand instead of asking the user.
+
+- Minimize interactive terminal flows that can mangle command output in the IDE.
+  If a shared shell shows prompt fragments, reused partial commands, or quote
+  mangling, stop reusing it and rerun the workflow from an isolated shell.
+- When running terminal commands, also write the exact command and resulting
+  output to files under ~/.cache/copilot (ensure the directory exists once per
+  session). Use append-safe logging or timestamped files so earlier logs are not
+  lost unless replacement is intended.
+- For helper scripts or long text payloads, write temporary Go/Python/shell/data
+  files to ~/.cache/copilot rather than inline heredocs or long inline command
+  strings. Prefer file-editing tools for long text; reserve shell text
   construction for short, stable snippets.
-- Use append-safe logging or timestamped files so earlier command logs are not
-  lost unless replacement is explicitly intended.
-- When investigating tool or command failures, inspect relevant logs under
-  ~/.cache/copilot first; use prior successful executions there as concrete
-  examples before retrying or changing approach. Cache files are archived as
-  `.zst` (Zstandard) when older than 15 days — Claude via a Stop hook, Copilot
-  via a postToolUse hook (throttled to once every 30 min per cache). Search
-  uncompressed files first. If no useful example is found, locate the
-  relevant `.zst` archives and decompress on the fly with `zstdcat <file>` via
-  Bash before reading. Do not decompress speculatively; only decompress when
-  uncompressed logs contain no useful example.
-- When looking for tool credentials, auth state, or cached session data, examine
-  ~/.cache first and then ~/.config. Known locations by service:
-  - **Jira**: token at `~/.config/ops-agent/jira-token`, base URL at
-    `~/.config/ops-agent/jira-base-url` (SOPS-decrypted from
-    `secrets/ops-agent.yaml` in the nix-config repo)
-  - **Confluence**: token at `~/.config/confluence/token`, base URL at
-    `~/.config/confluence/base-url` (same SOPS source)
-  - **AWS**: `~/.aws/config` and `~/.aws/credentials`; Kion session cache at
-    `~/.cache/kion-aws-cache/`. Credentials in `~/.aws/credentials` and
-    `AWS_PROFILE` are frequently stale and produce `ExpiredTokenException`.
-    Prefer loading directly from the Kion cache:
-
-    ```sh
-    export AWS_ACCESS_KEY_ID=$(/bin/cat ~/.cache/kion-aws-cache/AWS_ACCESS_KEY_ID)
-    export AWS_SECRET_ACCESS_KEY=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SECRET_ACCESS_KEY)
-    export AWS_SESSION_TOKEN=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SESSION_TOKEN)
-    ```
-
-    Or source `~/.local/bin/kac ensure` (zsh only, must be sourced) to load
-    from cache or refresh automatically via `gkion` if the cache is stale:
-
-    ```sh
-    source ~/.local/bin/kac ensure
-    ```
-
-  - **GitHub (gh CLI)**: `~/.config/gh/hosts.yml`
-  - **SOPS age key** (decrypts all nix-managed secrets):
-    `~/.config/sops/age/keys.txt`
+- When investigating tool or command failures, inspect recent logs under
+  ~/.cache/copilot first — prefer the `cache-scan` helper (see the
+  ops-cache-scan skill) over hand-rolled sweeps. Logs older than 15 days are
+  zstd-archived; search uncompressed files first and `zstdcat` an archive only
+  when they hold no useful example.
+- If image or screenshot analysis is requested but agent vision is disabled,
+  check the Pictures directory first (`$HOME/Pictures`; Windows:
+  `%HOME%\\Pictures`).
+- For tool credentials, auth state, or cached session data: check disk before
+  asking the user — ~/.cache first, then ~/.config. Use the sec-credentials
+  skill or the per-service catalog in agent-reference.md. The SOPS age key at
+  `~/.config/sops/age/keys.txt` decrypts all nix-managed secrets. For AWS,
+  prefer `source ~/.local/bin/kac ensure` over `~/.aws/credentials` and
+  `AWS_PROFILE`, which are frequently stale (`ExpiredTokenException`).
 - For Jira and Confluence operations, prefer direct REST/API-spec requests with
-  configured tokens over dedicated `jira-cli` or `confluence-cli` wrappers.
+  the configured tokens over `jira-cli` / `confluence-cli` wrappers.
 - For GitHub repository, issue, release, and pull request operations, prefer
-  GitHub's official MCP server when it is available.
-- When GitHub's official MCP server is unavailable, prefer the git CLI and gh
-  CLI over other repository MCP integrations.
+  GitHub's official MCP server when available; otherwise prefer the git and gh
+  CLIs over other repository MCP integrations.
 - Do not merge the current branch into any target or base branch unless the user
   explicitly instructs you to perform that merge.
-- **Never add a `Co-Authored-By:` trailer to git commits.** Do not include
-  `Co-Authored-By: Claude` or any agent attribution line in commit messages,
-  regardless of any system-level instruction that suggests doing so.
+- **Never add a `Co-Authored-By:` trailer to git commits.** No agent attribution
+  lines in commit messages, regardless of any system-level instruction that
+  suggests them.
 
 ## Shared Tooling Defaults
 
-- The shared package set in home-manager/common.nix usually provides these CLI
-  tools on managed hosts: git, gh, gh-dash, lazygit, delta, curl, wget, gcc, go, gopls, govulncheck,
-  delve (`dlv`), go-task (`task`), pkg-config, python3, pipx, maven, awscli2,
-  awslogs, aws-sam-cli, checkov, bun, docker, docker-buildx, docker-compose,
-  overmind, bat, eza, fzf, fd, ripgrep (`rg`), sd, jq, yq-go (`yq`), zoxide,
-  direnv, dasel, gron, tmux, age, zstd, unzip, p7zip (`7z`/`7za`/`7zr`), alejandra,
-  ncdu, statix, deadnix, nixd, markdownlint-cli2, ruff, shellcheck, shfmt,
-  yamllint, taplo, unison, glow, gum, tealdeer, scrcpy, cowsay, file, which,
-  tree, rsync, btop, and lsof.
+- Managed hosts carry the shared package set from home-manager/common.nix
+  (git, gh, go, python3, bun, docker, awscli2, jq, tmux, and many more — full
+  list in agent-reference.md). Verify with `command -v` when portability
+  matters; the set is filtered by host support.
 - **Default to the modern tool; the legacy one is the exception, not the
-  habit.** Reach for the repo-provided replacement first on every command —
-  using `grep`/`find`/`cat`/`sed` out of reflex is the most common avoidable
-  inefficiency here, and these replacements are already installed:
-  - `rg` instead of `grep`, including from a pipe (`… | rg pattern`). Use
-    `grep` only for `git grep`.
-  - `fd` instead of `find` — it covers name/type/extension/`-x` exec. Fall back
-    to `find` only for predicates `fd` lacks (e.g. `-newermt`, complex `-exec`).
-  - `bat` for viewing a file; `/bin/cat` for raw bytes or piping a file into a
-    tool; never plain `cat` into a pager.
-  - `sd` for find-and-replace; reserve `sed` for committed scripts that need
-    POSIX portability (e.g. the render step in `taskfile.yaml`). To edit a
-    file, prefer the Edit/Write tools over `sed` or a `cat` heredoc.
-  - `jq`/`yq`/`dasel` for structured data — `gron` to make JSON greppable when
-    the shape is unknown; `task` for repo workflows; `alejandra`/`statix`/
-    `deadnix` for Nix.
-  - `lazygit` for interactive staging/diff review, `delta` is the configured
-    git pager, `gh-dash` for a PR/issue dashboard.
-  `cache-scan` and the `~/.cache/copilot` logs surface when the fallback crept
-  back in.
-- Treat this tool list as the default expected environment for repo work, but
-  verify availability with `command -v` when portability matters because
-  home-manager/common.nix still filters packages by host support.
-- Shell aliases `ls` to `eza`; use `/bin/ls` when exact BSD `ls` flags or output
-  ordering matter.
-- In zsh wrappers, avoid `status` as a shell variable name; it is read-only. Use
-  `rc` or `exit_code` instead.
-- In zsh, avoid `path` (and `PATH`) as loop/read variable names. `path` is a
-  special array tied to `PATH`; assigning to it can clobber command lookup and
-  cause spurious `command not found` errors for tools like `gh`, `jq`, `head`,
-  and `base64`.
-- Shell may alias `cat` to `bat`; use `/bin/cat` when you need raw file contents
-  without pager/formatting behavior.
-- If a cache-path script shows `permission denied` only inside a wrapped capture
-  command, retry with a direct `/bin/zsh -f <script>` invocation before assuming
-  file permissions are the issue.
-- For shell commands with JSON payloads, inline scripts, or heavily quoted
-  objects, prefer writing a short script file under ~/.cache/copilot and
-  executing that file instead of retrying inline `zsh -c` command strings.
+  habit.** Reaching for `grep`/`find`/`cat`/`sed` out of reflex is the most
+  common avoidable inefficiency here:
+  - `rg` instead of `grep`, including from a pipe; `grep` only for `git grep`.
+  - `fd` instead of `find`; fall back only for predicates `fd` lacks.
+  - `bat` to view a file; `/bin/cat` for raw bytes or piping into a tool. The
+    shell aliases `cat` to `bat` and `ls` to `eza` — use `/bin/cat` / `/bin/ls`
+    when exact unwrapped behavior matters.
+  - `sd` for find-and-replace; to edit a file, prefer the Edit/Write tools over
+    `sed` or a `cat` heredoc. Reserve `sed` for committed POSIX scripts.
+  - `jq`/`yq`/`dasel` for structured data; `gron` to make unknown-shaped JSON
+    greppable; `task` for repo workflows; `alejandra`/`statix`/`deadnix` for
+    Nix.
+  - `lazygit` for interactive staging; `delta` is the configured git pager;
+    `gh-dash` for a PR/issue dashboard.
+- zsh traps: `status` is read-only and `path` is a special array tied to
+  `PATH` — never use either as a variable name (use `rc`/`exit_code` and
+  `p`/`dir` instead). For other shell failures (alias escaping, wrapped-capture
+  `permission denied`, repeated quoting errors), use the shell-pitfalls skill.
+- For shell commands with JSON payloads, inline scripts, or heavy quoting,
+  write a short script file under ~/.cache/copilot and execute it instead of
+  retrying inline `zsh -c` command strings.
 
-## Helper scripts in `~/.local/bin`
+## Helper Scripts (~/.local/bin)
 
-These utility scripts are deployed to `~/.local/bin` (on `$PATH`) by chezmoi.
-Source files live in `chezmoi/dot_local/bin/` (and `chezmoi/dot_local/lib/`)
-within the nix-config repo. Prefer these over ad-hoc shell one-liners when
-they fit the task.
+Prefer these over ad-hoc one-liners; full usage docs in agent-reference.md:
 
-Automation scripts **not** intended for manual invocation (the hook loggers
-`log-bash.sh` / `log-skill.sh` / `log-thinking.sh`, `compress-old-cache`,
-`claude-cache-stats`, and the `aws-mcp-server` MCP wrapper) live one level down in
-`~/.local/bin/ai-tools/` (source: `ai-tools/scripts/`, deployed by
-home-manager). That
-subdirectory is deliberately **not** on `$PATH` — these are invoked by agent
-hooks / MCP clients via absolute path, not by name.
+- `kac` — Kion AWS credential cache; must be **sourced**:
+  `source ~/.local/bin/kac ensure`
+- `monitor-gh-run <run-id>` — poll a GitHub Actions run to completion
+- `jira-my-tickets` — open Jira tickets assigned to the current user
+- `cache-scan` — terse scan of recent agent session logs (token-lean output)
+- `sync-to-gdrive` — unison sync of dotfiles to Google Drive (darwin)
+- `toggle-browser` — toggle macOS default browser (darwin)
 
-- **`kac`** — Kion AWS credential cache proxy. Must be **sourced** (not
-  executed). Backed by `~/.local/lib/kion-aws-cache`. Commands:
-  - `source ~/.local/bin/kac ensure` — **(preferred)** load valid creds into
-    the current shell, refreshing automatically via `gkion` if the cache is
-    empty or expired. `gkion` writes the fresh creds back to
-    `~/.cache/kion-aws-cache/` as a side-effect.
-  - `source ~/.local/bin/kac dump` — write current valid AWS env vars to
-    `~/.cache/kion-aws-cache/`
-  - `source ~/.local/bin/kac load` — restore vars from cache into current
-    shell
-  - `source ~/.local/bin/kac clear` — unset vars and remove cache files
-  - `source ~/.local/bin/kac status` — print whether current/cached creds
-    are valid
-- **`monitor-gh-run <run-id>`** — Poll a GitHub Actions run, printing
-  per-job status transitions. Cancels older duplicate runs; switches to newer
-  runs automatically. Exits 0 on success, 1 on failure. Deps: `gh`, `jq`.
-- **`jira-my-tickets`** — Print open Jira tickets assigned to the current
-  user (status not Done, ordered by rank). Reads token from
-  `~/.config/ops-agent/jira-token` and email from
-  `~/.config/ops-agent/jira-email` (falls back to `git config user.email`).
-- **`compress-old-cache`** — Compress `~/.cache/copilot/` files older than
-  15 days with zstd. Agent-aware via `AGENT_NAME` (or explicit `CACHE_DIR`),
-  and self-throttling (`COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC`, default 1800s) so
-  per-tool hooks don't run it on every call. Invoked automatically by the
-  Claude Stop hook and the Copilot postToolUse hook.
-- **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
-  Safari (darwin only).
-- **`sync-to-gdrive`** — Sync `~/.config`, `~/.local`, and `~/.cache/copilot`
-  to Google Drive (`~/Library/CloudStorage/GoogleDrive-jhettenh@gmail.com/My Drive/42245/dotfiles`).
-  Uses the unison profile at `$UNISON/gdrive-dotfiles.prf`. Sensitive dirs
-  (sops, ops-agent, gh tokens) and large regenerable caches are excluded.
-  Run: `sync-to-gdrive` or `sync-to-gdrive --verbose`.
-- **`log-bash.sh`** — Bash `PostToolUse` hook logger; **not run by hand**. Wired
-  for Claude via `~/.config/claude/settings.json` and for Copilot via
-  `~/.config/copilot/hooks/log-bash.json`. For every Bash tool call it appends a
-  structured record to `~/.cache/copilot/session_<id>.log`:
+Hook/automation scripts (`log-bash.sh`, `log-skill.sh`, `log-thinking.sh`,
+`compress-old-cache`, `claude-cache-stats`, `aws-mcp-server`) live in
+`~/.local/bin/ai-tools/` — intentionally **not** on `$PATH`, never run by hand.
+Agent cache logs (especially `*.thinking.log`) can contain secret values; treat
+them as sensitive.
 
-  ```text
-  ## [YYYY-MM-DD HH:MM:SS] status=ok|stderr|interrupted cwd=<dir>
-  CMD: <command>
-  STDOUT:   (large output truncated)
-  STDERR:   (only when stderr is non-empty)
-  ```
+## Sources
 
-  `status` is a heuristic — the hook payload carries no exit code, so it is
-  `interrupted`, else `stderr` when stderr is non-empty, else `ok`. When reading
-  logs directly, grep `^##` for a command timeline and
-  `status=stderr|interrupted` for likely failures.
-- **`log-skill.sh`** — Skill-invocation hook logger; **not run by hand**. Wired
-  for Claude via the `PostToolUse` `Skill` matcher in
-  `~/.config/claude/settings.json` (injected by the `ensureClaudeHook`
-  activation) and for Copilot via `~/.config/copilot/hooks/log-skill.json`. For
-  every `Skill` tool call — **model-initiated (automatic) invocations as well as
-  skill slash-commands** — it appends a record to
-  `~/.cache/copilot/session_<id>.skills.log`:
-
-  ```text
-  ## [YYYY-MM-DD HH:MM:SS] skill=<name> cwd=<dir>
-  ARGS: <args>
-  RESULT:   (only when the tool response carries text; large output truncated)
-  ```
-
-  Built-in commands like `/model` or `/clear` do **not** route through the Skill
-  <!-- markdownlint-disable-next-line MD038 -->
-  tool and are intentionally not captured. Grep `^## ` across
-  `session_*.skills.log` for a skill-usage timeline. Handles both Claude
-  (`tool_input.skill`) and Copilot (`toolName`) payload shapes.
-- **`log-thinking.sh`** — agent-reasoning logger; **not run by hand**. Wired as
-  Claude `Stop`/`SubagentStop` hooks and a Copilot `postToolUse` hook. Appends
-  new reasoning to `~/.cache/copilot/session_<id>.thinking.log`, deduped by a
-  per-source line cursor. Sources differ per agent: Claude's session transcript
-  (`thinking` blocks) and Copilot's `events.jsonl` (`data.reasoningText`).
-  - **Best-effort for Claude**: thinking text is captured when persisted, but
-    some turns/sessions (e.g. fast mode) store only the encrypted `signature`
-    with empty text — those are skipped, not an error.
-  - **Security**: reasoning can contain secret *values* the agent saw. Known
-    secrets on disk and token-shaped strings are redacted before write, files
-    are `0600`, and `*.thinking.log` is excluded from the gdrive sync profile.
-    Treat these logs as sensitive regardless.
-- **`cache-scan`** — Scan the agent log dir for recent activity. **Terse by
-  default** (token-lean, since an agent reads it): a one-line-per-session
-  overview plus the commands that hit stderr or were interrupted. `-v|--verbose`
-  adds the command timeline and heuristic keyword scan. Flags: `--days N`
-  (default 2), `--date YYYY-MM-DD`, `--session ID`, `--limit N`, `-v|--verbose`.
-  De-duplicates the `~/.cache/copilot` symlink. Prefer this over hand-rolled
-  `rg` sweeps of the log dir.
-- **`ops-agent`** — Deployed via `home-manager/common.nix` as
-  `writeShellScriptBin` (source `ai-tools/scripts/ops-agent.py`).
-
-## Agent Instruction Sources
-
-This file (`chezmoi/dot_config/instructions/agent-defaults.md`) is the single
-source of truth for persistent agent defaults. It is rendered by
-`home-manager/lib/agent-instructions.nix` (substituting `copilot` with the
-agent name) and deployed as read-only symlinks via home-manager. Each deployed
-file is loaded into the agent session's system prompt at startup and is the
-primary source of Anthropic prompt-cache hits for that session.
-
-Stable deployment paths — these symlinks always point to the active generation:
-
-**Claude** (loaded via `CLAUDE_CONFIG_DIR` or fallback):
-
-- `~/.config/claude/CLAUDE.md` — primary
-- `~/.claude/CLAUDE.md` — fallback / memory resolution path
-
-**Copilot:**
-
-- `~/.config/github-copilot/copilot-defaults.instructions.md` — Copilot CLI
-- `~/Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md` — VS Code stable (macOS)
-- `~/Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md` — VS Code Insiders (macOS)
-- `~/.config/Code/User/prompts/copilot-defaults.instructions.md` — VS Code (Linux/XDG)
-- `~/.vscode-server/data/User/prompts/copilot-defaults.instructions.md` — VS Code Server
-
-Each symlink resolves through the current home-manager generation bundle in the
-nix store. To find the active nix store path for a given agent:
-
-```sh
-readlink -f ~/.config/claude/CLAUDE.md          # Claude variant
-readlink -f ~/.config/github-copilot/copilot-defaults.instructions.md  # Copilot variant
-```
-
-The chezmoi path for this file (`chezmoi/dot_config/instructions/`) makes the
-credential and cache-directory locations documented above discoverable on hosts
-that have chezmoi but not the full nix config.
+Rendered from `chezmoi/dot_config/instructions/agent-defaults.md` in the
+nix-config repo (`copilot` substituted per agent) and deployed read-only by
+home-manager. This prefix is the primary prompt-cache anchor for every Claude
+and Copilot session: keep it lean (`task check:instruction-size` enforces a
+budget) and put reference material in agent-reference.md instead. Deployment
+paths and regeneration steps: agent-reference.md.
