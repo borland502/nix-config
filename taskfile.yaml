@@ -361,9 +361,9 @@ tasks:
     cmd: alejandra --check .
 
   fmt:md:
-    desc: Auto-fix markdown files (skips ai-tools/ and chezmoi-generated agent instructions)
+    desc: Auto-fix markdown files (skips ai-tools/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 --fix "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code"
+    cmd: markdownlint-cli2 --fix "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
 
   fmt:sh:
     desc: Format shell scripts in place (shfmt -w, skips ai-tools/)
@@ -418,9 +418,9 @@ tasks:
       task check:instruction-size
 
   lint:md:
-    desc: Lint markdown files (skips ai-tools/ and chezmoi-generated agent instructions)
+    desc: Lint markdown files (skips ai-tools/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code"
+    cmd: markdownlint-cli2 "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
 
   lint:sh:
     desc: Lint and check formatting of shell scripts (skips ai-tools/)
