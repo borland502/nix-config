@@ -1,0 +1,57 @@
+name: Update Flake Inputs
+
+# Scheduled dependency automation: bump flake.lock weekly and open a PR so no
+# interactive agent session is ever spent on routine input updates. Pattern
+# borrowed from budimanjojo/nix-config (Renovate-driven updates) and
+# wimpysworld/nix-config (Determinate Systems update automation).
+#
+# NOTE: PRs created with the default GITHUB_TOKEN do not trigger other
+# workflows, so nix-validation.yml will not run on the PR automatically.
+# Either close/reopen the PR (or push to its branch) to trigger CI, or swap
+# the token below for a fine-grained PAT / GitHub App token.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1' # Mondays 05:17 UTC (off-minute by repo habit)
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update-flake-lock:
+    name: Update flake.lock and open PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
+
+      - name: Update flake.lock and open PR
+        uses: DeterminateSystems/update-flake-lock@834c491b2ece4de0bbd00d85214bb5e83b4da5c6 # v28
+        with:
+          commit-msg: 'chore(deps): update flake.lock'
+          pr-title: 'chore(deps): update flake.lock'
+          pr-labels: |
+            dependencies
+            automated
+          pr-body: |
+            Automated weekly flake input update.
+
+            ```
+            {{ env.GIT_COMMIT_MESSAGE }}
+            ```
+
+            CI does not auto-run on PRs opened with `GITHUB_TOKEN` — close and
+            reopen this PR (or push an empty commit) to trigger
+            `nix-validation.yml` before merging.
