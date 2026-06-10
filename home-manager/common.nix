@@ -25,6 +25,12 @@
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
   # Names of skills currently in ai-tools/skills/ — baked in at eval time so
   # the cleanup activation hook can delete any directory whose name is absent.
+  # Only ai-tools/skills/ (the always-on core set) deploys globally; the
+  # stack-specific set in ai-tools/skills-stack/ is opt-in per project (see
+  # `task skills:enable`), so its names are deliberately NOT in this list —
+  # the cleanup hook below therefore evicts any stack skill that an older
+  # generation deployed globally. Pattern borrowed from khaneliman/khanelinix,
+  # which keeps the always-on agent surface to a single skill reference.
   currentSkillNames = builtins.attrNames (builtins.readDir ../ai-tools/skills);
   vividTheme = import ./lib/vivid-theme.nix {inherit lib pkgs;};
   # Bake LS_COLORS at build time from the repo's monokai palette so ls/eza/tree
@@ -300,6 +306,10 @@ in {
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
       # Deploy those definitions into both Claude's and Copilot's XDG config
       # paths so the same plugin content is available to both CLIs.
+      # Token-cost note: every deployed skill's description is injected into
+      # every session's system prompt, so only ai-tools/skills/ (core) deploys
+      # here. Stack-specific skills live in ai-tools/skills-stack/ and are
+      # linked into individual projects with `task skills:enable` instead.
       # COPILOT_HOME (exported in zsh.nix as $XDG_CONFIG_HOME/copilot)
       # is the parallel of CLAUDE_CONFIG_DIR for Copilot-side tooling.
       "claude/agents" = {

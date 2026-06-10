@@ -537,6 +537,23 @@ tasks:
         exit 1
       fi
 
+  skills:enable:
+    desc: Symlink an opt-in stack skill into a project (SKILL=<name> DIR=<project root, default .>)
+    platforms: [linux, darwin]
+    cmd: |
+      _src="$PWD/ai-tools/skills-stack/{{.SKILL}}"
+      _dest="{{.DIR | default "."}}/.claude/skills"
+      if [ ! -d "$_src" ]; then
+        printf 'Unknown stack skill: %s\nAvailable:\n' "{{.SKILL}}" >&2
+        ls ai-tools/skills-stack >&2
+        exit 1
+      fi
+      mkdir -p "$_dest"
+      ln -sfn "$_src" "$_dest/{{.SKILL}}"
+      printf 'Linked %s -> %s\n' "$_dest/{{.SKILL}}" "$_src"
+    requires:
+      vars: [SKILL]
+
   dev:go-gui:
     desc: Enter the Go GUI development shell
     platforms: [linux]
