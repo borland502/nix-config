@@ -94,4 +94,9 @@
   "chat.hookFilesLocations" = {
     "~/.copilot/hooks" = true;
   };
+  # chat.useHooks is the master execution gate and defaults to false — discovered
+  # hooks are loaded but never run unless this is on. (chat.useClaudeHooks only
+  # gates Claude-format/matcher-wrapped hooks; ours are flat Copilot-format, so it
+  # is not required here.)
+  "chat.useHooks" = true;
 }
