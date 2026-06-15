@@ -221,7 +221,11 @@
       cleanup = "zap"; # Uninstall packages not listed in configuration
       # Homebrew 4.7+ refuses `brew bundle install --cleanup` without an
       # explicit force flag; nix-darwin doesn't add one, so pass it here.
-      extraFlags = ["--force-cleanup"];
+      # TEMP: bypass casks while nix-darwin catches up with Homebrew 6 trust
+      # behavior affecting third-party taps/casks during activation.
+      # TODO(nix-darwin-1789): remove "--no-cask" after nix-darwin PR #1789
+      # lands and this repo updates flake.lock to a revision that includes it.
+      extraFlags = ["--force-cleanup" "--no-cask"];
     };
 
     # Taps (third-party repositories)
