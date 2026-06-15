@@ -86,14 +86,6 @@
           xattr -cr /Applications/Flameshot.app || true
         fi
       '';
-
-      # Install kion-cli from kionsoftware tap after bundle install.
-      # This runs as root and handles tap trust at the system level.
-      kionCliInstall.text = ''
-        echo "Installing kion-cli from kionsoftware/tap..."
-        /opt/homebrew/bin/brew tap kionsoftware/tap --force-options
-        /opt/homebrew/bin/brew install kionsoftware/tap/kion-cli || /opt/homebrew/bin/brew upgrade kionsoftware/tap/kion-cli || true
-      '';
     };
 
     # System settings
@@ -233,10 +225,16 @@
     };
 
     # Taps (third-party repositories)
-    taps = [];
+    # NOTE: Homebrew 6.0 requires explicit tap trust (brew trust kionsoftware/tap)
+    # before brew bundle will load these. nix-darwin fix pending in PR #1789.
+    # Run `brew trust kionsoftware/tap` once as your user after first failure.
+    taps = [
+      "kionsoftware/tap"
+    ];
 
     # CLI tools and libraries
     brews = [
+      "kion-cli"
       "aws-console"
       "colima"
       "docker-credential-helper"
