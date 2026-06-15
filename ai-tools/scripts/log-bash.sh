@@ -3,7 +3,7 @@
 #
 # NOT run by hand. It is wired as a Bash PostToolUse hook (Claude via
 # settings.json, Copilot via ~/.config/copilot/hooks/log-bash.json) and receives
-# the hook payload as JSON on stdin. For every Bash tool call it appends a
+# the hook payload as JSON on stdin. For every Bash/terminal tool call it appends a
 # structured, greppable record to ~/.cache/<agent>/session_<id>.log:
 #
 #   ## [YYYY-MM-DD HH:MM:SS] status=ok|stderr|interrupted cwd=<dir>
@@ -25,8 +25,15 @@ input=$(cat)
 if printf '%s' "$input" | jq -e '.toolName' >/dev/null 2>&1; then
 	# Copilot postToolUse: toolArgs is a JSON string; result text is human-readable.
 	tool_name=$(printf '%s' "$input" | jq -r '.toolName // ""')
-	[[ "$tool_name" == "bash" ]] || exit 0
-	cmd=$(printf '%s' "$input" | jq -r '(.toolArgs | fromjson | .command) // ""' 2>/dev/null || echo "")
+	case "$tool_name" in
+		bash | run_in_terminal | functions.run_in_terminal) ;;
+		*) exit 0 ;;
+	esac
+	cmd=$(printf '%s' "$input" | jq -r '
+		if (.toolArgs | type) == "string" then ((.toolArgs | fromjson | .command) // "")
+		elif (.toolArgs | type) == "object" then (.toolArgs.command // "")
+		else "" end
+	' 2>/dev/null || echo "")
 	sid=$(printf '%s' "$input" | jq -r '.sessionId // "nosid"')
 	cwd=$(printf '%s' "$input" | jq -r '.cwd // .workspaceRoot // ""')
 	stdout=$(printf '%s' "$input" | jq -r '.toolResult.textResultForLlm // ""')
@@ -71,7 +78,7 @@ max_chars=30000
 truncate_field() {
 	local data="$1"
 	if ((${#data} > max_chars)); then
-		printf '%s\n... [truncated %s of %s chars — rerun with `tee` to a ~/.cache file for the full output]' \
+		printf '%s\n... [truncated %s of %s chars -- rerun with tee to a ~/.cache file for the full output]' \
 			"${data:0:max_chars}" "$((${#data} - max_chars))" "${#data}"
 	else
 		printf '%s' "$data"

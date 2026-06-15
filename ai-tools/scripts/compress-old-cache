@@ -38,6 +38,9 @@ fi
 {
 	fd --max-depth 1 --type f --changed-before 1day --exclude '*.zst' . "$cache_dir" --print0
 	fd --max-depth 1 --type f --size +1m --changed-before 15min --exclude '*.zst' . "$cache_dir" --print0
-} | sort -zu | xargs -0 -r zstd -q --rm --
+} | sort -zu | while IFS= read -r -d '' file_path; do
+	[[ -e "${file_path}.zst" ]] && continue
+	printf '%s\0' "$file_path"
+done | xargs -0 -r zstd -q --rm --
 
 printf '%s\n' "$now_epoch" >"$stamp_file"

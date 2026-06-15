@@ -105,7 +105,6 @@
   if homeDirectory != null
   then {
     "chat.hookFilesLocations" = {
-      "${homeDirectory}/.config/copilot/hooks" = true;
       "${homeDirectory}/.copilot/hooks" = true;
     };
   }
