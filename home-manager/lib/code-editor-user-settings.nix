@@ -99,4 +99,17 @@
   # gates Claude-format/matcher-wrapped hooks; ours are flat Copilot-format, so it
   # is not required here.)
   "chat.useHooks" = true;
+  # Run chat through the Copilot CLI/SDK agent host (provider "copilotcli")
+  # instead of the extension-host engine. The CLI backend executes tools in its
+  # own process and reads ~/.config/copilot/hooks/ (the path proven to log and to
+  # bypass the editor preview-feature org policy). Start a session via the
+  # "Chat: New Copilot CLI Session" command (github.copilot.cli.newSession).
+  #
+  # TODO(native-chat): this agent-host detour exists only because the native
+  # extension-host chat hooks (chat.useHooks + chat.hookFilesLocations) are gated
+  # by the "Copilot preview features are disabled by organizational policy" block.
+  # Once that preview feature is released/allowed for the org, drop
+  # chat.agentHost.enabled and go back to the native chat client (the hook
+  # settings above already cover it).
+  "chat.agentHost.enabled" = true;
 }
