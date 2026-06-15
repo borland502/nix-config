@@ -1,14 +1,4 @@
-# homeDirectory: absolute path to the user's home (e.g. "/Users/42245" on macOS,
-# "/home/jhettenh" on Linux). Required to populate chat.hookFilesLocations with
-# an absolute path, because VS Code Copilot 0.53+ skips any entry whose key
-# starts with "~/" when building its hook-file discovery set.
-# TODO: remove the homeDirectory workaround once upstream VS Code adds a
-# supported global hooks path that does not require absolute paths.
-{
-  pkgs,
-  homeDirectory ? null,
-}:
-{
+{pkgs}: {
   # Fonts consistent with Stylix
   "chat.editor.fontFamily" = "FiraCode Nerd Font Mono";
   "chat.editor.fontSize" = 16.0;
@@ -96,17 +86,12 @@
   # VS Code Copilot 0.53+ (shipped in VS Code Insiders on 2026-06-15) moved hook
   # discovery to this VS Code setting. The Copilot CLI still reads the CLI-format
   # manifests in ~/.config/copilot/hooks/ directly; VS Code reads VS Code-format
-  # manifests from ~/.copilot/hooks/. Entries whose keys start with "~/" are
-  # silently skipped by the extension, so absolute paths are required.
+  # manifests from ~/.copilot/hooks/. The extension resolves keys that start with
+  # "~/" against the home directory and *rejects* absolute paths ("glob patterns
+  # and absolute paths not supported"), so the tilde form is required here.
   # TODO(mainline-vscode): when VS Code stable ships Copilot ≥ 0.53 this setting
   # will take effect there too — no code change needed, just awareness.
+  "chat.hookFilesLocations" = {
+    "~/.copilot/hooks" = true;
+  };
 }
-// (
-  if homeDirectory != null
-  then {
-    "chat.hookFilesLocations" = {
-      "${homeDirectory}/.copilot/hooks" = true;
-    };
-  }
-  else {}
-)

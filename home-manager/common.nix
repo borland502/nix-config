@@ -24,7 +24,6 @@
   ];
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
     inherit pkgs;
-    homeDirectory = config.home.homeDirectory;
   };
   copilotLogBashHook = builtins.toJSON {
     version = 1;
