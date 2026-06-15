@@ -22,7 +22,10 @@
     xdgLibHome
     xdgStateHome
   ];
-  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
+  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
+    inherit pkgs;
+    homeDirectory = config.home.homeDirectory;
+  };
   # Names of skills currently in ai-tools/skills/ — baked in at eval time so
   # the cleanup activation hook can delete any directory whose name is absent.
   # Only ai-tools/skills/ (the always-on core set) deploys globally; the

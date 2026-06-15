@@ -1,9 +1,13 @@
 {
+  config,
   pkgs,
   lib,
   ...
 }: let
-  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
+  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
+    inherit pkgs;
+    homeDirectory = config.home.homeDirectory;
+  };
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
   vivaldiBrowserWrapper = pkgs.writeShellScriptBin "vivaldi" ''
     exec /usr/bin/open -a "Vivaldi" "$@"
@@ -275,6 +279,13 @@ in {
         recursive = true;
       };
       "Library/Application Support/Code - Insiders/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
+
+      # VS Code stable settings are deployed via programs.vscode.userSettings in
+      # common.nix (home-manager's vscode module writes the same settings.json).
+      # chat.hookFilesLocations is currently only honoured by Copilot >= 0.53
+      # (Insiders as of 2026-06-15); once stable ships that version the hooks
+      # will start working there too automatically — no code change needed.
+      # TODO(mainline-vscode): remove this comment once stable ships Copilot >= 0.53.
     };
   };
 

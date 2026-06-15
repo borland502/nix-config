@@ -74,7 +74,10 @@
     + (lib.makeSearchPath "share/pkgconfig" guiDevPackages);
   guiIncludePath = lib.makeSearchPath "include" guiDevPackages;
   guiLibraryPath = lib.makeLibraryPath guiRuntimePackages;
-  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {inherit pkgs;};
+  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
+    inherit pkgs;
+    homeDirectory = config.home.homeDirectory;
+  };
 in {
   _module.args.isWsl = true;
 
