@@ -7,7 +7,8 @@
 {
   pkgs,
   homeDirectory ? null,
-}: {
+}:
+{
   # Fonts consistent with Stylix
   "chat.editor.fontFamily" = "FiraCode Nerd Font Mono";
   "chat.editor.fontSize" = 16.0;
@@ -100,8 +101,13 @@
   # hidden dotdir, which falls inside the extension's $eo home-dotfile allowlist).
   # TODO(mainline-vscode): when VS Code stable ships Copilot ≥ 0.53 this setting
   # will take effect there too — no code change needed, just awareness.
-} // (if homeDirectory != null then {
-  "chat.hookFilesLocations" = {
-    "${homeDirectory}/.config/copilot/hooks" = true;
-  };
-} else {})
+}
+// (
+  if homeDirectory != null
+  then {
+    "chat.hookFilesLocations" = {
+      "${homeDirectory}/.config/copilot/hooks" = true;
+    };
+  }
+  else {}
+)
