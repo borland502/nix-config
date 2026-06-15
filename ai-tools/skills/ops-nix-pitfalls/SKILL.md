@@ -1,6 +1,6 @@
 ---
 name: ops-nix-pitfalls
-description: Prevent and resolve common Nix flake, Home Manager, and repo config pitfalls that cause build/switch failures.
+description: Use when a Nix build or activation fails — `task switch`/`task home-switch`/`task build`, nixos-rebuild, darwin-rebuild, or home-manager errors — or before editing flake.nix, home-manager modules, or host configs in this repo. Covers the flake, Home Manager, and repo-config pitfalls that break build/switch.
 ---
 
 # Nix Configuration Pitfalls & Prevention
