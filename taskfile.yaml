@@ -206,14 +206,17 @@ tasks:
     desc: Build and switch to the system configuration
     platforms: [linux, darwin]
     deps: [_record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
-    # Skip the Discord cask in `brew bundle` only when it is ALREADY installed,
-    # so a DPI-blocked Discord CDN download can't fail the whole darwin switch.
-    # Survives the activation's `sudo --preserve-env=PATH` via the env_keep in
-    # hosts/darwin/default.nix. Empty (skip nothing) on Linux or a fresh install,
-    # so a missing Discord is still installed normally.
+    # TEMP: bypass Homebrew cask operations during nix-darwin activation using
+    # Homebrew's supported skip mechanism. Survives activation's
+    # `sudo --preserve-env=PATH` via env_keep in hosts/darwin/default.nix.
+    # TODO(nix-darwin-1789): restore the old Discord-only conditional skip after
+    # nix-darwin PR #1789 lands and flake.lock includes it.
     env: &brew-cask-skip-env
       HOMEBREW_BUNDLE_CASK_SKIP:
-        sh: 'if command -v brew >/dev/null 2>&1 && brew list --cask discord >/dev/null 2>&1; then echo discord; fi'
+        sh: |
+          if command -v brew >/dev/null 2>&1; then
+            echo 'android-platform-tools corretto@11 chromium dbeaver-community discord firefox flameshot google-chrome iterm2 jetbrains-toolbox jordanbaird-ice keepassxc kitty obsidian moonlight postman postman-cli session-manager-plugin slack visual-studio-code visual-studio-code@insiders vivaldi whatsapp'
+          fi
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
@@ -631,6 +634,7 @@ tasks:
     desc: Update nixpkgs and rebuild the system
     platforms: [linux, darwin]
     deps: [_record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
+    env: *brew-cask-skip-env
     cmd: |
       nix flake update
       {{if eq .IN_DEVCONTAINER "true"}}
