@@ -94,11 +94,10 @@
   "workbench.colorTheme" = "Stylix";
 
   # VS Code Copilot 0.53+ (shipped in VS Code Insiders on 2026-06-15) moved hook
-  # discovery from ~/.config/copilot/hooks/ to this VS Code setting. The CLI
-  # still reads ~/.config/copilot/hooks/ directly. Entries whose keys start with
-  # "~/" are silently skipped by the extension, so absolute paths are required.
-  # Value `true` = auto-approved (safe because these are nix-managed files in a
-  # hidden dotdir, which falls inside the extension's $eo home-dotfile allowlist).
+  # discovery to this VS Code setting. The Copilot CLI still reads the CLI-format
+  # manifests in ~/.config/copilot/hooks/ directly; VS Code reads VS Code-format
+  # manifests from ~/.copilot/hooks/. Entries whose keys start with "~/" are
+  # silently skipped by the extension, so absolute paths are required.
   # TODO(mainline-vscode): when VS Code stable ships Copilot ≥ 0.53 this setting
   # will take effect there too — no code change needed, just awareness.
 }
@@ -107,6 +106,7 @@
   then {
     "chat.hookFilesLocations" = {
       "${homeDirectory}/.config/copilot/hooks" = true;
+      "${homeDirectory}/.copilot/hooks" = true;
     };
   }
   else {}

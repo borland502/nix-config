@@ -26,6 +26,68 @@
     inherit pkgs;
     homeDirectory = config.home.homeDirectory;
   };
+  copilotLogBashHook = builtins.toJSON {
+    version = 1;
+    hooks.postToolUse = [
+      {
+        type = "command";
+        command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
+        timeoutSec = 10;
+      }
+      {
+        type = "command";
+        command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/log-thinking.sh"'';
+        timeoutSec = 30;
+      }
+      {
+        type = "command";
+        command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/compress-old-cache"'';
+        timeoutSec = 20;
+      }
+    ];
+  };
+  copilotLogSkillHook = builtins.toJSON {
+    version = 1;
+    hooks.postToolUse = [
+      {
+        type = "command";
+        command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
+        timeoutSec = 10;
+      }
+    ];
+  };
+  vscodeCopilotLogBashHook = builtins.toJSON {
+    hooks.PostToolUse = [
+      {
+        type = "command";
+        command = ''bash "${xdgBinHome}/ai-tools/log-bash.sh"'';
+        env.AGENT_NAME = "copilot";
+        timeout = 10;
+      }
+      {
+        type = "command";
+        command = ''bash "${xdgBinHome}/ai-tools/log-thinking.sh"'';
+        env.AGENT_NAME = "copilot";
+        timeout = 30;
+      }
+      {
+        type = "command";
+        command = ''bash "${xdgBinHome}/ai-tools/compress-old-cache"'';
+        env.AGENT_NAME = "copilot";
+        timeout = 20;
+      }
+    ];
+  };
+  vscodeCopilotLogSkillHook = builtins.toJSON {
+    hooks.PostToolUse = [
+      {
+        type = "command";
+        command = ''bash "${xdgBinHome}/ai-tools/log-skill.sh"'';
+        env.AGENT_NAME = "copilot";
+        timeout = 10;
+      }
+    ];
+  };
   # Names of skills currently in ai-tools/skills/ — baked in at eval time so
   # the cleanup activation hook can delete any directory whose name is absent.
   # Only ai-tools/skills/ (the always-on core set) deploys globally; the
@@ -256,42 +318,14 @@ in {
       # written to events.jsonl before a tool completes, so per-tool-call capture
       # catches it. (A turn with reasoning but no tool call is captured on the
       # next tool call; switch to a stop/session-end event if Copilot adds one.)
-      "copilot/hooks/log-bash.json".text = builtins.toJSON {
-        version = 1;
-        hooks.postToolUse = [
-          {
-            type = "command";
-            command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
-            timeoutSec = 10;
-          }
-          {
-            type = "command";
-            command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/log-thinking.sh"'';
-            timeoutSec = 30;
-          }
-          {
-            type = "command";
-            command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/compress-old-cache"'';
-            timeoutSec = 20;
-          }
-        ];
-      };
+      "copilot/hooks/log-bash.json".text = copilotLogBashHook;
 
       # Wires the Copilot skill-invocation logger. log-skill.sh self-filters on
       # toolName == "Skill" and appends a record to
       # ~/.cache/copilot/session_<id>.skills.log. Mirrors the Claude PostToolUse
       # "Skill" hook injected by ensureClaudeHook below, so automatic
       # (model-initiated) and slash-command skill calls are tracked for both agents.
-      "copilot/hooks/log-skill.json".text = builtins.toJSON {
-        version = 1;
-        hooks.postToolUse = [
-          {
-            type = "command";
-            command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
-            timeoutSec = 10;
-          }
-        ];
-      };
+      "copilot/hooks/log-skill.json".text = copilotLogSkillHook;
 
       # Copilot CLI MCP servers, managed declaratively so the set stays lean.
       # Every enabled MCP server injects its tool definitions into context on
@@ -684,6 +718,11 @@ in {
           recursive = true;
           force = true;
         };
+        # VS Code Copilot uses the agent customization hook schema (PostToolUse,
+        # timeout), while the Copilot CLI uses ~/.config/copilot/hooks with the
+        # CLI schema (postToolUse, timeoutSec). Keep both paths populated.
+        ".copilot/hooks/log-bash.json".text = vscodeCopilotLogBashHook;
+        ".copilot/hooks/log-skill.json".text = vscodeCopilotLogSkillHook;
       }
       // {
         # Claude Code's memory-file loader hardcodes ~/.claude/CLAUDE.md and
