@@ -42,7 +42,6 @@
       text = ''
         Defaults env_keep += "HOMEBREW_BUNDLE_CASK_SKIP"
       '';
-      mode = "0440";
     };
   };
 
