@@ -59,32 +59,42 @@
     # Set the primary user for system defaults
     primaryUser = "42245";
 
-    # Enable Touch ID for sudo authentication via activation script
-    activationScripts.extraActivation.text = ''
-          echo "Setting up Touch ID for sudo..."
-          if ! grep -q "pam_tid.so" /etc/pam.d/sudo; then
-            # Create a backup of the original sudo pam file
-            cp /etc/pam.d/sudo /etc/pam.d/sudo.backup.before.nix-darwin
+    activationScripts = {
+      # Enable Touch ID for sudo authentication via activation script
+      extraActivation.text = ''
+            echo "Setting up Touch ID for sudo..."
+            if ! grep -q "pam_tid.so" /etc/pam.d/sudo; then
+              # Create a backup of the original sudo pam file
+              cp /etc/pam.d/sudo /etc/pam.d/sudo.backup.before.nix-darwin
 
-            # Add Touch ID support to sudo
-            sed -i'.bak' '2i\
-      auth       sufficient     pam_tid.so
-      ' /etc/pam.d/sudo
+              # Add Touch ID support to sudo
+              sed -i'.bak' '2i\
+        auth       sufficient     pam_tid.so
+        ' /etc/pam.d/sudo
 
-            echo "Touch ID for sudo has been enabled"
-          else
-            echo "Touch ID for sudo is already enabled"
-          fi
-    '';
+              echo "Touch ID for sudo has been enabled"
+            else
+              echo "Touch ID for sudo is already enabled"
+            fi
+      '';
 
-    # Strip quarantine from Flameshot after Homebrew installs it to bypass Gatekeeper.
-    # nix-darwin activation now runs as root, so a regular activation script is sufficient.
-    activationScripts.flameshotQuarantineFix.text = ''
-      if [ -d "/Applications/Flameshot.app" ]; then
-        echo "Stripping quarantine attribute from Flameshot..."
-        xattr -cr /Applications/Flameshot.app || true
-      fi
-    '';
+      # Strip quarantine from Flameshot after Homebrew installs it to bypass Gatekeeper.
+      # nix-darwin activation now runs as root, so a regular activation script is sufficient.
+      flameshotQuarantineFix.text = ''
+        if [ -d "/Applications/Flameshot.app" ]; then
+          echo "Stripping quarantine attribute from Flameshot..."
+          xattr -cr /Applications/Flameshot.app || true
+        fi
+      '';
+
+      # Install kion-cli from kionsoftware tap after bundle install.
+      # This runs as root and handles tap trust at the system level.
+      kionCliInstall.text = ''
+        echo "Installing kion-cli from kionsoftware/tap..."
+        /opt/homebrew/bin/brew tap kionsoftware/tap --force-options
+        /opt/homebrew/bin/brew install kionsoftware/tap/kion-cli || /opt/homebrew/bin/brew upgrade kionsoftware/tap/kion-cli || true
+      '';
+    };
 
     # System settings
     defaults = {
@@ -223,16 +233,13 @@
     };
 
     # Taps (third-party repositories)
-    taps = [
-      "kionsoftware/tap"
-    ];
+    taps = [];
 
     # CLI tools and libraries
     brews = [
       "aws-console"
       "colima"
       "docker-credential-helper"
-      "kion-cli"
       "lima-additional-guestagents"
       "nvm"
       "pydantic"
