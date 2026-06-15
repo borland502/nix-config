@@ -8,19 +8,21 @@ read that file on demand instead of asking the user.
 - Minimize interactive terminal flows that can mangle command output in the IDE.
   If a shared shell shows prompt fragments, reused partial commands, or quote
   mangling, stop reusing it and rerun the workflow from an isolated shell.
-- When running terminal commands, also write the exact command and resulting
-  output to files under ~/.cache/copilot (ensure the directory exists once per
-  session). Use append-safe logging or timestamped files so earlier logs are not
-  lost unless replacement is intended.
+- Bash command + output is logged automatically by the `log-bash` PostToolUse
+  hook (`~/.cache/copilot/session_<id>.log`, capped at 30000 chars/field to
+  match Claude Code's own Bash output ceiling) — do not hand-roll `mkdir`/`tee`
+  for routine logging. Add an explicit `tee` to a timestamped ~/.cache/copilot
+  file only for truly large content whose full output exceeds that ceiling and
+  you need it preserved verbatim.
 - For helper scripts or long text payloads, write temporary Go/Python/shell/data
   files to ~/.cache/copilot rather than inline heredocs or long inline command
   strings. Prefer file-editing tools for long text; reserve shell text
   construction for short, stable snippets.
 - When investigating tool or command failures, inspect recent logs under
   ~/.cache/copilot first — prefer the `cache-scan` helper (see the
-  ops-cache-scan skill) over hand-rolled sweeps. Logs older than 15 days are
-  zstd-archived; search uncompressed files first and `zstdcat` an archive only
-  when they hold no useful example.
+  ops-cache-scan skill) over hand-rolled sweeps. Logs older than 1 day (or over
+  1 MB) are zstd-archived; search uncompressed files first and `zstdcat` an
+  archive only when they hold no useful example.
 - If image or screenshot analysis is requested but agent vision is disabled,
   check the Pictures directory first (`$HOME/Pictures`; Windows:
   `%HOME%\\Pictures`).
@@ -68,7 +70,10 @@ read that file on demand instead of asking the user.
   `permission denied`, repeated quoting errors), use the shell-pitfalls skill.
 - For shell commands with JSON payloads, inline scripts, or heavy quoting,
   write a short script file under ~/.cache/copilot and execute it instead of
-  retrying inline `zsh -c` command strings.
+  retrying inline `zsh -c` command strings. Hard precondition (not a
+  post-failure fallback): any `gh api graphql` call, or any `jq` filter over
+  ~200 chars or with nested escaped quotes, MUST be file-backed before its first
+  run — see the gh-graphql-jq-pipelines skill and the `gh-graphql` helper.
 
 ## Helper Scripts (~/.local/bin)
 
@@ -77,6 +82,8 @@ Prefer these over ad-hoc one-liners; full usage docs in agent-reference.md:
 - `kac` — Kion AWS credential cache; must be **sourced**:
   `source ~/.local/bin/kac ensure`
 - `monitor-gh-run <run-id>` — poll a GitHub Actions run to completion
+- `gh-graphql <tag> <query.graphql> [--jq <f.jq>] [-F k=v]` — file-backed
+  `gh api graphql` (see gh-graphql-jq-pipelines skill)
 - `jira-my-tickets` — open Jira tickets assigned to the current user
 - `cache-scan` — terse scan of recent agent session logs (token-lean output)
 - `sync-to-gdrive` — unison sync of dotfiles to Google Drive (darwin)

@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# gh-graphql — file-backed `gh api graphql` runner.
+#
+# Usage:
+#   gh-graphql <task-tag> <query-file> [--jq <jq-file>] [-F key=value ...]
+#
+# Enforces the only sanctioned shape for GraphQL + jq pipelines (see the
+# gh-graphql-jq-pipelines skill): the query lives in a .graphql file and the
+# jq filter (if any) lives in a .jq file, so there is no inline shell-quoting
+# context for braces or nested quotes to rot in. Both inputs are snapshotted
+# under ~/.cache/<agent>/<task-tag>-<timestamp>.{graphql,jq} for later forensics
+# before the call runs.
+#
+# Examples:
+#   gh-graphql pr2244-threads ./threads.graphql --jq ./threads.jq \
+#     -F owner=Enterprise-CMCS -F repo=mdp-application -F number=2244
+#
+# Any args after the recognized flags are passed through to `gh api graphql`
+# verbatim (so -F/-f/--paginate etc. all work).
+set -euo pipefail
+
+usage() {
+  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+[[ $# -lt 2 ]] && { echo "gh-graphql: need <task-tag> <query-file>" >&2; usage 1; }
+case "$1" in -h|--help) usage 0 ;; esac
+
+task_tag="$1"; shift
+query_file="$1"; shift
+[[ -f "$query_file" ]] || { echo "gh-graphql: query file not found: $query_file" >&2; exit 1; }
+
+jq_file=""
+passthrough=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --jq)
+      shift
+      jq_file="${1:?--jq needs a file path}"
+      [[ -f "$jq_file" ]] || { echo "gh-graphql: jq file not found: $jq_file" >&2; exit 1; }
+      ;;
+    *)
+      passthrough+=("$1")
+      ;;
+  esac
+  shift
+done
+
+# Resolve the agent cache dir (claude is the canonical target; copilot is the
+# symlink). Fall back to ~/.cache/claude.
+agent="${AGENT_NAME:-claude}"
+cache_dir="$HOME/.cache/$agent"
+[[ -d "$cache_dir" ]] || cache_dir="$HOME/.cache/claude"
+mkdir -p "$cache_dir"
+
+ts="$(date '+%Y%m%d-%H%M%S')"
+snap_query="$cache_dir/${task_tag}-${ts}.graphql"
+cp "$query_file" "$snap_query"
+
+jq_args=()
+if [[ -n "$jq_file" ]]; then
+  snap_jq="$cache_dir/${task_tag}-${ts}.jq"
+  cp "$jq_file" "$snap_jq"
+  jq_args=(--jq "$(cat "$snap_jq")")
+fi
+
+echo "gh-graphql: query=$snap_query${jq_file:+ jq=$snap_jq}" >&2
+exec gh api graphql -F query=@"$snap_query" "${passthrough[@]}" "${jq_args[@]}"

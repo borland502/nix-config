@@ -11,6 +11,27 @@
 #
 # Assumes GNU coreutils (stat -c). Guaranteed on PATH by this nix config:
 # coreutils is in the darwin system profile and native on Linux/WSL.
+#
+# Requires bash 4+ (declare -A, mapfile). macOS ships bash 3.2 as /bin/bash, so
+# a bare `#!/usr/bin/env bash` is not enough when an agent invokes us through a
+# shell whose PATH resolves bash to /bin/bash. Re-exec under a modern bash if
+# the running interpreter is too old, searching the nix profiles first.
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+	for _b in \
+		/run/current-system/sw/bin/bash \
+		/etc/profiles/per-user/"$USER"/bin/bash \
+		"$HOME/.nix-profile/bin/bash" \
+		/opt/homebrew/bin/bash /usr/local/bin/bash; do
+		if [ -x "$_b" ]; then exec "$_b" "$0" "$@"; fi
+	done
+	# Last resort: a bash 4+ anywhere on PATH that is not this one.
+	_b=$(command -v bash 2>/dev/null || true)
+	if [ -n "$_b" ] && "$_b" -c '[ "${BASH_VERSINFO[0]}" -ge 4 ]' 2>/dev/null; then
+		exec "$_b" "$0" "$@"
+	fi
+	echo "cache-scan: needs bash 4+ (found ${BASH_VERSION:-unknown}); none located" >&2
+	exit 1
+fi
 set -euo pipefail
 
 usage() {
@@ -95,9 +116,20 @@ if [[ ${#roots[@]} -eq 0 ]]; then
 	exit 0
 fi
 
+# Emit a log file's contents, transparently decompressing the .zst archives
+# that compress-old-cache produces (logs >1 day or >1 MB). Falls back to raw
+# cat if zstdcat is unavailable so an archive simply yields nothing scannable.
+catlog() {
+	case "$1" in
+	*.zst) command -v zstdcat >/dev/null 2>&1 && zstdcat -- "$1" 2>/dev/null ;;
+	*) cat -- "$1" ;;
+	esac
+}
+
 # Discover session logs (by mtime, newest first). GNU stat (-c) — see header.
-name_glob='session_*.log'
-[[ -n "$session" ]] && name_glob="session_*${session}*.log"
+# The trailing `*` also picks up the session_*.log.zst archives.
+name_glob='session_*.log*'
+[[ -n "$session" ]] && name_glob="session_*${session}*.log*"
 mapfile -t logs < <(find "${roots[@]}" -type f -name "$name_glob" -mtime "-$days" 2>/dev/null |
 	while read -r p; do printf '%s\t%s\n' "$(stat -c '%Y' "$p" 2>/dev/null || echo 0)" "$p"; done |
 	sort -rn | cut -f2-)
@@ -119,14 +151,14 @@ function hdr(line) {
 	if (match(line, /status=[a-z]+/)) st = substr(line, RSTART + 7, RLENGTH - 7)
 }
 function hhmmss(s) { return (match(s, /[0-9:]+$/)) ? substr(s, RSTART, RLENGTH) : s }
-function idof(f,   b) { b = f; sub(/^session_/, "", b); sub(/\.log$/, "", b); return substr(b, 1, 8) }
+function idof(f,   b) { b = f; sub(/^session_/, "", b); sub(/\.log(\.zst)?$/, "", b); return substr(b, 1, 8) }
 AWK
 
 # One line per session: id, counts, last status + command. (Was two lines —
 # halving it is the biggest default-output token saving.)
 echo "SESSIONS (newest first)"
 for f in "${logs[@]}"; do
-	awk -v file="${f##*/}" -v df="$date_filter" "$AWK_HDR"'
+	catlog "$f" | awk -v file="${f##*/}" -v df="$date_filter" "$AWK_HDR"'
 		/^## \[/ { hdr($0); if (df != "" && index(stamp, df) != 1) { skip=1; next } skip=0
 			recs++; laststatus=st
 			if (st=="stderr") nerr++; else if (st=="interrupted") nint++; next }
@@ -136,16 +168,16 @@ for f in "${logs[@]}"; do
 			c = (length(lastcmd)>52) ? substr(lastcmd,1,52) "…" : lastcmd
 			printf "  %-8s cmds=%-3d err=%-2d intr=%-2d %-11s :: %s\n", \
 				idof(file), recs, nerr+0, nint+0, laststatus, c
-		}' "$f"
+		}'
 done
 
 # Likely failures — compact (time-only stamp, capped). The high-signal section.
 echo "FAILURES (stderr|interrupted)"
 fail_out=$(for f in "${logs[@]}"; do
-	awk -v file="${f##*/}" "$AWK_HDR"'
+	catlog "$f" | awk -v file="${f##*/}" "$AWK_HDR"'
 		/^## \[/ { hdr($0); bad=(st=="stderr"||st=="interrupted"); pstamp=stamp; pst=st; next }
 		/^CMD: / && bad { printf "  %-8s %s %-11s :: %s\n", idof(file), hhmmss(pstamp), pst, substr($0,6); bad=0 }
-	' "$f"
+	'
 done | tail -n 12)
 if [[ -n "$fail_out" ]]; then
 	printf '%s\n' "$fail_out"
@@ -158,13 +190,13 @@ fi
 
 recent="${logs[0]}"
 echo "TIMELINE (last $limit, ${recent##*/})"
-awk "$AWK_HDR"'
+catlog "$recent" | awk "$AWK_HDR"'
 	/^## \[/ { hdr($0); pstamp=stamp; pst=st; pend=1; next }
 	/^CMD: / && pend { printf "  [%s] %-11s %s\n", pstamp, pst, substr($0,6); pend=0 }
-' "$recent" | tail -n "$limit"
+' | tail -n "$limit"
 
 echo "KEYWORD HITS (heuristic, output text)"
-kw_out=$(rg -i --no-heading -c \
+kw_out=$(rg -z -i --no-heading -c \
 	"error|failed|traceback|permission denied|exception|fatal" \
 	"${logs[@]}" 2>/dev/null | sed "s#$HOME#~#g" | tail -20 || true)
 [[ -n "$kw_out" ]] && printf '%s\n' "$kw_out" || echo "  none"

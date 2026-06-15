@@ -60,6 +60,13 @@ the nix-config repo.
 - **`monitor-gh-run <run-id>`** — Poll a GitHub Actions run, printing per-job
   status transitions. Cancels older duplicate runs; switches to newer runs
   automatically. Exits 0 on success, 1 on failure. Deps: `gh`, `jq`.
+- **`gh-graphql <task-tag> <query-file> [--jq <jq-file>] [-F k=v ...]`** —
+  File-backed `gh api graphql` runner. Snapshots the query (and optional jq
+  filter) to `~/.cache/<agent>/<task-tag>-<timestamp>.{graphql,jq}`, then calls
+  `gh api graphql -F query=@<file>` with the snapshotted filter, passing through
+  any extra `-F`/`-f`/`--paginate` args. Enforces the only sanctioned shape for
+  GraphQL + jq pipelines — no inline brace/quote rot. See the
+  gh-graphql-jq-pipelines skill. Deps: `gh`.
 - **`jira-my-tickets`** — Print open Jira tickets assigned to the current user
   (status not Done, ordered by rank). Reads token from
   `~/.config/ops-agent/jira-token` and email from

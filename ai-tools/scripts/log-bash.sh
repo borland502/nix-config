@@ -62,13 +62,16 @@ else
 	status="ok"
 fi
 
-# Cap very large fields so individual records stay scannable. Character-based
-# slicing (no pipe) avoids SIGPIPE under `set -o pipefail`.
-max_chars=8000
+# Cap very large fields so individual records stay scannable. 30000 matches
+# Claude Code's own Bash output ceiling, so we log everything the hook is handed
+# without loss; output beyond that was already truncated before this hook ran —
+# capture it with an explicit `tee` at command time (see agent-defaults.md).
+# Character-based slicing (no pipe) avoids SIGPIPE under `set -o pipefail`.
+max_chars=30000
 truncate_field() {
 	local data="$1"
 	if ((${#data} > max_chars)); then
-		printf '%s\n... [truncated %s of %s chars — see agent transcript for full output]' \
+		printf '%s\n... [truncated %s of %s chars — rerun with `tee` to a ~/.cache file for the full output]' \
 			"${data:0:max_chars}" "$((${#data} - max_chars))" "${#data}"
 	else
 		printf '%s' "$data"

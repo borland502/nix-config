@@ -51,6 +51,8 @@ if [[ $? -ne 0 ]]; then ...; fi
 
 **Names to avoid as zsh variables:** `status`, `path`, `cdpath`, `fpath`, `manpath` — these are linked to special arrays/integers. `rc`, `exit_code`, `result` are safe.
 
+Related quoting trap: never emit a bare `==` or `===` as standalone shell text — zsh treats it as a glob/comparison operator and can error or mis-expand. Quote those strings (`"=="`) when they are literal data.
+
 ## Heavy quoting → write a script file
 
 When a `zsh -c '...'` fails because of nested quoting, JSON payloads, or escaped-and-re-escaped characters: **stop retrying inline.** Write the command to a file under `~/.cache/<agent>/` and execute the file.
@@ -74,6 +76,12 @@ chmod +x ~/.cache/claude/post.sh
 The file form is also re-runnable (the agent's PostToolUse hook captures the path and contents in the log) and edit-friendly when the API call needs adjusting.
 
 This is the codified version of the heuristic in [chezmoi/dot_config/instructions/agent-defaults.md L27](../../../chezmoi/dot_config/instructions/agent-defaults.md). When you find yourself on the third inline retry, stop and write a script.
+
+For the specific case of `gh api graphql` calls and long/nested `jq` filters — the highest-frequency offender — file-backing is a hard precondition, not a third-retry fallback. See [gh-graphql-jq-pipelines](../gh-graphql-jq-pipelines/SKILL.md) for the sanctioned `.graphql` + `.jq` file shape and the four recurring failure signatures.
+
+## AWS / Kion credential safety
+
+When the local environment uses Kion, load temporary AWS credentials with `source ~/.local/bin/kac ensure` (or read `~/.cache/kion-aws-cache/`) rather than the frequently-stale `~/.aws/credentials` / `AWS_PROFILE`. Treat any value read from a credentials file as a secret — never echo it into command output or a summary.
 
 ## Wrapped-capture permission-denied retry
 
@@ -100,7 +108,17 @@ If you've reached this skill but none of the above patterns match, the problem p
 
 After ruling those out, check [ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md) for nix-specific traps that surface as shell errors.
 
+## Quick checklist
+
+- No `status`/`path`/`cdpath`/`fpath`/`manpath` used as a plain variable name.
+- Variable expansions and file paths quoted (`"$var"`); literal `==`/`===` quoted.
+- Aliases bypassed (`/bin/cat`, `/bin/ls`, `command <name>`) when exact output matters.
+- Long/nested/JSON payload moved to a script file instead of retried inline.
+- `gh api graphql` / long `jq` filters file-backed up front (gh-graphql-jq-pipelines).
+- Credentials loaded via `kac` / cache; never echoed into output.
+
 ## References
 
 - [chezmoi/dot_config/instructions/agent-defaults.md](../../../chezmoi/dot_config/instructions/agent-defaults.md) — the source instruction file these patterns are codified from.
 - [home-manager/zsh.nix](../../../home-manager/zsh.nix) — the alias definitions.
+- [gh-graphql-jq-pipelines](../gh-graphql-jq-pipelines/SKILL.md) — the file-backed shape for `gh api graphql` + `jq`.

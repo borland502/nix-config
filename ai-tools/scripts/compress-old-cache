@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Compress cache files older than 15 days with zstd.
+# Compress cache files with zstd once they are older than 1 day, plus any file
+# already exceeding 1 MB (with a short modification grace so the live session
+# log is never compressed mid-write).
 # Invoked by agent hooks; supports both Claude and Copilot caches.
 # Files already ending in .zst are skipped; originals are removed on success.
 set -euo pipefail
@@ -29,7 +31,13 @@ if [[ -f "$stamp_file" ]]; then
 	fi
 fi
 
-fd --max-depth 1 --type f --changed-before 15days --exclude '*.zst' . "$cache_dir" --print0 |
-	xargs -0 -r zstd -q --rm --
+# Two selection passes, de-duplicated via sort -zu before compression:
+#   1. age:  anything not modified in the last day.
+#   2. size: anything over 1 MB, with a 15-minute modification grace so the
+#            currently-active session log is left alone while it is being written.
+{
+	fd --max-depth 1 --type f --changed-before 1day --exclude '*.zst' . "$cache_dir" --print0
+	fd --max-depth 1 --type f --size +1m --changed-before 15min --exclude '*.zst' . "$cache_dir" --print0
+} | sort -zu | xargs -0 -r zstd -q --rm --
 
 printf '%s\n' "$now_epoch" >"$stamp_file"

@@ -206,6 +206,14 @@ tasks:
     desc: Build and switch to the system configuration
     platforms: [linux, darwin]
     deps: [_record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
+    # Skip the Discord cask in `brew bundle` only when it is ALREADY installed,
+    # so a DPI-blocked Discord CDN download can't fail the whole darwin switch.
+    # Survives the activation's `sudo --preserve-env=PATH` via the env_keep in
+    # hosts/darwin/default.nix. Empty (skip nothing) on Linux or a fresh install,
+    # so a missing Discord is still installed normally.
+    env: &brew-cask-skip-env
+      HOMEBREW_BUNDLE_CASK_SKIP:
+        sh: 'if command -v brew >/dev/null 2>&1 && brew list --cask discord >/dev/null 2>&1; then echo discord; fi'
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
@@ -233,6 +241,8 @@ tasks:
     desc: Build and switch to the nix-darwin configuration
     platforms: [darwin]
     deps: [_record-nix-config-dir, _chezmoi-ensure]
+    # See `switch`: skip an already-installed Discord cask in the darwin bundle.
+    env: *brew-cask-skip-env
     cmd: sudo darwin-rebuild switch --flake .#{{.HOST}}
 
   # NixOS-specific tasks (kept for Linux systems)
@@ -300,6 +310,8 @@ tasks:
     desc: Switch home-manager configuration
     platforms: [linux, darwin]
     deps: [_record-nix-config-dir, _chezmoi-ensure]
+    # See `switch`: skip an already-installed Discord cask in the darwin bundle.
+    env: *brew-cask-skip-env
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
@@ -478,6 +490,35 @@ tasks:
         exit 1
       fi
       printf 'instruction size OK: %s lines / %s bytes (budget %s / %s)\n' "$lines" "$bytes" "$max_lines" "$max_bytes"
+
+  check:graphql-shape:
+    desc: Flag recent inline gh-graphql/jq failures in the agent cache logs
+    platforms: [linux, darwin]
+    cmd: |
+      # Surfaces regressions of the inline-gh-graphql anti-pattern that the
+      # gh-graphql-jq-pipelines skill + gh-graphql helper exist to prevent.
+      # Scans uncompressed agent logs from the last 7 days for the failure
+      # fingerprints; any hit exits non-zero. Goal: zero in the window.
+      roots=""
+      for d in "$HOME/.cache/claude" "$HOME/.cache/copilot"; do
+        [ -d "$d" ] && roots="$roots $d"
+      done
+      if [ -z "$roots" ]; then
+        echo "check:graphql-shape: no agent cache dir found; nothing to scan"
+        exit 0
+      fi
+      pattern='gh: Expected one of (SCHEMA|SCALAR)|Variable \$[A-Za-z0-9_]+ is declared by anonymous query but not used|jq: error'
+      hits=$(find $roots -type f -name '*.log' -mtime -7 -print0 2>/dev/null \
+        | xargs -0 rg -c --no-messages -e "$pattern" 2>/dev/null \
+        | awk -F: '{n+=$NF} END{print n+0}')
+      if [ "${hits:-0}" -gt 0 ]; then
+        printf 'check:graphql-shape: %s inline gh-graphql/jq failure line(s) in the last 7 days.\n' "$hits" >&2
+        find $roots -type f -name '*.log' -mtime -7 -print0 2>/dev/null \
+          | xargs -0 rg -l --no-messages -e "$pattern" 2>/dev/null | sed "s#$HOME#~#g" >&2
+        printf '%s\n' 'Use the gh-graphql helper / gh-graphql-jq-pipelines skill (file-backed query + jq).' >&2
+        exit 1
+      fi
+      echo "check:graphql-shape: clean (no gh-graphql/jq failure fingerprints in last 7 days)"
 
   generate:agent-instructions:
     desc: Render agent-defaults.md into chezmoi-managed files for Windows deployment

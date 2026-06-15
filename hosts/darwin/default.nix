@@ -30,6 +30,20 @@
     variables = {
       PATH = "/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$PATH";
     };
+
+    # Let `task switch` skip a cask in `brew bundle` via HOMEBREW_BUNDLE_CASK_SKIP.
+    # nix-darwin runs the bundle under `sudo --preserve-env=PATH`, which strips
+    # every other env var, so without this env_keep the taskfile-set value never
+    # reaches brew. Used to skip the Discord upgrade on networks that DPI-block
+    # the Discord CDN; the taskfile only sets the var when the cask is already
+    # installed, so a missing cask is still installed normally. (sudo's
+    # #includedir ignores filenames containing a dot, so keep this dotless.)
+    etc."sudoers.d/20-homebrew-bundle-skip" = {
+      text = ''
+        Defaults env_keep += "HOMEBREW_BUNDLE_CASK_SKIP"
+      '';
+      mode = "0440";
+    };
   };
 
   # Create /etc/zshrc that loads the nix-darwin environment.
