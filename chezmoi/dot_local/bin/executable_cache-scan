@@ -172,15 +172,59 @@ for f in "${logs[@]}"; do
 done
 
 # Likely failures — compact (time-only stamp, capped). The high-signal section.
+# Suppresses stderr records whose STDERR body is *only* benign harness noise
+# (the "Shell cwd was reset" one-shot-cd notice, SIGPIPE "Broken pipe"), so logs
+# written before the log-bash.sh stderr filter do not crowd out real failures.
+# `interrupted` records are never suppressed. Emission is deferred to record end
+# so the whole STDERR body can be inspected first.
 echo "FAILURES (stderr|interrupted)"
 fail_out=$(for f in "${logs[@]}"; do
 	catlog "$f" | awk -v file="${f##*/}" "$AWK_HDR"'
-		/^## \[/ { hdr($0); bad=(st=="stderr"||st=="interrupted"); pstamp=stamp; pst=st; next }
-		/^CMD: / && bad { printf "  %-8s %s %-11s :: %s\n", idof(file), hhmmss(pstamp), pst, substr($0,6); bad=0 }
+		function emit() {
+			if (!bad) return
+			if (pst=="stderr" && haderr && benign) return
+			printf "  %-8s %s %-11s :: %s\n", idof(file), hhmmss(pstamp), pst, cmd
+		}
+		/^## \[/ { emit(); hdr($0); bad=(st=="stderr"||st=="interrupted")
+			pstamp=stamp; pst=st; cmd=""; inerr=0; benign=1; haderr=0; next }
+		/^CMD: / && bad && cmd=="" { cmd=substr($0,6); next }
+		/^STDERR:/ && bad { inerr=1; next }
+		/^---$/ { inerr=0 }
+		inerr && bad && $0 !~ /^[[:space:]]*$/ {
+			haderr=1
+			if ($0 !~ /Shell cwd was reset to / && $0 !~ /[Bb]roken pipe/) benign=0
+		}
+		END { emit() }
 	'
 done | tail -n 12)
 if [[ -n "$fail_out" ]]; then
 	printf '%s\n' "$fail_out"
+else
+	echo "  none"
+fi
+
+# Silent failures — commands that exit cleanly but whose OUTPUT shows the action
+# did not happen: stale-credential AWS calls, zsh nullglob path misses, the
+# GNU/BSD `stat` format trap, missing binaries. These set no stderr, so the
+# status header above never flags them. Heuristic and body-scanned — CMD lines
+# are skipped so a command that merely *mentions* a marker is not flagged, but a
+# session that greps these logs can still self-trip; treat as a lead, not proof.
+echo "SILENT FAILURES (exit-0 errors, heuristic)"
+silent_out=$(for f in "${logs[@]}"; do
+	catlog "$f" | awk -v file="${f##*/}" "$AWK_HDR"'
+		function emit() { if (hit!="") printf "  %-8s %s %-13s :: %s\n", idof(file), hhmmss(pstamp), hit, cmd }
+		/^## \[/ { emit(); hdr($0); pstamp=stamp; cmd=""; hit=""; next }
+		/^CMD: / { if (cmd=="") cmd=substr($0,6); next }
+		hit!="" { next }
+		/ExpiredToken|security token included in the request is expired/ { hit="expired-token" }
+		/no matches found:/ { hit="nullglob-miss" }
+		/cannot read file system information for .%/ { hit="stat-dialect" }
+		/: command not found/ { hit="cmd-not-found" }
+		END { emit() }
+	'
+done | tail -n 12)
+if [[ -n "$silent_out" ]]; then
+	printf '%s\n' "$silent_out"
 else
 	echo "  none"
 fi

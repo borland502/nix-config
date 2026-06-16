@@ -35,6 +35,10 @@ Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
   source ~/.local/bin/kac ensure
   ```
 
+  Do this **before** the first `aws` call, not after one fails — for a one-shot,
+  wrap both: `zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws …'`. Do
+  not `aws sso login` or `find`/`zstdcat` for the cache path; `kac` owns it.
+
 - **GitHub (gh CLI)**: `~/.config/gh/hosts.yml`
 - **SOPS age key** (decrypts all nix-managed secrets):
   `~/.config/sops/age/keys.txt`
