@@ -222,7 +222,14 @@ tasks:
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
         brew update --quiet
-        sudo darwin-rebuild switch --flake .#{{.HOST}}
+        # Strip Home Manager's cosmetic orphan-link spam (~530 lines/run) left by
+        # the stale *.instructions.md -> *.prompt.md prompt-bridge migration; the
+        # referenced files are already gone. pipefail + a brace-grouped `|| true`
+        # drops only those lines while preserving darwin-rebuild's exit code and
+        # every other line, including genuine errors.
+        set -o pipefail
+        sudo darwin-rebuild switch --flake .#{{.HOST}} 2>&1 \
+          | { grep -v 'does not link into a Home Manager generation\. Skipping delete\.' || true; }
       {{else if eq .IS_NIXOS "true"}}
         bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
