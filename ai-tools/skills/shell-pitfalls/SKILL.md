@@ -83,6 +83,25 @@ For the specific case of `gh api graphql` calls and long/nested `jq` filters —
 
 When the local environment uses Kion, load temporary AWS credentials with `source ~/.local/bin/kac ensure` (or read `~/.cache/kion-aws-cache/`) rather than the frequently-stale `~/.aws/credentials` / `AWS_PROFILE`. Treat any value read from a credentials file as a secret — never echo it into command output or a summary.
 
+## `stat`: GNU shadows BSD, even on macOS
+
+On these hosts nix `coreutils` puts **GNU `stat`** on `PATH` ahead of the macOS
+BSD `stat` — on darwin and Linux alike. So BSD format syntax silently fails:
+
+```bash
+# Wrong on these hosts: GNU stat reads -f as --file-system and treats '%Sm' as a
+# filename → "stat: cannot read file system information for '%Sm': No such file…"
+stat -f '%Sm' ~/.aws/config
+
+# Right: GNU format syntax
+stat -c '%y' ~/.aws/config        # mtime
+stat -c '%A %n' ~/.aws/config     # mode + name
+```
+
+If you need a portable mtime regardless of which `stat` wins, sidestep it:
+`eza -l --time-style=long-iso <file>` or `date -r <file>`. The repo's own
+scripts assume GNU `stat -c` for this reason (see `cache-scan`'s header note).
+
 ## Wrapped-capture permission-denied retry
 
 Some IDE harnesses wrap shell invocations in a capture command that tightens the executing process's permissions. If a script that *should* be executable returns `permission denied` only when wrapped — but works on a manual run — try invoking it with an explicit `/bin/zsh -f`:
@@ -104,7 +123,7 @@ If you've reached this skill but none of the above patterns match, the problem p
 - Is the binary actually installed? `command -v <name>` (use `command`, not `which` — `which` is itself shell-specific in zsh).
 - Is `$PATH` what you expect? Aliases and `direnv` can mutate it inside the shell only.
 - Is the working directory what you expect? Shell history and IDE harnesses can confuse `cwd`.
-- Is the file mode actually executable? `stat -c '%A %n' <file>` (Linux) or `stat -f '%Sp %N' <file>` (macOS).
+- Is the file mode actually executable? `stat -c '%A %n' <file>` — GNU syntax on every host here, including macOS (see the `stat` section above; BSD `-f` syntax breaks).
 
 After ruling those out, check [ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md) for nix-specific traps that surface as shell errors.
 

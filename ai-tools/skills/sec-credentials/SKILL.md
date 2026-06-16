@@ -38,6 +38,25 @@ Use this skill when a task needs a credential and you don't yet know where to fi
 source ~/.local/bin/kac ensure
 ```
 
+**Run `kac ensure` *before* the first `aws` call, not as recovery after one
+fails.** Firing `aws` against an inherited stale token wastes round-trips on
+`ExpiredTokenException` and then sends agents off exploring. For a one-shot,
+non-interactive invocation, wrap both in one zsh command so the refresh always
+precedes the call:
+
+```bash
+zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws sts get-caller-identity --output text'
+```
+
+Anti-patterns (observed wasting time in real sessions):
+
+- **Do not reach for `aws sso login`** — Kion, not raw SSO, owns auth here; `kac`
+  refreshes via `gkion` for you.
+- **Do not `find` / `zstdcat` for the cache location.** `kac` owns
+  `~/.cache/kion-aws-cache/`; the path is documented here and in
+  `agent-reference.md`. Re-deriving it from cold burns tokens and risks a stale
+  path.
+
 If you can't source `kac`, read the cached values directly:
 
 ```bash
