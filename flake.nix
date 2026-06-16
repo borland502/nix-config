@@ -12,6 +12,10 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
+    # Tracks fast-moving upstream releases (currently used only for the
+    # claude-code / github-copilot-cli overlay below — nixos-26.05 lags
+    # Anthropic/GitHub Copilot CLI releases by days-to-weeks).
+    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     nixos-wsl = {
       url = "github:nix-community/NixOS-WSL/main";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -47,6 +51,7 @@
 
   outputs = {
     nixpkgs,
+    nixpkgs-unstable,
     nixos-wsl,
     nix-darwin,
     home-manager,
@@ -55,6 +60,17 @@
     sops-nix,
     ...
   }: let
+    # Pin fast-moving CLI agents to nixos-unstable while the rest of the
+    # repo stays on nixos-26.05. See AGENTS.md / docs notes if expanded.
+    unstableOverlay = _final: prev: let
+      unstable = import nixpkgs-unstable {
+        system = prev.stdenv.hostPlatform.system;
+        config.allowUnfree = true;
+      };
+    in {
+      inherit (unstable) claude-code github-copilot-cli;
+    };
+    nixpkgsOverlayModule = {nixpkgs.overlays = [unstableOverlay];};
     systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin"];
     linuxSystems = ["x86_64-linux" "aarch64-linux"];
     forAllSystems = nixpkgs.lib.genAttrs systems;
@@ -99,6 +115,7 @@
     goGuiLibraryPathFor = pkgs: nixpkgs.lib.makeLibraryPath (goGuiRuntimePackagesFor pkgs);
     darwinModules = [
       ./hosts/darwin
+      nixpkgsOverlayModule
 
       stylix.darwinModules.stylix
       sops-nix.darwinModules.default
@@ -130,6 +147,7 @@
           allowUnfree = true;
           allowUnfreePredicate = _: true;
         };
+        overlays = [unstableOverlay];
       };
     repoDevShellFor = pkgs:
       pkgs.mkShell {
@@ -173,6 +191,7 @@
         system = "x86_64-linux";
         modules = [
           ./hosts/linux
+          nixpkgsOverlayModule
 
           stylix.nixosModules.stylix
           sops-nix.nixosModules.sops
@@ -204,6 +223,7 @@
         system = "x86_64-linux";
         modules = [
           nixos-wsl.nixosModules.default
+          nixpkgsOverlayModule
           home-manager.nixosModules.home-manager
           sops-nix.nixosModules.sops
           ./hosts/wsl
