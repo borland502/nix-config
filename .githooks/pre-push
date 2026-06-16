@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+set -eu
+
+# Guardrail: require branch-based workflow by default.
+# To bypass intentionally (e.g. emergency fix), run with:
+#   ALLOW_MAIN_PUSH=1 git push ...
+
+if [ "${ALLOW_MAIN_PUSH:-}" = "1" ]; then
+	exit 0
+fi
+
+protected_branches='refs/heads/main refs/heads/master'
+
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+	case " $protected_branches " in
+		*" $remote_ref "*)
+			printf '%s\n' "pre-push: blocked push to protected branch ${remote_ref#refs/heads/}." >&2
+			printf '%s\n' "Create a feature branch and open a PR instead." >&2
+			printf '%s\n' "Override once with: ALLOW_MAIN_PUSH=1 git push ..." >&2
+			exit 1
+			;;
+	esac
+done
+
+exit 0

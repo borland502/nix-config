@@ -1,12 +1,10 @@
 {
-  config,
   pkgs,
   lib,
   ...
 }: let
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
     inherit pkgs;
-    homeDirectory = config.home.homeDirectory;
   };
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
   vivaldiBrowserWrapper = pkgs.writeShellScriptBin "vivaldi" ''

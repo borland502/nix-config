@@ -76,6 +76,18 @@
             else
               echo "Touch ID for sudo is already enabled"
             fi
+
+            # TEMP: Homebrew 6 requires trusted third-party taps before loading
+            # their formulae/casks. nix-darwin PR #1789 adds first-class support
+            # for this, but until this repo updates to a revision containing it,
+            # trust the tap in the same --user/--set-home environment that
+            # nix-darwin uses for `brew bundle` below.
+            # TODO(nix-darwin-1789): remove after flake.lock includes the PR #1789 fix.
+            if [ -x /opt/homebrew/bin/brew ]; then
+              echo "Trusting kionsoftware/tap for Homebrew 6 activation..."
+              PATH="/opt/homebrew/bin:$PATH" sudo --preserve-env=PATH --user=42245 --set-home \
+                /opt/homebrew/bin/brew trust --tap kionsoftware/tap || true
+            fi
       '';
 
       # Strip quarantine from Flameshot after Homebrew installs it to bypass Gatekeeper.
@@ -221,6 +233,11 @@
       cleanup = "zap"; # Uninstall packages not listed in configuration
       # Homebrew 4.7+ refuses `brew bundle install --cleanup` without an
       # explicit force flag; nix-darwin doesn't add one, so pass it here.
+      # TEMP: casks are bypassed from taskfile.yaml via
+      # HOMEBREW_BUNDLE_CASK_SKIP while nix-darwin catches up with Homebrew 6
+      # trust behavior affecting third-party taps/casks during activation.
+      # TODO(nix-darwin-1789): remove the taskfile skip list after nix-darwin
+      # PR #1789 lands and this repo updates flake.lock to include it.
       extraFlags = ["--force-cleanup"];
     };
 

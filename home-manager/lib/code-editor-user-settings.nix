@@ -1,13 +1,4 @@
-# homeDirectory: absolute path to the user's home (e.g. "/Users/42245" on macOS,
-# "/home/jhettenh" on Linux). Required to populate chat.hookFilesLocations with
-# an absolute path, because VS Code Copilot 0.53+ skips any entry whose key
-# starts with "~/" when building its hook-file discovery set.
-# TODO: remove the homeDirectory workaround once upstream VS Code adds a
-# supported global hooks path that does not require absolute paths.
-{
-  pkgs,
-  homeDirectory ? null,
-}: {
+{pkgs}: {
   # Fonts consistent with Stylix
   "chat.editor.fontFamily" = "FiraCode Nerd Font Mono";
   "chat.editor.fontSize" = 16.0;
@@ -93,15 +84,32 @@
   "workbench.colorTheme" = "Stylix";
 
   # VS Code Copilot 0.53+ (shipped in VS Code Insiders on 2026-06-15) moved hook
-  # discovery from ~/.config/copilot/hooks/ to this VS Code setting. The CLI
-  # still reads ~/.config/copilot/hooks/ directly. Entries whose keys start with
-  # "~/" are silently skipped by the extension, so absolute paths are required.
-  # Value `true` = auto-approved (safe because these are nix-managed files in a
-  # hidden dotdir, which falls inside the extension's $eo home-dotfile allowlist).
+  # discovery to this VS Code setting. The Copilot CLI still reads the CLI-format
+  # manifests in ~/.config/copilot/hooks/ directly; VS Code reads VS Code-format
+  # manifests from ~/.copilot/hooks/. The extension resolves keys that start with
+  # "~/" against the home directory and *rejects* absolute paths ("glob patterns
+  # and absolute paths not supported"), so the tilde form is required here.
   # TODO(mainline-vscode): when VS Code stable ships Copilot ≥ 0.53 this setting
   # will take effect there too — no code change needed, just awareness.
-} // (if homeDirectory != null then {
   "chat.hookFilesLocations" = {
-    "${homeDirectory}/.config/copilot/hooks" = true;
+    "~/.copilot/hooks" = true;
   };
-} else {})
+  # chat.useHooks is the master execution gate and defaults to false — discovered
+  # hooks are loaded but never run unless this is on. (chat.useClaudeHooks only
+  # gates Claude-format/matcher-wrapped hooks; ours are flat Copilot-format, so it
+  # is not required here.)
+  "chat.useHooks" = true;
+  # Run chat through the Copilot CLI/SDK agent host (provider "copilotcli")
+  # instead of the extension-host engine. The CLI backend executes tools in its
+  # own process and reads ~/.config/copilot/hooks/ (the path proven to log and to
+  # bypass the editor preview-feature org policy). Start a session via the
+  # "Chat: New Copilot CLI Session" command (github.copilot.cli.newSession).
+  #
+  # TODO(native-chat): this agent-host detour exists only because the native
+  # extension-host chat hooks (chat.useHooks + chat.hookFilesLocations) are gated
+  # by the "Copilot preview features are disabled by organizational policy" block.
+  # Once that preview feature is released/allowed for the org, drop
+  # chat.agentHost.enabled and go back to the native chat client (the hook
+  # settings above already cover it).
+  "chat.agentHost.enabled" = true;
+}
