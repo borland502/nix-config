@@ -61,6 +61,21 @@ agent_raw="${AGENT_NAME:-claude}"
 agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
 [[ -n "$agent" ]] || agent="claude"
 
+# Strip benign noise from stderr before deciding status. The hook gets no exit
+# code, so any non-empty stderr would otherwise read as a failure — but two
+# common lines are not failures:
+#   - "Shell cwd was reset to <dir>": Claude Code emits this after a one-shot
+#     `cd`, even when the command succeeded.
+#   - "...Broken pipe": SIGPIPE from a producer feeding an early-closing
+#     consumer (e.g. `... | head`), which is expected, not an error.
+# Drop those lines; if nothing substantive remains, treat stderr as empty so
+# status falls through to `ok` and no STDERR block is logged. Keep this list
+# small and obvious — only add lines that are unambiguously harness noise.
+if [[ -n "$stderr" ]]; then
+	stderr=$(printf '%s\n' "$stderr" | grep -Eiv 'Shell cwd was reset to |broken pipe' || true)
+	[[ -n "${stderr//[[:space:]]/}" ]] || stderr=""
+fi
+
 if [[ "$interrupted" == "true" ]]; then
 	status="interrupted"
 elif [[ -n "$stderr" ]]; then
