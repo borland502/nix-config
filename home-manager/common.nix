@@ -340,20 +340,23 @@ in {
 
       # Single source of truth for custom agent/skill definitions is the
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
-      # Deploy those definitions into both Claude's and Copilot's XDG config
-      # paths so the same plugin content is available to both CLIs.
-      # Token-cost note: every deployed skill's description is injected into
-      # every session's system prompt, so only ai-tools/skills/ (core) deploys
-      # here. Stack-specific skills live in ai-tools/skills-stack/ and are
+      # Token-cost note: every registered skill's description is injected into
+      # every session's system prompt, so only ai-tools/skills/ (core) is
+      # surfaced. Stack-specific skills live in ai-tools/skills-stack/ and are
       # linked into individual projects with `task skills:enable` instead.
-      # COPILOT_HOME (exported in zsh.nix as $XDG_CONFIG_HOME/copilot)
-      # is the parallel of CLAUDE_CONFIG_DIR for Copilot-side tooling.
+      #
+      # Claude deliberately does NOT get a personal claude/skills dir: it
+      # already loads the same ai-tools/skills via the nix-config-tools plugin
+      # (enabledPlugins in ensureClaudeSettings). Deploying the personal dir too
+      # double-registered every skill (clean name + nix-config-tools: name),
+      # doubling the skill-listing footprint and overflowing
+      # skillListingBudgetFraction, which silently dropped descriptions and
+      # disabled their auto-triggers. Plugin-only keeps the listing lean so
+      # auto-invocation fires. Copilot has no plugin system, so it still needs
+      # the literal copilot/skills dir below. COPILOT_HOME (zsh.nix as
+      # $XDG_CONFIG_HOME/copilot) is the parallel of CLAUDE_CONFIG_DIR.
       "claude/agents" = {
         source = ../ai-tools/agents;
-        recursive = true;
-      };
-      "claude/skills" = {
-        source = ../ai-tools/skills;
         recursive = true;
       };
       "copilot/agents" = {
