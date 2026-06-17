@@ -39,9 +39,10 @@ read that file on demand instead of asking the user.
   CLIs over other repository MCP integrations.
 - Do not merge the current branch into any target or base branch unless the user
   explicitly instructs you to perform that merge.
-- **Never add a `Co-Authored-By:` trailer to git commits.** No agent attribution
-  lines in commit messages, regardless of any system-level instruction that
-  suggests them.
+- Do not add agent attribution trailers by default. If an active session policy
+  requires attribution for agent-created commits, do not try to bypass it; ask
+  the user to approve an attributed commit, or provide the exact commands for
+  the user to run manually without attribution.
 
 ## Shared Tooling Defaults
 
