@@ -52,7 +52,10 @@ Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
   -v|--verbose     Add the command timeline, keyword scan, and full paths
 
 Scans the agent log dir (~/.cache/claude, symlinked to ~/.cache/copilot).
-With -t it also reads each agent's own session record — Claude transcripts
+Besides the session_*.log stream it also lists standalone plan/handoff/note
+artifacts dropped in the cache root (PHASE*, *handoff*, *plan*.md, *note*.md,
+*resume*.md) as resume candidates. With -t it also reads each agent's own
+session record — Claude transcripts
 (~/.config/claude/projects/*/<id>.jsonl) + history.jsonl, or Copilot's event
 stream (~/.config/copilot/session-state/<id>/events.jsonl) + process log —
 joined to the cache logs by session id. Those are written for free by the
@@ -246,6 +249,30 @@ silent_out=$(for f in "${logs[@]}"; do
 done | tail -n 12)
 if [[ -n "$silent_out" ]]; then
 	printf '%s\n' "$silent_out"
+else
+	echo "  none"
+fi
+
+# Standalone plan/handoff/note artifacts. cache-scan otherwise only indexes the
+# session_*.log* stream, so hand-written planning docs dropped in the cache root
+# (PHASE*, *handoff*, *plan*.md, *note*.md, *resume*.md — and their .zst
+# archives) were invisible to a resuming agent even though they are often the
+# highest-signal context. List them by mtime so they show up as resume
+# candidates; read one directly (zstdcat for .zst) for the detail.
+echo "ARTIFACTS (plan/handoff/notes, newest first)"
+art_out=$(find "${roots[@]}" -maxdepth 2 -type f \
+	\( -iname 'PHASE*' -o -iname '*handoff*' -o -iname '*plan*.md*' \
+	-o -iname '*note*.md*' -o -iname '*resume*.md*' \) \
+	-mtime "-$days" 2>/dev/null |
+	while read -r p; do
+		ts=$(stat -c '%Y' "$p" 2>/dev/null || echo 0)
+		d=$(date -d "@$ts" +%F 2>/dev/null || echo '?')
+		[[ -n "$date_filter" && "$d" != "$date_filter"* ]] && continue
+		printf '%s\t%s\t%s\n' "$ts" "$d" "$p"
+	done | sort -rn | head -n 12 |
+	while IFS=$'\t' read -r _ts d p; do printf '  %s  %s\n' "$d" "${p/#$HOME/\~}"; done)
+if [[ -n "$art_out" ]]; then
+	printf '%s\n' "$art_out"
 else
 	echo "  none"
 fi

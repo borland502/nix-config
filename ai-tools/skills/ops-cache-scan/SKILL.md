@@ -63,6 +63,10 @@ This is *not* something a session needs to wire up — if the host has had `home
   counts, last status + command.
 - **FAILURES** (default) — commands with `status=stderr|interrupted`; the concrete
   resume points.
+- **ARTIFACTS** (default) — standalone plan/handoff/note files in the cache root
+  (`PHASE*`, `*handoff*`, `*plan*.md`, `*note*.md`, `*resume*.md`, plus `.zst`
+  archives), newest first. These are hand-written context the `session_*.log`
+  stream never contained; open one directly (`zstdcat` for `.zst`) to resume.
 - **TIMELINE** (`--verbose`) — `[ts] status :: cmd` from the newest session; the
   tail is where work was interrupted.
 - **KEYWORD HITS** (`--verbose`) — heuristic backstop for errors a `status=ok`
