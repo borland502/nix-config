@@ -222,14 +222,11 @@ tasks:
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
         brew update --quiet
-        # Strip Home Manager's cosmetic orphan-link spam (~530 lines/run) left by
-        # the stale *.instructions.md -> *.prompt.md prompt-bridge migration; the
-        # referenced files are already gone. pipefail + a brace-grouped `|| true`
-        # drops only those lines while preserving darwin-rebuild's exit code and
-        # every other line, including genuine errors.
-        set -o pipefail
-        sudo darwin-rebuild switch --flake .#{{.HOST}} 2>&1 \
-          | { grep -v 'does not link into a Home Manager generation\. Skipping delete\.' || true; }
+        # darwin-switch-tolerant.sh strips Home Manager's cosmetic orphan-link
+        # spam from the live stream and downgrades Homebrew cask DOWNLOAD
+        # failures (common on a work VPN) to a warning, while propagating every
+        # other failure with darwin-rebuild's real exit code.
+        bash scripts/darwin-switch-tolerant.sh .#{{.HOST}}
       {{else if eq .IS_NIXOS "true"}}
         bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
@@ -253,7 +250,8 @@ tasks:
     deps: [_record-nix-config-dir, _chezmoi-ensure]
     # See `switch`: skip an already-installed Discord cask in the darwin bundle.
     env: *brew-cask-skip-env
-    cmd: sudo darwin-rebuild switch --flake .#{{.HOST}}
+    # Tolerates VPN-blocked Homebrew cask downloads (see scripts/darwin-switch-tolerant.sh).
+    cmd: bash scripts/darwin-switch-tolerant.sh .#{{.HOST}}
 
   # NixOS-specific tasks (kept for Linux systems)
   nixos-build:
@@ -326,7 +324,7 @@ tasks:
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
-        sudo darwin-rebuild switch --flake .#{{.HOST}}
+        bash scripts/darwin-switch-tolerant.sh .#{{.HOST}}
       {{else if eq .IS_NIXOS "true"}}
         # On NixOS (incl. NixOS-WSL) home is managed as a NixOS module, not a
         # standalone homeConfiguration — there is no `{{.HOME_ATTR}}` attr to
@@ -647,7 +645,7 @@ tasks:
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
-        sudo darwin-rebuild switch --flake .#{{.HOST}}
+        bash scripts/darwin-switch-tolerant.sh .#{{.HOST}}
       {{else if eq .IS_NIXOS "true"}}
         bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}

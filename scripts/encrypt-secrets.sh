@@ -16,8 +16,8 @@ confluence_token=$(/bin/cat "${HOME}/.config/confluence/token")
 confluence_url=$(/bin/cat "${HOME}/.config/confluence/base-url" 2>/dev/null || echo "")
 
 if [[ -z "$confluence_url" ]]; then
-  echo "encrypt-secrets: ~/.config/confluence/base-url not found" >&2
-  exit 1
+	echo "encrypt-secrets: ~/.config/confluence/base-url not found" >&2
+	exit 1
 fi
 
 sops --set '["ops_agent"]["jira_token"] "'"$jira_token"'"' "$YAML"

@@ -21,6 +21,10 @@ read that file on demand instead of asking the user.
   files to ~/.cache/copilot rather than inline heredocs or long inline command
   strings. Prefer file-editing tools for long text; reserve shell text
   construction for short, stable snippets.
+- Download attachments and fetched files (Slack/Gmail/Drive files, WebFetch or
+  curl payloads) to a named file under ~/.cache/copilot/ — don't stream their
+  bytes through the shell, which buries them in the session log rather than
+  leaving a reusable file on disk.
 - When investigating tool or command failures, inspect recent logs under
   ~/.cache/copilot first — prefer the `cache-scan` helper (see the
   ops-cache-scan skill) over hand-rolled sweeps. Logs older than 1 day (or over

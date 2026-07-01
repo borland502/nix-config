@@ -1,19 +1,32 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # Source this proxy so it can mutate the current shell:
-#   source ~/.local/bin/kac [dump|load|clear|status]
+#   source ~/.local/bin/kac [dump|load|clear|status|ensure]
+#
+# Works sourced from either bash or zsh. Agents default to bash, so the
+# shell-specific bits are detected rather than assuming zsh.
 
 if ! (return 0 2>/dev/null); then
-  echo "This proxy must be sourced, not executed." >&2
-  echo "Use: source ~/.local/bin/kac [command]" >&2
-  exit 1
+	echo "This proxy must be sourced, not executed." >&2
+	echo "Use: source ~/.local/bin/kac [command]" >&2
+	exit 1
 fi
 
-_kac_script_path="${(%):-%N}"
-_kac_helper_path="${_kac_script_path:A:h:h}/lib/kion-aws-cache"
+# Resolve this file's own path when sourced. bash exposes it via BASH_SOURCE;
+# zsh (and POSIX shells) set $0 to the sourced file. No zsh-only syntax here,
+# so shfmt/shellcheck parse this as plain bash.
+if [ -n "${BASH_SOURCE:-}" ]; then
+	_kac_script_path="${BASH_SOURCE[0]}"
+else
+	_kac_script_path="$0"
+fi
 
+# lib/kion-aws-cache sits two levels up from this file (…/bin/kac → …/lib/…).
+_kac_helper_path="$(cd -- "$(dirname -- "$_kac_script_path")/.." && pwd -P)/lib/kion-aws-cache"
+
+# shellcheck disable=SC1090  # helper path is resolved at runtime
 if ! source "$_kac_helper_path" "$@"; then
-  unset _kac_script_path _kac_helper_path
-  return 1
+	unset _kac_script_path _kac_helper_path
+	return 1
 fi
 
 unset _kac_script_path _kac_helper_path

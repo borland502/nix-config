@@ -1,4 +1,53 @@
-{pkgs, ...}: {
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}: let
+  # All Homebrew activation steps, clumped and relocated to run AFTER
+  # home-manager activation (see system.activationScripts.postActivation below).
+  # nix-darwin's fixed activation order otherwise splits these across the run —
+  # the tap-trust ran early (in extraActivation) and the bundle late — which is
+  # both confusing and forces the Flameshot quarantine strip to happen before
+  # the app is installed. Keeping them together, after home-manager, means a
+  # VPN-blocked cask download can't abort activation before ~/.claude etc. are
+  # deployed, and each step runs in dependency order.
+  homebrewActivation = lib.optionalString config.homebrew.enable ''
+    # --- Homebrew activation (clumped, runs after home-manager) -------------
+    # 1. Homebrew 6 requires trusting third-party taps before `brew bundle` can
+    #    load their formulae/casks. nix-darwin PR #1789 adds first-class
+    #    support; until flake.lock includes it, trust the tap in the same
+    #    --user/--set-home environment nix-darwin uses for the bundle.
+    # TODO(nix-darwin-1789): drop the manual trust after flake.lock has the fix.
+    if [ -x "${config.homebrew.prefix}/bin/brew" ]; then
+      echo "Trusting kionsoftware/tap for Homebrew 6 activation..."
+      PATH="${config.homebrew.prefix}/bin:$PATH" sudo --preserve-env=PATH --user=${lib.escapeShellArg config.homebrew.user} --set-home \
+        "${config.homebrew.prefix}/bin/brew" trust --tap kionsoftware/tap || true
+    fi
+
+    # 2. Homebrew Bundle. Mirrors nix-darwin modules/homebrew.nix, reusing its
+    #    own onActivation.brewBundleCmd so the actual command stays in sync.
+    echo >&2 "Homebrew bundle..."
+    if [ -f "${config.homebrew.prefix}/bin/brew" ]; then
+      PATH="${config.homebrew.prefix}/bin:${lib.makeBinPath [pkgs.mas]}:$PATH" \
+      sudo \
+        --preserve-env=PATH \
+        --user=${lib.escapeShellArg config.homebrew.user} \
+        --set-home \
+        env \
+        ${config.homebrew.onActivation.brewBundleCmd}
+    else
+      echo -e "\e[1;31merror: Homebrew is not installed, skipping...\e[0m" >&2
+    fi
+
+    # 3. Strip the Gatekeeper quarantine attribute from Flameshot after the
+    #    bundle installs/updates it, so the launchd agent can start it.
+    if [ -d "/Applications/Flameshot.app" ]; then
+      echo "Stripping quarantine attribute from Flameshot..."
+      xattr -cr /Applications/Flameshot.app || true
+    fi
+  '';
+in {
   # Allow unfree packages
   nixpkgs.config.allowUnfree = true;
 
@@ -76,28 +125,16 @@
             else
               echo "Touch ID for sudo is already enabled"
             fi
-
-            # TEMP: Homebrew 6 requires trusted third-party taps before loading
-            # their formulae/casks. nix-darwin PR #1789 adds first-class support
-            # for this, but until this repo updates to a revision containing it,
-            # trust the tap in the same --user/--set-home environment that
-            # nix-darwin uses for `brew bundle` below.
-            # TODO(nix-darwin-1789): remove after flake.lock includes the PR #1789 fix.
-            if [ -x /opt/homebrew/bin/brew ]; then
-              echo "Trusting kionsoftware/tap for Homebrew 6 activation..."
-              PATH="/opt/homebrew/bin:$PATH" sudo --preserve-env=PATH --user=42245 --set-home \
-                /opt/homebrew/bin/brew trust --tap kionsoftware/tap || true
-            fi
       '';
 
-      # Strip quarantine from Flameshot after Homebrew installs it to bypass Gatekeeper.
-      # nix-darwin activation now runs as root, so a regular activation script is sufficient.
-      flameshotQuarantineFix.text = ''
-        if [ -d "/Applications/Flameshot.app" ]; then
-          echo "Stripping quarantine attribute from Flameshot..."
-          xattr -cr /Applications/Flameshot.app || true
-        fi
-      '';
+      # Empty nix-darwin's in-place Homebrew step; all Homebrew activation now
+      # runs clumped at the end of postActivation (see homebrewActivation above),
+      # after home-manager has deployed ~/.claude, the Copilot instructions, and
+      # run `chezmoi apply`. This keeps a VPN-blocked cask download from aborting
+      # activation before the user config is written; the trailing failure is
+      # tolerated at the task layer by scripts/darwin-switch-tolerant.sh.
+      homebrew.text = lib.mkForce "";
+      postActivation.text = lib.mkOrder 2000 homebrewActivation;
     };
 
     # System settings

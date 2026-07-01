@@ -36,15 +36,30 @@ set -euo pipefail
 
 usage() {
 	cat <<'EOF'
-Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N] [-v|--verbose]
+Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
+                  [-t|--transcript] [--diffs] [-v|--verbose]
 
-  --days N      Look back N days by file mtime (default: 2)
-  --date DATE   Only show records whose header timestamp starts with DATE
-  --session ID  Restrict to session log files matching ID
-  --limit N     Timeline length under --verbose (default: 10)
-  -v|--verbose  Add the command timeline, keyword scan, and full paths
+  --days N         Look back N days by file mtime (default: 2)
+  --date DATE      Only show records whose header timestamp starts with DATE
+  --session ID     Restrict to session log files matching ID
+  --limit N        Timeline / decision length (default: 10)
+  -t|--transcript  Enrich with native data the Bash log never sees: your typed
+                   prompts, the assistant's decision text, the files changed,
+                   and the non-Bash tool tally — for Claude and Copilot sessions
+                   alike (needs jq)
+      --diffs      Imply -t and also reconstruct the exact edits (Claude
+                   old/new strings, Copilot V4A patches); capped by --limit
+  -v|--verbose     Add the command timeline, keyword scan, and full paths
 
 Scans the agent log dir (~/.cache/claude, symlinked to ~/.cache/copilot).
+Besides the session_*.log stream it also lists standalone plan/handoff/note
+artifacts dropped in the cache root (PHASE*, *handoff*, *plan*.md, *note*.md,
+*resume*.md) as resume candidates. With -t it also reads each agent's own
+session record — Claude transcripts
+(~/.config/claude/projects/*/<id>.jsonl) + history.jsonl, or Copilot's event
+stream (~/.config/copilot/session-state/<id>/events.jsonl) + process log —
+joined to the cache logs by session id. Those are written for free by the
+agents; this only reads them — no model calls, no credits.
 EOF
 }
 
@@ -53,6 +68,8 @@ date_filter=""
 session=""
 limit=10
 verbose=0
+transcript=0
+diffs=0
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -86,6 +103,13 @@ while [[ $# -gt 0 ]]; do
 		;;
 	-v | --verbose)
 		verbose=1
+		;;
+	-t | --transcript)
+		transcript=1
+		;;
+	--diffs)
+		diffs=1
+		transcript=1
 		;;
 	-h | --help)
 		usage
@@ -227,6 +251,257 @@ if [[ -n "$silent_out" ]]; then
 	printf '%s\n' "$silent_out"
 else
 	echo "  none"
+fi
+
+# Standalone plan/handoff/note artifacts. cache-scan otherwise only indexes the
+# session_*.log* stream, so hand-written planning docs dropped in the cache root
+# (PHASE*, *handoff*, *plan*.md, *note*.md, *resume*.md — and their .zst
+# archives) were invisible to a resuming agent even though they are often the
+# highest-signal context. List them by mtime so they show up as resume
+# candidates; read one directly (zstdcat for .zst) for the detail.
+echo "ARTIFACTS (plan/handoff/notes, newest first)"
+art_out=$(find "${roots[@]}" -maxdepth 2 -type f \
+	\( -iname 'PHASE*' -o -iname '*handoff*' -o -iname '*plan*.md*' \
+	-o -iname '*note*.md*' -o -iname '*resume*.md*' \) \
+	-mtime "-$days" 2>/dev/null |
+	while read -r p; do
+		ts=$(stat -c '%Y' "$p" 2>/dev/null || echo 0)
+		d=$(date -d "@$ts" +%F 2>/dev/null || echo '?')
+		[[ -n "$date_filter" && "$d" != "$date_filter"* ]] && continue
+		printf '%s\t%s\t%s\n' "$ts" "$d" "$p"
+	done | sort -rn | head -n 12 |
+	while IFS=$'\t' read -r _ts d p; do printf '  %s  %s\n' "$d" "${p/#$HOME/\~}"; done)
+if [[ -n "$art_out" ]]; then
+	printf '%s\n' "$art_out"
+else
+	echo "  none"
+fi
+
+# Native transcript enrichment (-t|--transcript). The Bash log captures only
+# `CMD/STDOUT/STDERR`; it has no record of what you asked, what the assistant
+# decided, which files were changed, or any non-Bash tool. Both agents write
+# that to disk for free and we join it to the cache logs by session id:
+#   Claude  — transcript ~/.config/claude/projects/*/<id>.jsonl (older runs
+#             under ~/.claude/projects) + prompt-input log history.jsonl.
+#   Copilot — event stream ~/.config/copilot/session-state/<id>/events.jsonl +
+#             process log ~/.config/copilot/logs/process-*.log (model + errors).
+# With --diffs we also reconstruct the exact edits (Claude old/new strings,
+# Copilot V4A patches). Read-only: no model calls. Requires jq (guaranteed by
+# this nix config's shared package set).
+if ((transcript)); then
+	history_file="$HOME/.config/claude/history.jsonl"
+
+	if ! command -v jq >/dev/null 2>&1; then
+		echo "NATIVE TRANSCRIPT ENRICHMENT"
+		echo "  (jq not found — skipping; transcripts are JSONL)"
+		((verbose)) || exit 0
+	fi
+
+	# Locate a Claude transcript JSONL for a full session id across both project
+	# roots (~/.config/claude is current; ~/.claude is the pre-XDG location).
+	find_transcript() {
+		local id="$1" d
+		for d in "$HOME/.config/claude/projects" "$HOME/.claude/projects"; do
+			[[ -d "$d" ]] || continue
+			find "$d" -type f -name "${id}.jsonl" 2>/dev/null
+		done | head -n 1
+	}
+
+	# Locate the Copilot process log that handled a session (it logs the session
+	# id at startup). Newest match wins. Used for the operational/model signal.
+	find_copilot_process_log() {
+		local id="$1" p
+		rg -l --no-messages -- "$id" "$HOME/.config/copilot/logs"/process-*.log 2>/dev/null |
+			while read -r p; do printf '%s\t%s\n' "$(stat -c '%Y' "$p" 2>/dev/null || echo 0)" "$p"; done |
+			sort -rn | head -n 1 | cut -f2-
+	}
+
+	# Render unified diffs for the Edit/Write calls in a Claude transcript
+	# (--diffs). old_string/new_string are carried verbatim, so this is exact and
+	# free — no need for the ~/.claude/file-history snapshots, which have no
+	# hash→path manifest. Capped by --limit and a per-edit line budget.
+	render_diffs_claude() {
+		local t="$1" rec name fp old new bytes n=0
+		echo "DIFFS (Edit/Write, from transcript)"
+		while IFS= read -r rec; do
+			[[ -z "$rec" ]] && continue
+			n=$((n + 1))
+			if ((n > limit)); then
+				echo "    … (more; raise --limit)"
+				break
+			fi
+			name=$(jq -rc '.name' <<<"$rec")
+			fp=$(jq -rc '.input.file_path // "?"' <<<"$rec" | sed "s#$HOME#~#g")
+			if [[ "$name" == "Write" ]]; then
+				bytes=$(jq -rc '(.input.content|length) // 0' <<<"$rec")
+				printf '  %s (write, %s bytes)\n' "$fp" "$bytes"
+				continue
+			fi
+			printf '  %s (edit)\n' "$fp"
+			old=$(jq -rc '.input.old_string // ""' <<<"$rec")
+			new=$(jq -rc '.input.new_string // ""' <<<"$rec")
+			diff -u <(printf '%s' "$old") <(printf '%s' "$new") 2>/dev/null |
+				tail -n +3 | head -n 14 | sed 's/^/    /' || true
+		done < <(jq -rc '
+			select(.type=="assistant") | .message.content[]?
+			| select(.type=="tool_use" and (.name=="Edit" or .name=="Write"))
+			| {name, input: {file_path: .input.file_path,
+				old_string: .input.old_string, new_string: .input.new_string,
+				content: .input.content}}
+		' "$t" 2>/dev/null)
+	}
+
+	# Claude session distillation: PROMPTS from the prompt-input log (keyed by
+	# session id; slash-commands filtered), DECISIONS / FILE EDITS / NON-BASH
+	# TOOLS from the transcript. history.jsonl flushes at session end, so a live
+	# session shows no prompts yet — expected; resume targets prior runs.
+	distill_claude() {
+		local id="$1" t="$2" out edits tools
+
+		echo "PROMPTS (your asks)"
+		if [[ -f "$history_file" ]]; then
+			out=$(jq -rc --arg sid "$id" '
+				select(.sessionId==$sid and (.display|type=="string")
+					and (.display|startswith("/")|not))
+				| "  [\(.timestamp/1000|localtime|strftime("%H:%M"))] "
+					+ (.display|gsub("\\s+";" ")|.[0:100])
+			' "$history_file" 2>/dev/null | head -n 12)
+			[[ -n "$out" ]] && printf '%s\n' "$out" || echo "  (none logged; session may be live)"
+		else
+			echo "  (history.jsonl not found)"
+		fi
+
+		echo "DECISIONS (assistant text, last $limit)"
+		jq -rc '
+			select(.type=="assistant") | .timestamp as $ts
+			| .message.content[]?
+			| select(.type=="text" and (.text|length>0))
+			| "  [\($ts[11:16])] " + (.text|gsub("\\s+";" ")|.[0:90])
+		' "$t" 2>/dev/null | tail -n "$limit" || true
+
+		echo "FILE EDITS (Edit/Write paths × count)"
+		edits=$(jq -rc '
+			select(.type=="assistant") | .message.content[]?
+			| select(.type=="tool_use"
+				and (.name=="Edit" or .name=="Write" or .name=="NotebookEdit"))
+			| .input.file_path // empty
+		' "$t" 2>/dev/null | sort | uniq -c | sort -rn | sed "s#$HOME#~#g" | head -n 15)
+		[[ -n "$edits" ]] && printf '%s\n' "$edits" || echo "  (none)"
+
+		echo "NON-BASH TOOLS"
+		tools=$(jq -rc '
+			select(.type=="assistant") | .message.content[]?
+			| select(.type=="tool_use" and .name!="Bash") | .name
+		' "$t" 2>/dev/null | sort | uniq -c | sort -rn | awk '{print $2"="$1}' | paste -sd' ' -)
+		[[ -n "$tools" ]] && echo "  $tools" || echo "  (none)"
+
+		if ((diffs)); then render_diffs_claude "$t"; fi
+	}
+
+	# Copilot session distillation: gpt-* sessions have no Claude transcript;
+	# their full event stream lives under
+	# ~/.config/copilot/session-state/<id>/events.jsonl. user.message = prompts,
+	# assistant.message = decisions, apply_patch payloads (V4A) = file edits,
+	# tool.execution_start.toolName = tool tally. The process log adds the model
+	# and the real error lines for triaging tool failures.
+	distill_copilot() {
+		local id="$1" e="$2" plog out edits tools model
+
+		model=$(jq -rc 'select(.type=="session.model_change") | .data.newModel
+			+ (if .data.reasoningEffort then " (" + .data.reasoningEffort + ")" else "" end)' \
+			"$e" 2>/dev/null | tail -n 1)
+		plog=$(find_copilot_process_log "$id")
+		if [[ -z "$model" && -n "$plog" ]]; then
+			model=$(rg -No -- 'Using default model: \S+' "$plog" 2>/dev/null | tail -n 1 | sed 's/.*model: //')
+		fi
+		echo "AGENT: copilot   MODEL: ${model:-unknown}"
+
+		# Drop slash-commands and the injected <skill-context …>/<current_datetime…>
+		# pseudo-messages so only genuine asks show.
+		echo "PROMPTS (your asks)"
+		out=$(jq -rc 'select(.type=="user.message") | .data.content
+			| select(type=="string" and (startswith("/")|not) and (startswith("<")|not))
+			| "  " + (gsub("\\s+";" ")|.[0:100])' "$e" 2>/dev/null | head -n 12)
+		[[ -n "$out" ]] && printf '%s\n' "$out" || echo "  (none)"
+
+		echo "DECISIONS (assistant text, last $limit)"
+		jq -rc 'select(.type=="assistant.message") | .data.content
+			| select(type=="string" and length>0)
+			| "  " + (gsub("\\s+";" ")|.[0:90])' "$e" 2>/dev/null | tail -n "$limit" || true
+
+		echo "FILE EDITS (apply_patch targets × count)"
+		edits=$(jq -rc 'select(.type=="tool.execution_start"
+				and .data.toolName=="apply_patch") | .data.arguments' "$e" 2>/dev/null |
+			rg -No -- '\*\*\* (Update|Add|Delete) File: .*' 2>/dev/null |
+			sed "s#$HOME#~#g" | sort | uniq -c | sort -rn | head -n 15)
+		[[ -n "$edits" ]] && printf '%s\n' "$edits" || echo "  (none)"
+
+		echo "NON-BASH TOOLS"
+		tools=$(jq -rc 'select(.type=="tool.execution_start")
+			| .data.toolName | select(. != "bash" and . != "report_intent")' "$e" 2>/dev/null |
+			sort | uniq -c | sort -rn | awk '{print $2"="$1}' | paste -sd' ' -)
+		[[ -n "$tools" ]] && echo "  $tools" || echo "  (none)"
+
+		# Operational signal for triaging tool failures. Copilot logs benign
+		# lifecycle events at ERROR too, so filter to genuinely-bad markers.
+		echo "OPERATIONAL (process log)"
+		if [[ -n "$plog" ]]; then
+			printf '  log: %s\n' "${plog/#$HOME/\~}"
+			out=$(rg -No -- '\[ERROR\][^\n]*(unauthorized|[Ff]ailed|HTTP [45][0-9][0-9]|errored|not found|timed? ?out|ECONN)[^\n]*' \
+				"$plog" 2>/dev/null | sed "s#$HOME#~#g" | sort -u | head -n 6)
+			[[ -n "$out" ]] && printf '%s\n' "$out" | sed 's/^/  /' || echo "  no notable errors"
+		else
+			echo "  (no process log matched this session)"
+		fi
+
+		if ((diffs)); then
+			echo "DIFFS (apply_patch payloads, V4A)"
+			jq -rc 'select(.type=="tool.execution_start" and .data.toolName=="apply_patch")
+				| .data.arguments' "$e" 2>/dev/null |
+				sed "s#$HOME#~#g" | head -n "$((limit * 12))" | sed 's/^/  /' || true
+		fi
+	}
+
+	# Dispatch one session by id: Claude transcript first (richest), else Copilot
+	# event stream, else nothing to enrich.
+	distill_session() {
+		local id="$1" ct ce
+		printf '─ session %s ─────────────────\n' "${id:0:8}"
+		ct=$(find_transcript "$id")
+		ce="$HOME/.config/copilot/session-state/$id/events.jsonl"
+		if [[ -n "$ct" ]]; then
+			distill_claude "$id" "$ct"
+		elif [[ -f "$ce" ]]; then
+			distill_copilot "$id" "$ce"
+		else
+			echo "  no transcript found (claude projects or copilot session-state)"
+		fi
+	}
+
+	# Normalize a cache-log filename to its base session id, stripping the
+	# `.log`/`.log.zst` suffix and the `.skills`/`.thinking` companion-log
+	# infixes so all three map to one transcript.
+	base_id() {
+		local b=${1##*/}
+		b=${b#session_}
+		b=${b%.zst}
+		b=${b%.log}
+		b=${b%.skills}
+		b=${b%.thinking}
+		printf '%s' "$b"
+	}
+
+	echo "NATIVE TRANSCRIPT ENRICHMENT"
+	declare -A done_ids=()
+	# Focused: every matching log; default: just the newest session.
+	enrich_set=("${logs[0]}")
+	[[ -n "$session" ]] && enrich_set=("${logs[@]}")
+	for f in "${enrich_set[@]}"; do
+		id=$(base_id "$f")
+		[[ -n "${done_ids[$id]:-}" ]] && continue
+		done_ids[$id]=1
+		distill_session "$id"
+	done
 fi
 
 # Everything below is detail — verbose only, to keep the default token-cheap.
