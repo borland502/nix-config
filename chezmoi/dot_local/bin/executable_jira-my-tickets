@@ -9,21 +9,21 @@ JIRA_BASE="${JIRA_BASE_RAW%/rest/api/2}"
 JIRA_TOKEN=$(/bin/cat ~/.config/ops-agent/jira-token)
 
 if [[ -f ~/.config/ops-agent/jira-email ]]; then
-  JIRA_EMAIL=$(/bin/cat ~/.config/ops-agent/jira-email)
+	JIRA_EMAIL=$(/bin/cat ~/.config/ops-agent/jira-email)
 else
-  JIRA_EMAIL=$(git config --global user.email 2>/dev/null) || {
-    echo "jira-my-tickets: cannot determine email — set ~/.config/ops-agent/jira-email" >&2
-    exit 1
-  }
+	JIRA_EMAIL=$(git config --global user.email 2>/dev/null) || {
+		echo "jira-my-tickets: cannot determine email — set ~/.config/ops-agent/jira-email" >&2
+		exit 1
+	}
 fi
 
 OUT=$(mktemp)
 trap 'rm -f "$OUT"' EXIT
 
 curl -s \
-  -u "$JIRA_EMAIL:$JIRA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -o "$OUT" \
-  "${JIRA_BASE}/rest/api/2/search?jql=assignee%3DcurrentUser()%20AND%20statusCategory%20!%3D%20Done%20ORDER%20BY%20rank%20ASC&fields=key,summary,status,priority,issuetype&maxResults=25"
+	-u "$JIRA_EMAIL:$JIRA_TOKEN" \
+	-H "Content-Type: application/json" \
+	-o "$OUT" \
+	"${JIRA_BASE}/rest/api/2/search?jql=assignee%3DcurrentUser()%20AND%20statusCategory%20!%3D%20Done%20ORDER%20BY%20rank%20ASC&fields=key,summary,status,priority,issuetype&maxResults=25"
 
 jq '.issues[] | {key: .key, summary: .fields.summary, status: .fields.status.name, priority: .fields.priority.name, type: .fields.issuetype.name}' "$OUT"

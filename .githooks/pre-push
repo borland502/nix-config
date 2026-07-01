@@ -13,12 +13,12 @@ protected_branches='refs/heads/main refs/heads/master'
 
 while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
 	case " $protected_branches " in
-		*" $remote_ref "*)
-			printf '%s\n' "pre-push: blocked push to protected branch ${remote_ref#refs/heads/}." >&2
-			printf '%s\n' "Create a feature branch and open a PR instead." >&2
-			printf '%s\n' "Override once with: ALLOW_MAIN_PUSH=1 git push ..." >&2
-			exit 1
-			;;
+	*" $remote_ref "*)
+		printf '%s\n' "pre-push: blocked push to protected branch ${remote_ref#refs/heads/}." >&2
+		printf '%s\n' "Create a feature branch and open a PR instead." >&2
+		printf '%s\n' "Override once with: ALLOW_MAIN_PUSH=1 git push ..." >&2
+		exit 1
+		;;
 	esac
 done
 

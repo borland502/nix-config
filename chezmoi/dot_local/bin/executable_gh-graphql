@@ -20,31 +20,42 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
-  exit "${1:-0}"
+	sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+	exit "${1:-0}"
 }
 
-[[ $# -lt 2 ]] && { echo "gh-graphql: need <task-tag> <query-file>" >&2; usage 1; }
-case "$1" in -h|--help) usage 0 ;; esac
+[[ $# -lt 2 ]] && {
+	echo "gh-graphql: need <task-tag> <query-file>" >&2
+	usage 1
+}
+case "$1" in -h | --help) usage 0 ;; esac
 
-task_tag="$1"; shift
-query_file="$1"; shift
-[[ -f "$query_file" ]] || { echo "gh-graphql: query file not found: $query_file" >&2; exit 1; }
+task_tag="$1"
+shift
+query_file="$1"
+shift
+[[ -f "$query_file" ]] || {
+	echo "gh-graphql: query file not found: $query_file" >&2
+	exit 1
+}
 
 jq_file=""
 passthrough=()
 while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --jq)
-      shift
-      jq_file="${1:?--jq needs a file path}"
-      [[ -f "$jq_file" ]] || { echo "gh-graphql: jq file not found: $jq_file" >&2; exit 1; }
-      ;;
-    *)
-      passthrough+=("$1")
-      ;;
-  esac
-  shift
+	case "$1" in
+	--jq)
+		shift
+		jq_file="${1:?--jq needs a file path}"
+		[[ -f "$jq_file" ]] || {
+			echo "gh-graphql: jq file not found: $jq_file" >&2
+			exit 1
+		}
+		;;
+	*)
+		passthrough+=("$1")
+		;;
+	esac
+	shift
 done
 
 # Resolve the agent cache dir (claude is the canonical target; copilot is the
@@ -60,9 +71,9 @@ cp "$query_file" "$snap_query"
 
 jq_args=()
 if [[ -n "$jq_file" ]]; then
-  snap_jq="$cache_dir/${task_tag}-${ts}.jq"
-  cp "$jq_file" "$snap_jq"
-  jq_args=(--jq "$(cat "$snap_jq")")
+	snap_jq="$cache_dir/${task_tag}-${ts}.jq"
+	cp "$jq_file" "$snap_jq"
+	jq_args=(--jq "$(cat "$snap_jq")")
 fi
 
 echo "gh-graphql: query=$snap_query${jq_file:+ jq=$snap_jq}" >&2

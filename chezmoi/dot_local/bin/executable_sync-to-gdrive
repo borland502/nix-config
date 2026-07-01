@@ -12,14 +12,14 @@ log_dir="$HOME/.cache/claude"
 log_file="$log_dir/unison-gdrive.log"
 
 if ! command -v unison >/dev/null 2>&1; then
-  print -u2 "sync-to-gdrive: unison not found. Install via: nix profile install nixpkgs#unison"
-  exit 1
+	print -u2 "sync-to-gdrive: unison not found. Install via: nix profile install nixpkgs#unison"
+	exit 1
 fi
 
 if [[ ! -d "${gdrive_root:h}" ]]; then
-  print -u2 "sync-to-gdrive: Google Drive parent not found at ${gdrive_root:h}"
-  print -u2 "  Make sure Google Drive is mounted and signed in."
-  exit 1
+	print -u2 "sync-to-gdrive: Google Drive parent not found at ${gdrive_root:h}"
+	print -u2 "  Make sure Google Drive is mounted and signed in."
+	exit 1
 fi
 
 mkdir -p "$log_dir"
@@ -27,13 +27,13 @@ mkdir -p "$gdrive_root"
 
 extra_args=()
 for arg in "$@"; do
-  case "$arg" in
-    --verbose)  extra_args+=(-verbose) ;;
-    *)
-      print -u2 "Usage: sync-to-gdrive [--verbose]"
-      exit 1
-      ;;
-  esac
+	case "$arg" in
+	--verbose) extra_args+=(-verbose) ;;
+	*)
+		print -u2 "Usage: sync-to-gdrive [--verbose]"
+		exit 1
+		;;
+	esac
 done
 
 print "sync-to-gdrive: starting at $(date -Iseconds)"
@@ -45,8 +45,8 @@ unison gdrive-dotfiles "${extra_args[@]}"
 rc=$?
 
 if [[ $rc -eq 0 ]]; then
-  print "sync-to-gdrive: done at $(date -Iseconds)"
+	print "sync-to-gdrive: done at $(date -Iseconds)"
 else
-  print -u2 "sync-to-gdrive: unison exited with status $rc"
-  exit $rc
+	print -u2 "sync-to-gdrive: unison exited with status $rc"
+	exit $rc
 fi
