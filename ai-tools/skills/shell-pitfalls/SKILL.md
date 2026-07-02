@@ -125,6 +125,57 @@ If you need a portable mtime regardless of which `stat` wins, sidestep it:
 `eza -l --time-style=long-iso <file>` or `date -r <file>`. The repo's own
 scripts assume GNU `stat -c` for this reason (see `cache-scan`'s header note).
 
+## Subshell PATH loss
+
+`env -i`, `sudo`, and a bare `zsh -c '…'` (no `-l`) do **not** inherit the nix
+profile + Homebrew `PATH`. Tools that resolve fine interactively — GNU `stat`,
+`timeout`, `gkion`, `aws` — suddenly report `command not found`, and it looks
+like a missing install when it's a missing PATH.
+
+```bash
+# Wrong: bare zsh -c gets the system default PATH — timeout/aws are not on it
+zsh -c 'timeout 30 aws s3 ls'
+
+# Right: login shell pulls in the nix/Homebrew profile
+zsh -lc 'timeout 30 aws s3 ls'
+
+# Also right: stay in the current (already-provisioned) shell, or pass PATH /
+# absolute paths explicitly when a stripped environment is unavoidable
+env -i HOME="$HOME" PATH="$PATH" bash -c 'timeout 30 aws s3 ls'
+```
+
+The `kac` credential helper PATH-hardens its own refresh internally, but
+nothing else on your command line gets that rescue. If a "not found" error
+names a tool you know is installed, check *which shell* is resolving it before
+reinstalling anything. This is also why the GNU-vs-BSD `stat` trap (above)
+sometimes appears to flip: a stripped PATH can fall back to `/usr/bin/stat`
+(BSD) while the interactive shell resolves the nix GNU one.
+
+## zsh nullglob: "no matches found" aborts the command
+
+Unlike bash, zsh **errors out** when a glob matches nothing — the command never
+runs at all:
+
+```zsh
+# Aborts with "zsh: no matches found: docker-compose*.yml" if none exist
+ls docker-compose*.yml
+
+# Guard 1: (N) qualifier — expands to nothing instead of erroring
+ls docker-compose*.yml(N)
+
+# Guard 2: let fd do the matching (no shell glob involved)
+fd -g 'docker-compose*.yml' --max-depth 1
+
+# Guard 3: test existence before globbing in scripts
+for f in docker-compose*.yml(N); do …; done
+```
+
+Observed failures: `docker-compose*.yml` and `~/.config/ops-agent/config*`
+with no match killed whole `&&` chains. In `zsh -c` one-shots prefer `fd`; in
+committed zsh scripts add `setopt nullglob` (or the `(N)` qualifier per-glob).
+Bash behaves differently (passes the literal pattern through), which is why a
+snippet tested in bash breaks under zsh.
+
 ## Wrapped-capture permission-denied retry
 
 Some IDE harnesses wrap shell invocations in a capture command that tightens the executing process's permissions. If a script that *should* be executable returns `permission denied` only when wrapped — but works on a manual run — try invoking it with an explicit `/bin/zsh -f`:
@@ -157,7 +208,9 @@ After ruling those out, check [ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md) f
 - Aliases bypassed (`/bin/cat`, `/bin/ls`, `command <name>`) when exact output matters.
 - Long/nested/JSON payload moved to a script file instead of retried inline.
 - `gh api graphql` / long `jq` filters file-backed up front (gh-graphql-jq-pipelines).
-- Credentials loaded via `kac` / cache; never echoed into output.
+- Credentials loaded via `kac ensure` (exit-code gated); never echoed into output.
+- Subshells launched with `-l` / explicit `PATH` when nix-profile tools are needed.
+- zsh globs guarded (`(N)`, `fd`, or `setopt nullglob`) so no-match doesn't abort.
 
 ## References
 

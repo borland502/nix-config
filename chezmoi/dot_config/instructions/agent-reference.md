@@ -158,6 +158,16 @@ unzip, p7zip (`7z`/`7za`/`7zr`), alejandra, ncdu, statix, deadnix, nixd,
 markdownlint-cli2, ruff, shellcheck, shfmt, yamllint, taplo, unison, chezmoi,
 glow, gum, tealdeer, scrcpy, file, which, tree, rsync, btop, and lsof.
 
+Known gaps and traps (verified on managed darwin hosts):
+
+- **`psql` is NOT installed.** For a local database, exec into its container:
+  `docker exec -i <db-container> psql -U <user> <db>`. Don't retry bare `psql`.
+- **`nc` is BSD** (`/usr/bin/nc`) — GNU netcat flags (`-q`, `-N`) don't exist.
+- **GNU coreutils (incl. `timeout`, GNU `stat`) live on the login PATH only.**
+  A bare `zsh -c`, `env -i`, or `sudo` gets the system default PATH where they
+  are missing or BSD-flavored — use `zsh -lc`, pass `PATH` explicitly, or use
+  absolute paths (see the shell-pitfalls skill, "Subshell PATH loss").
+
 ## Instruction Deployment & Regeneration
 
 `agent-defaults.md` is the single source of truth for the always-on prefix.
