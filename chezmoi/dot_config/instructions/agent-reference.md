@@ -168,6 +168,18 @@ Known gaps and traps (verified on managed darwin hosts):
   are missing or BSD-flavored — use `zsh -lc`, pass `PATH` explicitly, or use
   absolute paths (see the shell-pitfalls skill, "Subshell PATH loss").
 
+## macOS (darwin) Quirks
+
+- **Homebrew cask upgrades can fail on root-owned / TCC-protected apps**
+  (observed: Chrome, Slack). `task switch` treats these as non-fatal, but the
+  upgrade stays blocked until the terminal app (or `brew`'s parent process)
+  has a **Full Disk Access** grant in System Settings → Privacy & Security,
+  and any root-owned copy under `/Applications` is reset
+  (`sudo chown -R "$USER" /Applications/<App>.app` or remove the stale
+  Caskroom entry and reinstall). This needs the user at the keyboard — report
+  it, don't loop retries. VPN-blocked cask downloads are likewise tolerated
+  and retried on a later switch (see hosts/darwin).
+
 ## Instruction Deployment & Regeneration
 
 `agent-defaults.md` is the single source of truth for the always-on prefix.
