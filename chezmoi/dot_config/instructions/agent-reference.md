@@ -20,24 +20,20 @@ Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
 - **AWS**: `~/.aws/config` and `~/.aws/credentials`; Kion session cache at
   `~/.cache/kion-aws-cache/`. Credentials in `~/.aws/credentials` and
   `AWS_PROFILE` are frequently stale and produce `ExpiredTokenException`.
-  Prefer loading directly from the Kion cache:
-
-  ```sh
-  export AWS_ACCESS_KEY_ID=$(/bin/cat ~/.cache/kion-aws-cache/AWS_ACCESS_KEY_ID)
-  export AWS_SECRET_ACCESS_KEY=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SECRET_ACCESS_KEY)
-  export AWS_SESSION_TOKEN=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SESSION_TOKEN)
-  ```
-
-  Or source `kac` (zsh only, must be sourced) to load from cache or refresh
-  automatically via `gkion` if the cache is stale:
+  Source `kac` (must be sourced; works from bash or zsh) to load from cache or
+  refresh automatically via `gkion` if the cache is stale:
 
   ```sh
   source ~/.local/bin/kac ensure
   ```
 
-  Do this **before** the first `aws` call, not after one fails — for a one-shot,
-  wrap both: `zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws …'`. Do
-  not `aws sso login` or `find`/`zstdcat` for the cache path; `kac` owns it.
+  Do this **before** the first `aws` call, not after one fails, and gate on its
+  exit code — for a one-shot, chain both:
+  `zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws …'`. Do **not**
+  `cat` the cache files into `export`s (no freshness guarantee — the observed
+  stale-creds anti-pattern; `kac ensure` reads the same files and validates
+  them). Do not `aws sso login` or `find`/`zstdcat` for the cache path; `kac`
+  owns it.
 
 - **GitHub (gh CLI)**: `~/.config/gh/hosts.yml`
 - **SOPS age key** (decrypts all nix-managed secrets):
@@ -57,7 +53,9 @@ the nix-config repo.
     `~/.cache/kion-aws-cache/` as a side-effect.
   - `source ~/.local/bin/kac dump` — write current valid AWS env vars to
     `~/.cache/kion-aws-cache/`
-  - `source ~/.local/bin/kac load` — restore vars from cache into current shell
+  - `source ~/.local/bin/kac load` — restore vars from cache into current
+    shell. Validates but does **not** refresh: expired creds fail instead of
+    self-healing — agents/scripts use `ensure` instead
   - `source ~/.local/bin/kac clear` — unset vars and remove cache files
   - `source ~/.local/bin/kac status` — print whether current/cached creds are
     valid

@@ -75,6 +75,29 @@ chmod +x ~/.cache/claude/post.sh
 
 The file form is also re-runnable (the agent's PostToolUse hook captures the path and contents in the log) and edit-friendly when the API call needs adjusting.
 
+The other recurring offender is **`aws logs` + `jq` one-shots**: a CloudWatch
+log-stream name contains `[$LATEST]` (dollar + brackets — both shell-active),
+the filter pattern needs its own quotes, and the whole thing gets wrapped in
+`zsh -lc '… kac ensure >/dev/null && aws logs …'`. Every observed failure of
+this shape was quoting rot, not AWS. Same rule: put the `aws logs
+filter-log-events` invocation (and any `jq` filter) in a script file first.
+
+```bash
+# Wrong: [$LATEST] and the pattern fight three quoting layers deep
+zsh -lc "source ~/.local/bin/kac ensure >/dev/null && aws logs filter-log-events --log-group-name '/aws/lambda/foo' --log-stream-names '2026/06/30/[\$LATEST]abc' --filter-pattern '\"ERROR\"' | jq '.events[].message'"
+
+# Right: script file — single quoting layer, re-runnable, log-friendly
+cat > ~/.cache/claude/logscan.sh <<'SCRIPT'
+#!/usr/bin/env bash
+source ~/.local/bin/kac ensure >/dev/null || exit 1
+aws logs filter-log-events \
+  --log-group-name '/aws/lambda/foo' \
+  --log-stream-names '2026/06/30/[$LATEST]abc' \
+  --filter-pattern '"ERROR"' | jq '.events[].message'
+SCRIPT
+bash ~/.cache/claude/logscan.sh
+```
+
 This is the codified version of the heuristic in [chezmoi/dot_config/instructions/agent-defaults.md L27](../../../chezmoi/dot_config/instructions/agent-defaults.md). When you find yourself on the third inline retry, stop and write a script.
 
 For the specific case of `gh api graphql` calls and long/nested `jq` filters — the highest-frequency offender — file-backing is a hard precondition, not a third-retry fallback. See [gh-graphql-jq-pipelines](../gh-graphql-jq-pipelines/SKILL.md) for the sanctioned `.graphql` + `.jq` file shape and the four recurring failure signatures.
