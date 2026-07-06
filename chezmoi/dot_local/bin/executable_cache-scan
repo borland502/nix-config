@@ -37,9 +37,10 @@ set -euo pipefail
 usage() {
 	cat <<'EOF'
 Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
-                  [-t|--transcript] [--diffs] [-v|--verbose]
+                  [-t|--transcript] [--diffs] [--classify] [-v|--verbose]
 
-  --days N         Look back N days by file mtime (default: 2)
+  --days N         Look back N days by file mtime (default: 2; 21 with
+                   --classify)
   --date DATE      Only show records whose header timestamp starts with DATE
   --session ID     Restrict to session log files matching ID
   --limit N        Timeline / decision length (default: 10)
@@ -49,6 +50,10 @@ Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
                    alike (needs jq)
       --diffs      Imply -t and also reconstruct the exact edits (Claude
                    old/new strings, Copilot V4A patches); capped by --limit
+      --classify   Aggregate failure categories across the window (incl. .zst
+                   archives): bucket each record's output into named categories
+                   (stale-aws-creds, stat-dialect, zsh-nullglob, …) and print
+                   counts + example commands (needs python3)
   -v|--verbose     Add the command timeline, keyword scan, and full paths
 
 Scans the agent log dir (~/.cache/claude, symlinked to ~/.cache/copilot).
@@ -64,12 +69,14 @@ EOF
 }
 
 days=2
+days_set=0
 date_filter=""
 session=""
 limit=10
 verbose=0
 transcript=0
 diffs=0
+classify=0
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -80,6 +87,7 @@ while [[ $# -gt 0 ]]; do
 			echo "--days must be a number" >&2
 			exit 1
 		}
+		days_set=1
 		;;
 	--date)
 		shift
@@ -111,6 +119,9 @@ while [[ $# -gt 0 ]]; do
 		diffs=1
 		transcript=1
 		;;
+	--classify)
+		classify=1
+		;;
 	-h | --help)
 		usage
 		exit 0
@@ -138,6 +149,119 @@ done
 if [[ ${#roots[@]} -eq 0 ]]; then
 	echo "No cache log dir found under ~/.cache/claude or ~/.cache/copilot"
 	exit 0
+fi
+
+# Classification pass (--classify): the graduated failscan.py aggregator.
+# Buckets each record's OUTPUT text (never the CMD line) into named failure
+# categories, first match wins, and prints counts + example commands. Records
+# whose command merely reads captured logs are skipped so a session that greps
+# these logs does not self-trip. Heuristic — the log carries no exit codes;
+# treat counts as leads, not statistics. Reads .zst archives via zstdcat.
+if ((classify)); then
+	((days_set)) || days=21
+	if ! command -v python3 >/dev/null 2>&1; then
+		echo "cache-scan --classify needs python3" >&2
+		exit 1
+	fi
+	exec python3 - "$days" "${roots[@]}" <<'PY'
+import glob, os, re, subprocess, sys, time
+from collections import defaultdict
+
+days = int(sys.argv[1])
+roots = sys.argv[2:]
+cutoff = time.time() - days * 86400
+
+# (name, regex) — priority order; first match wins per record.
+CATS = [
+    ("stale-aws-creds", r"ExpiredToken|security token included in the request is expired|InvalidClientTokenId|Unable to locate credentials|could not be found.*profile|ExpiredTokenException"),
+    ("stat-dialect", r"stat: illegal option|cannot read file system information for .%|stat: option .* requires|unrecognized option '--format"),
+    ("zsh-nullglob", r"no matches found|zsh: no matches"),
+    ("gh-graphql-jq", r"is not defined|declared but not used|Unexpected .*RCURLY|GraphQL: |jq: error|jq: syntax error|Requires authentication|Could not resolve to a"),
+    ("jq-non-json-input", r"jq: parse error"),
+    ("quoting-heredoc", r"parse error near|unexpected EOF|bad substitution|unmatched .|unexpected end of file|`\\?'.*unexpected"),
+    ("permission-denied", r"[Pp]ermission denied|Operation not permitted|not permitted"),
+    ("cmd-not-found", r"command not found|: not found\b|No such file or directory: .*bin"),
+    ("db-docker-conn", r"Cannot connect to the Docker daemon|[Cc]onnection refused|could not connect to server|psql: error|No such container|Is the server running|ECONNREFUSED"),
+    ("network-tls", r"Could not resolve host|Connection reset by peer|Connection timed out|curl: \(\d+\)|SSL certificate problem|Recv failure"),
+    ("build-ts-node", r"error TS\d|Cannot find module|SyntaxError|ERR_MODULE|ELIFECYCLE|npm ERR!|tsc.*error"),
+    ("nix-build", r"error: builder for|hash mismatch|attribute '.*' missing|infinite recursion|does not provide attribute|error: undefined variable"),
+    ("git-workflow", r"^CONFLICT|\bfatal:|! \[rejected\]|error: failed to push|error: pathspec|not a git repository"),
+    ("file-not-found", r"No such file or directory|cannot access|does not exist"),
+]
+CATS = [(n, re.compile(p, re.M)) for n, p in CATS]
+
+# Skip "self-trip" records: the command is READING a captured log / tool-output
+# artifact whose contents merely contain error text (not a fresh failure).
+META = re.compile(r"copilot-tool-output|/var/folders/\S+/T/|switch_run\.log|"
+                  r"session_\w+\.log|vitest-.*\.log|acceptance-test|"
+                  r"/\.cache/(claude|copilot)/\S+\.log|gh run (view|download)|"
+                  r"\.output\b")
+
+counts = defaultdict(int)
+examples = defaultdict(list)
+total_records = 0
+files = 0
+
+def records(text):
+    parts = re.split(r"(?m)^## \[", text)
+    for p in parts[1:]:
+        yield "## [" + p
+
+def read(path):
+    if path.endswith(".zst"):
+        try:
+            return subprocess.run(["zstdcat", path], capture_output=True,
+                                  text=True, errors="replace").stdout
+        except Exception:
+            return ""
+    with open(path, errors="replace") as f:
+        return f.read()
+
+seen = set()
+for root in roots:
+    for path in glob.glob(os.path.join(root, "session_*.log*")):
+        rp = os.path.realpath(path)
+        if rp in seen or ".skills" in path or ".thinking" in path:
+            continue
+        seen.add(rp)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                continue
+        except OSError:
+            continue
+        files += 1
+        for rec in records(read(path)):
+            total_records += 1
+            cmd = ""
+            m = re.search(r"(?ms)^CMD: (.*?)(?=^STDOUT:|^STDERR:|^---)", rec)
+            if m:
+                cmd = m.group(1).strip().replace("\n", " ")[:90]
+            if META.search(cmd):
+                continue
+            out = ""
+            for mo in re.finditer(r"(?ms)^(?:STDOUT|STDERR):\n(.*?)(?=^---|\Z)", rec):
+                out += mo.group(1)
+            if not out:
+                continue
+            for name, rx in CATS:
+                if rx.search(out):
+                    counts[name] += 1
+                    if len(examples[name]) < 4 and cmd:
+                        examples[name].append(cmd)
+                    break
+
+print(f"cache-scan --classify  files={files}  records={total_records}  window={days}d\n")
+print(f"{'CATEGORY':<20} COUNT")
+for name, _ in CATS:
+    if counts[name]:
+        print(f"{name:<20} {counts[name]}")
+print("\n--- examples (categorized on output, not the command text) ---")
+for name, _ in CATS:
+    if counts[name]:
+        print(f"\n[{name}]  ({counts[name]})")
+        for ex in examples[name]:
+            print(f"  · {ex}")
+PY
 fi
 
 # Emit a log file's contents, transparently decompressing the .zst archives

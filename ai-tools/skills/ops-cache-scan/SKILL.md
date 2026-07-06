@@ -19,6 +19,8 @@ STDOUT: / STDERR: sections
 
 `status` is a heuristic (no exit code is exposed to the hook): `interrupted`, else `stderr` when stderr is non-empty, else `ok`. Activation also enforces `~/.cache/claude` → `~/.cache/copilot` as a symlink so both agents share one log dir.
 
+Lifecycle: `compress-old-cache` (hook + daily timer) zstd-compresses top-level cache files older than 1 day (or over 1 MB), then applies a **retention pass** — top-level `.zst` archives and subdirectories untouched for `CACHE_RETENTION_DAYS` (default 548 ≈ 1.5 years) are deleted. Subdirectories are never compressed, only pruned, so anything that must survive long-term does not belong in the cache dir.
+
 This is *not* something a session needs to wire up — if the host has had `home-manager switch` run successfully, the hook is already firing on every Bash call. This skill consumes that log stream; it does not produce it. The companion read-side workflow lives in [flow-systematic-debugging](../flow-systematic-debugging/SKILL.md) Phase 0.
 
 ## Inputs
@@ -41,6 +43,14 @@ This is *not* something a session needs to wire up — if the host has had `home
   from the transcript's verbatim `old_string`/`new_string`, Copilot from the
   `apply_patch` V4A payloads. Capped by `--limit`; behind its own flag because
   diffs are token-heavy.
+- `--classify` aggregate failure categories across the window (`--days`
+  defaults to 21 here), including the `.zst` archives: buckets each record's
+  output into named categories (`stale-aws-creds`, `stat-dialect`,
+  `zsh-nullglob`, `gh-graphql-jq`, `jq-non-json-input`, …) and prints counts
+  plus example commands. Use for trend triage ("what keeps failing?"), not
+  single-session debugging. Heuristic — the log has no exit codes, and a
+  session that sweeps these logs can still self-trip; treat counts as leads.
+  Needs `python3`.
 - `-v|--verbose` add the command timeline and keyword scan (default output is
   intentionally terse to keep token cost low — read the default first and only
   reach for `--verbose` when you need the full timeline).
@@ -54,6 +64,8 @@ This is *not* something a session needs to wire up — if the host has had `home
    `cache-scan --session 4e8838e2 --transcript`
 5. Reconstruct the exact edits made (Claude or Copilot):
    `cache-scan --session 4e8838e2 --diffs`
+6. Trend triage — what keeps failing across sessions:
+   `cache-scan --classify` (or `--classify --days 60` for a longer horizon)
 
 ## What To Extract
 
@@ -81,6 +93,9 @@ This is *not* something a session needs to wire up — if the host has had `home
 - **DIFFS** (`--diffs`) — the exact per-edit changes for the focused session;
   read these when you need to see *what* a prior run actually wrote, not just
   which files it touched.
+- **CLASSIFY** (`--classify`) — category counts + example commands across the
+  window. The input for remediation planning (which skill/doc/helper to fix),
+  not for debugging one failure.
 
 ## Output Contract
 

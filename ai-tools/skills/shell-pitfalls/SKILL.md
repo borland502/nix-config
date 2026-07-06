@@ -176,6 +176,29 @@ committed zsh scripts add `setopt nullglob` (or the `(N)` qualifier per-glob).
 Bash behaves differently (passes the literal pattern through), which is why a
 snippet tested in bash breaks under zsh.
 
+## Piping non-JSON into `jq`
+
+`jq: parse error: Invalid numeric literal` almost never means malformed JSON —
+it means the payload isn't JSON at all: an HTML 401/error page from an
+unauthenticated `curl`, a log line, or an empty body. A related trap: a filter
+that yields `null` gets substituted into a later command as the literal string
+`null` (`bash: null: No such file or directory`).
+
+```bash
+# Wrong: a 401 HTML page goes straight into jq
+curl -s "$JIRA_URL/rest/api/2/issue/KEY-1" | jq '.fields.status.name'
+
+# Right: fail on HTTP errors so jq only ever sees a real body
+curl -fsS -H "Authorization: Bearer $TOKEN" \
+  "$JIRA_URL/rest/api/2/issue/KEY-1" | jq -r '.fields.status.name // empty'
+```
+
+Rules: `curl -fsS` (fail on 4xx/5xx) whenever the output feeds `jq`; give
+lookups a `// empty` (or explicit default) so `null` never leaks into a path
+or argument; when the payload's shape is unknown, `gron` it first. If the
+`jq` filter itself is long or quote-nested, file-back it
+(gh-graphql-jq-pipelines).
+
 ## Wrapped-capture permission-denied retry
 
 Some IDE harnesses wrap shell invocations in a capture command that tightens the executing process's permissions. If a script that *should* be executable returns `permission denied` only when wrapped — but works on a manual run — try invoking it with an explicit `/bin/zsh -f`:

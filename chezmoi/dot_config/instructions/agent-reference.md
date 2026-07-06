@@ -76,8 +76,10 @@ the nix-config repo.
 - **`cache-scan`** — Scan the agent log dir for recent activity. **Terse by
   default** (token-lean, since an agent reads it): a one-line-per-session
   overview plus the commands that hit stderr or were interrupted.
-  `-v|--verbose` adds the command timeline and heuristic keyword scan. Flags:
-  `--days N` (default 2), `--date YYYY-MM-DD`, `--session ID`, `--limit N`.
+  `-v|--verbose` adds the command timeline and heuristic keyword scan;
+  `--classify` aggregates failure categories (with example commands) across
+  the window for trend triage. Flags: `--days N` (default 2; 21 with
+  `--classify`), `--date YYYY-MM-DD`, `--session ID`, `--limit N`.
   De-duplicates the `~/.cache/claude` symlink. Prefer this over hand-rolled
   `rg` sweeps of the log dir.
 - **`sync-to-gdrive`** — Sync `~/.config`, `~/.local`, and `~/.cache/copilot`
@@ -137,10 +139,14 @@ agent hooks / MCP clients via absolute path, never by hand.
   known secrets and token-shaped strings are redacted before write, files are
   `0600`, and `*.thinking.log` is excluded from the gdrive sync profile.
   Treat these logs as sensitive regardless.
-- **`compress-old-cache`** — Compress `~/.cache/<agent>/` files older than 15
-  days with zstd. Agent-aware via `AGENT_NAME` (or explicit `CACHE_DIR`) and
-  self-throttling (`COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC`, default 1800s).
-  Invoked by agent hooks and a daily systemd/launchd timer.
+- **`compress-old-cache`** — Cache maintenance: zstd-compress top-level
+  `~/.cache/<agent>/` files older than 1 day (or over 1 MB), then a retention
+  pass deletes `.zst` archives and untouched subdirectories older than
+  `CACHE_RETENTION_DAYS` (default 548 ≈ 1.5 years).
+  `COMPRESS_OLD_CACHE_DRY_RUN=1` lists retention candidates without deleting.
+  Agent-aware via `AGENT_NAME` (or explicit `CACHE_DIR`) and self-throttling
+  (`COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC`, default 1800s). Invoked by agent
+  hooks and a daily systemd/launchd timer.
 - **`claude-cache-stats`** — Claude `SessionEnd` hook; appends a one-line
   prompt-cache-hit summary per session to `cache-stats.log`.
 - **`aws-mcp-server`** — MCP wrapper for the AWS API MCP server.
