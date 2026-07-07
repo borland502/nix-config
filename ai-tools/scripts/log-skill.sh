@@ -26,11 +26,18 @@ if printf '%s' "$input" | jq -e '.toolName' >/dev/null 2>&1; then
 	# Copilot postToolUse: toolArgs is a JSON string.
 	tool_name=$(printf '%s' "$input" | jq -r '.toolName // ""')
 	[[ "$tool_name" == "Skill" || "$tool_name" == "skill" ]] || exit 0
-	skill=$(printf '%s' "$input" | jq -r '(.toolArgs | fromjson | .skill) // ""' 2>/dev/null || echo "")
+	skill=$(printf '%s' "$input" | jq -r '(.toolArgs | fromjson | (.skill // .name)) // ""' 2>/dev/null || echo "")
 	args=$(printf '%s' "$input" | jq -r '(.toolArgs | fromjson | .args) // ""' 2>/dev/null || echo "")
 	sid=$(printf '%s' "$input" | jq -r '.sessionId // "nosid"')
 	cwd=$(printf '%s' "$input" | jq -r '.cwd // .workspaceRoot // ""')
 	result=$(printf '%s' "$input" | jq -r '.toolResult.textResultForLlm // ""')
+	# Copilot's skill tool often carries no name in toolArgs (observed as
+	# `skill=?` records). Recover it from the canonical result line:
+	#   Skill "<name>" loaded successfully.
+	if [[ -z "$skill" ]]; then
+		skill=$(printf '%s' "$result" |
+			sed -nE 's/.*Skill "([^"]+)" loaded successfully.*/\1/p' | head -n 1)
+	fi
 else
 	# Claude Code PostToolUse: tool_input is an object {skill, args}.
 	tool_name=$(printf '%s' "$input" | jq -r '.tool_name // ""')
