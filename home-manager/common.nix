@@ -667,6 +667,14 @@ in {
                 ${pkgs.coreutils}/bin/printf 'encryption = "age"\n'
                 ${pkgs.coreutils}/bin/printf '\n[age]\n'
                 ${pkgs.coreutils}/bin/printf '  identity = "%s"\n' "$_cm_age_key"
+                # recipient enables encryption (chezmoi add --encrypt); identity
+                # alone only decrypts. Derived from the same key so encrypted
+                # source files (e.g. work-repo agent directives) round-trip on
+                # any host holding the key.
+                _cm_age_recipient=$(${pkgs.age}/bin/age-keygen -y "$_cm_age_key" 2>/dev/null | ${pkgs.coreutils}/bin/head -n1 || true)
+                if [ -n "$_cm_age_recipient" ]; then
+                  ${pkgs.coreutils}/bin/printf '  recipient = "%s"\n' "$_cm_age_recipient"
+                fi
               fi
             } > "${xdgConfigHome}/chezmoi/chezmoi.toml"
           fi

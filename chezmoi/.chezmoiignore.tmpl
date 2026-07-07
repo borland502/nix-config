@@ -4,6 +4,12 @@
 .nix-defexpr
 .nix-channels
 result
+{{ if not (stat (joinPath .chezmoi.homeDir "Development/cmcs/mdp-application")) -}}
+# Work-repo agent directives (encrypted source) deploy only where the checkout
+# already exists — never create the Development tree on other hosts.
+Development
+Development/**
+{{ end -}}
 {{ if ne .chezmoi.os "darwin" -}}
 .local/bin/toggle-browser
 {{ end -}}
