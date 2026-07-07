@@ -8,6 +8,9 @@ rules only; reference detail (credential catalog, helper-script usage, package
 list, deployment paths) lives in `~/.config/instructions/agent-reference.md` —
 read that file on demand instead of asking the user.
 
+- At task start, check the available-skills list for a match (CI triage,
+  debugging, planning, resuming) and invoke it before improvising with raw
+  commands — a matching skill is a requirement, not a hint.
 - Minimize interactive terminal flows that can mangle command output in the IDE.
   If a shared shell shows prompt fragments, reused partial commands, or quote
   mangling, stop reusing it and rerun the workflow from an isolated shell.
