@@ -271,6 +271,7 @@
     "claude-cache-stats"
     "compress-old-cache"
     "log-bash.sh"
+    "log-instructions.sh"
     "log-skill.sh"
     "log-thinking.sh"
   ];
@@ -468,6 +469,18 @@ in {
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq \
             '.hooks.PostToolUse |= (. // []) + [{"matcher":"Skill","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/ai-tools/log-skill.sh\"","async":true}]}]' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+        # InstructionsLoaded: ground-truth log of which CLAUDE.md / rules files
+        # actually loaded (and why) per session, to
+        # ~/.cache/claude/session_<id>.instructions.log. Transcripts do NOT
+        # record the claudeMd injection, so this is the only durable evidence
+        # that the federated instructions reached a session. Side-effect-only
+        # event (exit code ignored). Idempotent guard mirrors the hooks above.
+        if ! jq -e '.hooks.InstructionsLoaded[]? | .hooks[]? | select(.command | test("log-instructions"))' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq \
+            '.hooks.InstructionsLoaded |= (. // []) + [{"hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/ai-tools/log-instructions.sh\"","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
         # SessionEnd: append a one-line prompt-cache summary per session. Fires
