@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# gh-run-logs — persist a GitHub Actions run's logs to the agent cache dir.
+#
+# Usage: gh-run-logs <run-id> [--repo <owner/name>] [--all] [--tail N]
+#
+#   <run-id>          the Actions run to fetch
+#   --repo owner/name pass through to gh (default: current repo)
+#   --all             full logs for every job (default: failed jobs only)
+#   --tail N          lines to echo after saving (default: 40; 0 = path only)
+#
+# Replaces the recurring hand-rolled pattern of piping `gh run view --log-failed`
+# into ad-hoc files (often under /tmp, where they don't survive for the next
+# session). Logs land at ~/.cache/<agent>/run-<id>-failed.log (or -full.log
+# with --all) so cache-scan and later sessions can find them. Deps: gh.
+set -euo pipefail
+
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+
+run_id=""
+repo_args=()
+mode="failed"
+tail_n=40
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--repo)
+		shift
+		repo_args=(--repo "${1:?--repo needs owner/name}")
+		;;
+	--all) mode="full" ;;
+	--tail)
+		shift
+		tail_n="${1:?--tail needs a number}"
+		[[ "$tail_n" =~ ^[0-9]+$ ]] || {
+			echo "--tail must be a number" >&2
+			exit 1
+		}
+		;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*)
+		if [[ -z "$run_id" && "$1" =~ ^[0-9]+$ ]]; then
+			run_id="$1"
+		else
+			echo "Unknown argument: $1" >&2
+			usage >&2
+			exit 1
+		fi
+		;;
+	esac
+	shift
+done
+
+[[ -n "$run_id" ]] || {
+	usage >&2
+	exit 1
+}
+
+agent_raw="${AGENT_NAME:-claude}"
+agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
+[[ -n "$agent" ]] || agent="claude"
+out_dir="$HOME/.cache/$agent"
+mkdir -p "$out_dir"
+out="$out_dir/run-${run_id}-${mode}.log"
+
+log_flag="--log-failed"
+[[ "$mode" == "full" ]] && log_flag="--log"
+
+if ! GH_PAGER=cat NO_COLOR=1 gh run view "$run_id" "${repo_args[@]}" "$log_flag" >"$out" 2>&1; then
+	# --log-failed yields nothing for a run with no failed jobs; say so instead
+	# of leaving a confusing gh error in the file.
+	if rg -qi 'no failed jobs|run .* has no' "$out" 2>/dev/null || [[ ! -s "$out" ]]; then
+		echo "run $run_id: no failed jobs (use --all for full logs)" >&2
+		rm -f "$out"
+		exit 1
+	fi
+	echo "gh run view failed; partial output kept at $out" >&2
+	exit 1
+fi
+
+printf 'saved: %s (%s lines)\n' "$out" "$(wc -l <"$out" | tr -d ' ')"
+if ((tail_n > 0)); then
+	printf -- '--- last %d lines ---\n' "$tail_n"
+	tail -n "$tail_n" "$out"
+fi

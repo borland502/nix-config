@@ -19,7 +19,8 @@ Use this skill when reconciling `ai-tools/skills/` and `ai-tools/agents/` agains
 ## Layout
 
 **Local source of truth** (deployed to `~/.config/{claude,copilot}` by Home Manager):
-```
+
+```text
 ai-tools/
   .claude-plugin/{marketplace.json,plugin.json}
   skills/<name>/
@@ -27,7 +28,8 @@ ai-tools/
 ```
 
 **Upstream sources** (read-only, refreshed by chezmoi externals at 720h intervals; see [chezmoi/.chezmoiexternal.toml.tmpl](../../../chezmoi/.chezmoiexternal.toml.tmpl)):
-```
+
+```text
 ~/.local/src/ai-tools/
   anthropic-skills/         (mixed license — proprietary doc skills NOT ingested; loaded via upstream marketplace)
   superpowers/              (MIT, obra)

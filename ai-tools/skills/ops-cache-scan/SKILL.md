@@ -48,9 +48,9 @@ This is *not* something a session needs to wire up — if the host has had `home
   output into named categories (`stale-aws-creds`, `stat-dialect`,
   `zsh-nullglob`, `gh-graphql-jq`, `jq-non-json-input`, …) and prints counts
   plus example commands. Use for trend triage ("what keeps failing?"), not
-  single-session debugging. Heuristic — the log has no exit codes, and a
-  session that sweeps these logs can still self-trip; treat counts as leads.
-  Needs `python3`.
+  single-session debugging. Heuristic — the log has no exit codes; records
+  whose command is itself a log sweep are excluded, but real output quoting a
+  marker still counts. Treat counts as leads. Needs `python3`.
 - `-v|--verbose` add the command timeline and keyword scan (default output is
   intentionally terse to keep token cost low — read the default first and only
   reach for `--verbose` when you need the full timeline).

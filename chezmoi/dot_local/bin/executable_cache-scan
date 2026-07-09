@@ -195,6 +195,7 @@ CATS = [(n, re.compile(p, re.M)) for n, p in CATS]
 META = re.compile(r"copilot-tool-output|/var/folders/\S+/T/|switch_run\.log|"
                   r"session_\w+\.log|vitest-.*\.log|acceptance-test|"
                   r"/\.cache/(claude|copilot)/\S+\.log|gh run (view|download)|"
+                  r"cache-scan|failscan|error-\S*sweep|"
                   r"\.output\b")
 
 counts = defaultdict(int)
@@ -355,15 +356,22 @@ fi
 # did not happen: stale-credential AWS calls, zsh nullglob path misses, the
 # GNU/BSD `stat` format trap, missing binaries. These set no stderr, so the
 # status header above never flags them. Heuristic and body-scanned — CMD lines
-# are skipped so a command that merely *mentions* a marker is not flagged, but a
-# session that greps these logs can still self-trip; treat as a lead, not proof.
+# are skipped so a command that merely *mentions* a marker is not flagged, and
+# records whose command is itself a log sweep (cache-scan, the classify
+# aggregator, rg/zstdcat over session logs) are excluded entirely: their OUTPUT
+# quotes these very markers, which made every scan flag the previous scan
+# (observed as a false expired-token streak on 2026-07-08). Still a heuristic —
+# treat hits as leads, not proof.
 echo "SILENT FAILURES (exit-0 errors, heuristic)"
 silent_out=$(for f in "${logs[@]}"; do
 	catlog "$f" | awk -v file="${f##*/}" "$AWK_HDR"'
-		function emit() { if (hit!="") printf "  %-8s %s %-13s :: %s\n", idof(file), hhmmss(pstamp), hit, cmd }
-		/^## \[/ { emit(); hdr($0); pstamp=stamp; cmd=""; hit=""; next }
-		/^CMD: / { if (cmd=="") cmd=substr($0,6); next }
-		hit!="" { next }
+		function emit() { if (hit!="" && !selfscan) printf "  %-8s %s %-13s :: %s\n", idof(file), hhmmss(pstamp), hit, cmd }
+		/^## \[/ { emit(); hdr($0); pstamp=stamp; cmd=""; hit=""; selfscan=0; inout=0; next }
+		/^CMD: / { if (cmd=="") { cmd=substr($0,6)
+			if (cmd ~ /cache-scan|failscan|error-.*sweep|session_.*\.log|\.cache\/(claude|copilot)/) selfscan=1 }
+			next }
+		/^(STDOUT|STDERR):/ { inout=1; next }
+		!inout || selfscan || hit!="" { next }
 		/ExpiredToken|security token included in the request is expired/ { hit="expired-token" }
 		/no matches found:/ { hit="nullglob-miss" }
 		/cannot read file system information for .%/ { hit="stat-dialect" }
