@@ -33,7 +33,7 @@ bin_dir="${HOME}/.local/bin"
 state_dir="${HOME}/.local/state/go-tools"
 mkdir -p "$bin_dir" "$state_dir"
 
-names=(wordgen gopwgen go-sea)
+names=(wordgen gopwgen go-sea gkion)
 
 for name in "${names[@]}"; do
   dir="${src_root}/${name}"
@@ -53,6 +53,11 @@ for name in "${names[@]}"; do
   fi
 
   printf '==> installing %s -> %s (%.8s)\n' "$name" "$binary" "$current_sha"
-  (cd "$dir" && GOBIN="$bin_dir" go install .)
+  # main package location varies per tool (gkion's is under cmd/)
+  pkg="."
+  case "$name" in
+  gkion) pkg="./cmd/gkion" ;;
+  esac
+  (cd "$dir" && GOBIN="$bin_dir" go install "$pkg")
   printf '%s' "$current_sha" > "$sha_file"
 done

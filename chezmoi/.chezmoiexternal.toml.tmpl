@@ -15,6 +15,17 @@
     [".local/src/wordgen".pull]
         args = ["--ff-only"]
 
+# gkion backs `kac ensure` (Kion AWS credential refresh) — load-bearing.
+# On this host the existing clone's origin is the local dev copy
+# (~/Development/gkion); fresh hosts clone from GitHub. Built by
+# run_install-go-tools.sh from ./cmd/gkion.
+[".local/src/gkion"]
+    type = "git-repo"
+    url = "https://github.com/borland502/gkion.git"
+    refreshPeriod = "720h"
+    [".local/src/gkion".pull]
+        args = ["--ff-only"]
+
 [".local/src/gopwgen"]
     type = "git-repo"
     url = "https://github.com/borland502/gopwgen.git"

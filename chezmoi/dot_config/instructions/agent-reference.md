@@ -59,6 +59,11 @@ the nix-config repo.
   - `source ~/.local/bin/kac clear` — unset vars and remove cache files
   - `source ~/.local/bin/kac status` — print whether current/cached creds are
     valid
+- **`gkion`** — Kion session CLI that `kac ensure` shells out to for refresh.
+  Built from `~/.local/src/gkion` (chezmoi external of
+  github.com/borland502/gkion; dev copy at `~/Development/gkion`) by the
+  install-go-tools run script — same pipeline as `wordgen`. If `gkion` is
+  missing, `chezmoi apply` rebuilds it.
 - **`monitor-gh-run <run-id>`** — Poll a GitHub Actions run, printing per-job
   status transitions. Cancels older duplicate runs; switches to newer runs
   automatically. Exits 0 on success, 1 on failure. Deps: `gh`, `jq`.
@@ -172,6 +177,10 @@ markdownlint-cli2, ruff, shellcheck, shfmt, yamllint, taplo, unison, chezmoi,
 glow, gum, tealdeer, scrcpy, file, which, tree, rsync, btop, and lsof.
 
 Known gaps and traps (verified on managed darwin hosts):
+
+- **node/npm are nvm-managed, not nix** (`~/.nvm`, active v26.x): `node`
+  resolves outside the nix profiles by design. Don't add nixpkgs nodejs to fix
+  a "wrong node version" — switch with `nvm use`.
 
 - **`psql` is NOT installed.** For a local database, exec into its container:
   `docker exec -i <db-container> psql -U <user> <db>`. Don't retry bare `psql`.
