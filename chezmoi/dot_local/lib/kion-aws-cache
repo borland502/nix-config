@@ -12,6 +12,20 @@ _kion_aws_cache_main() {
 	local -a vars=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN)
 	local command="${1:-help}"
 
+	# Harden against PATH-stripped subshells (bare `zsh -c`, `env -i`, sudo):
+	# prepend the dirs that hold gkion/aws so validate/refresh still resolve.
+	# `local` keeps the caller's PATH untouched; exported AWS_* still persist.
+	local PATH="$PATH" tool_dir
+	for tool_dir in \
+		/opt/homebrew/bin \
+		"/etc/profiles/per-user/${USER:-$(id -un)}/bin" \
+		/run/current-system/sw/bin \
+		"$HOME/.nix-profile/bin"; do
+		if [[ -d "$tool_dir" && ":$PATH:" != *":$tool_dir:"* ]]; then
+			PATH="$tool_dir:$PATH"
+		fi
+	done
+
 	# Portable indirect read: print the value of the variable named $1. bash has
 	# ${!name}, zsh has ${(P)name}; eval is the common denominator for both.
 	_kion_aws_cache_get() {
@@ -25,8 +39,11 @@ Usage:
 
 Commands:
   ensure  Load valid creds into current shell, refreshing via gkion if needed.
+          Preferred entry point: run before the first aws call, check its exit
+          code (source ~/.local/bin/kac ensure && aws ...).
   dump    Dump current AWS vars to cache files if they are still valid.
-  load    Load AWS vars from cache files into the current shell.
+  load    Load AWS vars from cache files (validates but does NOT refresh;
+          fails on expired creds — prefer ensure).
   clear   Remove cached AWS vars and unset them from the current shell.
   status  Print whether current and cached credentials appear valid.
 EOF
@@ -84,7 +101,8 @@ EOF
 
 	_kion_aws_cache_dump() {
 		if ! _kion_aws_cache_validate_current; then
-			echo "AWS credentials are expired." >&2
+			echo "Current AWS credentials are expired; nothing dumped." >&2
+			echo "Use: source ~/.local/bin/kac ensure   (refreshes via gkion)" >&2
 			return 1
 		fi
 
@@ -111,7 +129,8 @@ EOF
 		session_token="$(<"$cache_root/AWS_SESSION_TOKEN")"
 
 		if ! _kion_aws_cache_validate_values "$access_key_id" "$secret_access_key" "$session_token"; then
-			echo "AWS credentials are expired." >&2
+			echo "Cached AWS credentials are expired; 'load' does not refresh." >&2
+			echo "Use: source ~/.local/bin/kac ensure   (refreshes via gkion)" >&2
 			return 1
 		fi
 
@@ -149,12 +168,15 @@ EOF
 			return 1
 		fi
 
-		local exports
-		exports=$(gkion env 2>/tmp/kac-ensure-err) || {
+		local exports err_file
+		err_file=$(mktemp "${TMPDIR:-/tmp}/kac-ensure-err.XXXXXX")
+		exports=$(gkion env 2>"$err_file") || {
 			echo "kac ensure: gkion env failed" >&2
-			/bin/cat /tmp/kac-ensure-err >&2
+			/bin/cat "$err_file" >&2
+			rm -f "$err_file"
 			return 1
 		}
+		rm -f "$err_file"
 		eval "$exports"
 	}
 

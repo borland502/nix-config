@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
-# Compress cache files with zstd once they are older than 1 day, plus any file
-# already exceeding 1 MB (with a short modification grace so the live session
-# log is never compressed mid-write).
-# Invoked by agent hooks; supports both Claude and Copilot caches.
-# Files already ending in .zst are skipped; originals are removed on success.
+# Cache maintenance, invoked by agent hooks for both Claude and Copilot caches.
+# Two passes:
+#   1. Compress: zstd top-level files older than 1 day, plus any file already
+#      exceeding 1 MB (with a short modification grace so the live session log
+#      is never compressed mid-write). .zst files are skipped; originals are
+#      removed on success.
+#   2. Retention: the cache is an investigation surface, not an archive.
+#      Delete top-level .zst archives untouched for CACHE_RETENTION_DAYS
+#      (default 548 ≈ 1.5 years) and prune subdirectories in which nothing was
+#      modified within that window (session working dirs, extracted CI
+#      artifacts, node_modules trees — subdirectories are never compressed,
+#      only removed by this pass). COMPRESS_OLD_CACHE_DRY_RUN=1 prints the
+#      retention candidates instead of deleting them.
 set -euo pipefail
 
 # Resolve agent/cache target.
@@ -42,5 +50,35 @@ fi
 	[[ -e "${file_path}.zst" ]] && continue
 	printf '%s\0' "$file_path"
 done | xargs -0 -r zstd -q --rm --
+
+# --- Retention pass -------------------------------------------------------
+retention_days="${CACHE_RETENTION_DAYS:-548}"
+[[ "$retention_days" =~ ^[0-9]+$ ]] || retention_days=548
+dry_run="${COMPRESS_OLD_CACHE_DRY_RUN:-0}"
+
+remove() {
+	if [[ "$dry_run" != "0" ]]; then
+		printf 'retention would remove: %s\n' "$1"
+	else
+		rm -rf -- "$1"
+	fi
+}
+
+# Expired top-level archives.
+while IFS= read -r -d '' f; do
+	remove "$f"
+done < <(fd --max-depth 1 --type f -e zst \
+	--changed-before "${retention_days}d" . "$cache_dir" --print0)
+
+# Stale subdirectories: the dir entry itself must be past retention AND
+# nothing inside modified within the window (protects freshly created working
+# dirs whose content hasn't landed yet).
+while IFS= read -r -d '' dir; do
+	if [[ -z $(fd --type f --changed-within "${retention_days}d" \
+		. "$dir" --max-results 1 2>/dev/null) ]]; then
+		remove "$dir"
+	fi
+done < <(fd --max-depth 1 --type d \
+	--changed-before "${retention_days}d" . "$cache_dir" --print0)
 
 printf '%s\n' "$now_epoch" >"$stamp_file"

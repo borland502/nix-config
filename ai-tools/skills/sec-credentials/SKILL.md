@@ -34,19 +34,31 @@ Use this skill when a task needs a credential and you don't yet know where to fi
 **Do not trust `~/.aws/credentials` or `AWS_PROFILE`** — they are usually stale and produce `ExpiredTokenException`. The live AWS session lives in the Kion credential cache at `~/.cache/kion-aws-cache/`. Prefer the `kac` helper, which loads from that cache and auto-refreshes via `gkion` when it's empty or expired:
 
 ```bash
-# Preferred: load valid creds into the current shell (must be sourced, zsh only)
+# Preferred: load valid creds into the current shell (must be sourced; works
+# from bash or zsh)
 source ~/.local/bin/kac ensure
 ```
 
 **Run `kac ensure` *before* the first `aws` call, not as recovery after one
-fails.** Firing `aws` against an inherited stale token wastes round-trips on
-`ExpiredTokenException` and then sends agents off exploring. For a one-shot,
-non-interactive invocation, wrap both in one zsh command so the refresh always
-precedes the call:
+fails, and gate the call on its exit code.** Firing `aws` against an inherited
+stale token wastes round-trips on `ExpiredTokenException` and then sends agents
+off exploring. For a one-shot, non-interactive invocation, chain both with `&&`
+so the refresh always precedes the call and a failed refresh stops the chain:
 
 ```bash
 zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws sts get-caller-identity --output text'
 ```
+
+**`ensure`, not `load`.** `kac load` validates the cached creds but does **not**
+refresh them — on expiry it fails (stopping an `&&` chain) instead of
+self-healing via `gkion`. `load` is for a human who just refreshed; agents and
+scripts always use `ensure`.
+
+**Shell PATH note:** a bare `zsh -c '…'` (no `-l`) or `env -i` strips the
+nix/Homebrew `PATH`, which used to make `gkion`/`aws` "vanish" mid-refresh. The
+`kac` lib now prepends the known tool dirs itself, but prefer the current
+(already-provisioned) shell or `zsh -lc` anyway — other tools in the same
+command line don't get that rescue (see shell-pitfalls "Subshell PATH loss").
 
 Anti-patterns (observed wasting time in real sessions):
 
@@ -56,14 +68,11 @@ Anti-patterns (observed wasting time in real sessions):
   `~/.cache/kion-aws-cache/`; the path is documented here and in
   `agent-reference.md`. Re-deriving it from cold burns tokens and risks a stale
   path.
-
-If you can't source `kac`, read the cached values directly:
-
-```bash
-export AWS_ACCESS_KEY_ID=$(/bin/cat ~/.cache/kion-aws-cache/AWS_ACCESS_KEY_ID)
-export AWS_SECRET_ACCESS_KEY=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SECRET_ACCESS_KEY)
-export AWS_SESSION_TOKEN=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SESSION_TOKEN)
-```
+- **Do not `cat` the cache files into `export`s**
+  (`export AWS_ACCESS_KEY_ID=$(/bin/cat ~/.cache/kion-aws-cache/…)`). Raw reads
+  carry **no freshness guarantee** — this is the exact observed stale-creds
+  pattern. `kac ensure` reads the same files *and* validates/refreshes them;
+  there is no situation where the raw `cat` is the better move.
 
 If an `aws` call fails with an expired-token error, the inherited env vars (`AWS_ACCESS_KEY_ID`, etc.) are likely overriding the cache — clear them and re-source `kac` rather than editing `~/.aws/credentials`. Full `kac` subcommand reference is in `agent-reference.md`.
 

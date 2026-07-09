@@ -20,24 +20,20 @@ Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
 - **AWS**: `~/.aws/config` and `~/.aws/credentials`; Kion session cache at
   `~/.cache/kion-aws-cache/`. Credentials in `~/.aws/credentials` and
   `AWS_PROFILE` are frequently stale and produce `ExpiredTokenException`.
-  Prefer loading directly from the Kion cache:
-
-  ```sh
-  export AWS_ACCESS_KEY_ID=$(/bin/cat ~/.cache/kion-aws-cache/AWS_ACCESS_KEY_ID)
-  export AWS_SECRET_ACCESS_KEY=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SECRET_ACCESS_KEY)
-  export AWS_SESSION_TOKEN=$(/bin/cat ~/.cache/kion-aws-cache/AWS_SESSION_TOKEN)
-  ```
-
-  Or source `kac` (zsh only, must be sourced) to load from cache or refresh
-  automatically via `gkion` if the cache is stale:
+  Source `kac` (must be sourced; works from bash or zsh) to load from cache or
+  refresh automatically via `gkion` if the cache is stale:
 
   ```sh
   source ~/.local/bin/kac ensure
   ```
 
-  Do this **before** the first `aws` call, not after one fails — for a one-shot,
-  wrap both: `zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws …'`. Do
-  not `aws sso login` or `find`/`zstdcat` for the cache path; `kac` owns it.
+  Do this **before** the first `aws` call, not after one fails, and gate on its
+  exit code — for a one-shot, chain both:
+  `zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws …'`. Do **not**
+  `cat` the cache files into `export`s (no freshness guarantee — the observed
+  stale-creds anti-pattern; `kac ensure` reads the same files and validates
+  them). Do not `aws sso login` or `find`/`zstdcat` for the cache path; `kac`
+  owns it.
 
 - **GitHub (gh CLI)**: `~/.config/gh/hosts.yml`
 - **SOPS age key** (decrypts all nix-managed secrets):
@@ -57,7 +53,9 @@ the nix-config repo.
     `~/.cache/kion-aws-cache/` as a side-effect.
   - `source ~/.local/bin/kac dump` — write current valid AWS env vars to
     `~/.cache/kion-aws-cache/`
-  - `source ~/.local/bin/kac load` — restore vars from cache into current shell
+  - `source ~/.local/bin/kac load` — restore vars from cache into current
+    shell. Validates but does **not** refresh: expired creds fail instead of
+    self-healing — agents/scripts use `ensure` instead
   - `source ~/.local/bin/kac clear` — unset vars and remove cache files
   - `source ~/.local/bin/kac status` — print whether current/cached creds are
     valid
@@ -78,8 +76,10 @@ the nix-config repo.
 - **`cache-scan`** — Scan the agent log dir for recent activity. **Terse by
   default** (token-lean, since an agent reads it): a one-line-per-session
   overview plus the commands that hit stderr or were interrupted.
-  `-v|--verbose` adds the command timeline and heuristic keyword scan. Flags:
-  `--days N` (default 2), `--date YYYY-MM-DD`, `--session ID`, `--limit N`.
+  `-v|--verbose` adds the command timeline and heuristic keyword scan;
+  `--classify` aggregates failure categories (with example commands) across
+  the window for trend triage. Flags: `--days N` (default 2; 21 with
+  `--classify`), `--date YYYY-MM-DD`, `--session ID`, `--limit N`.
   De-duplicates the `~/.cache/claude` symlink. Prefer this over hand-rolled
   `rg` sweeps of the log dir.
 - **`sync-to-gdrive`** — Sync `~/.config`, `~/.local`, and `~/.cache/copilot`
@@ -146,10 +146,14 @@ agent hooks / MCP clients via absolute path, never by hand.
   known secrets and token-shaped strings are redacted before write, files are
   `0600`, and `*.thinking.log` is excluded from the gdrive sync profile.
   Treat these logs as sensitive regardless.
-- **`compress-old-cache`** — Compress `~/.cache/<agent>/` files older than 15
-  days with zstd. Agent-aware via `AGENT_NAME` (or explicit `CACHE_DIR`) and
-  self-throttling (`COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC`, default 1800s).
-  Invoked by agent hooks and a daily systemd/launchd timer.
+- **`compress-old-cache`** — Cache maintenance: zstd-compress top-level
+  `~/.cache/<agent>/` files older than 1 day (or over 1 MB), then a retention
+  pass deletes `.zst` archives and untouched subdirectories older than
+  `CACHE_RETENTION_DAYS` (default 548 ≈ 1.5 years).
+  `COMPRESS_OLD_CACHE_DRY_RUN=1` lists retention candidates without deleting.
+  Agent-aware via `AGENT_NAME` (or explicit `CACHE_DIR`) and self-throttling
+  (`COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC`, default 1800s). Invoked by agent
+  hooks and a daily systemd/launchd timer.
 - **`claude-cache-stats`** — Claude `SessionEnd` hook; appends a one-line
   prompt-cache-hit summary per session to `cache-stats.log`.
 - **`aws-mcp-server`** — MCP wrapper for the AWS API MCP server.
@@ -166,6 +170,28 @@ sd, jq, yq-go (`yq`), zoxide, direnv, dasel, gron, tmux, age, sops, zstd,
 unzip, p7zip (`7z`/`7za`/`7zr`), alejandra, ncdu, statix, deadnix, nixd,
 markdownlint-cli2, ruff, shellcheck, shfmt, yamllint, taplo, unison, chezmoi,
 glow, gum, tealdeer, scrcpy, file, which, tree, rsync, btop, and lsof.
+
+Known gaps and traps (verified on managed darwin hosts):
+
+- **`psql` is NOT installed.** For a local database, exec into its container:
+  `docker exec -i <db-container> psql -U <user> <db>`. Don't retry bare `psql`.
+- **`nc` is BSD** (`/usr/bin/nc`) — GNU netcat flags (`-q`, `-N`) don't exist.
+- **GNU coreutils (incl. `timeout`, GNU `stat`) live on the login PATH only.**
+  A bare `zsh -c`, `env -i`, or `sudo` gets the system default PATH where they
+  are missing or BSD-flavored — use `zsh -lc`, pass `PATH` explicitly, or use
+  absolute paths (see the shell-pitfalls skill, "Subshell PATH loss").
+
+## macOS (darwin) Quirks
+
+- **Homebrew cask upgrades can fail on root-owned / TCC-protected apps**
+  (observed: Chrome, Slack). `task switch` treats these as non-fatal, but the
+  upgrade stays blocked until the terminal app (or `brew`'s parent process)
+  has a **Full Disk Access** grant in System Settings → Privacy & Security,
+  and any root-owned copy under `/Applications` is reset
+  (`sudo chown -R "$USER" /Applications/<App>.app` or remove the stale
+  Caskroom entry and reinstall). This needs the user at the keyboard — report
+  it, don't loop retries. VPN-blocked cask downloads are likewise tolerated
+  and retried on a later switch (see hosts/darwin).
 
 ## Instruction Deployment & Regeneration
 

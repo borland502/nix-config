@@ -349,6 +349,7 @@ Coverage: XX%
 | `404` on Confluence `/move` or `/api/v2/pages` | Cloud-only endpoints | Use `PUT /rest/api/content/{id}` with `ancestors` + version bump |
 | `spawn uvx ENOENT` | IDE cannot find `uvx` on PATH | Use full path (e.g., `~/.local/bin/uvx`) or set PATH in `~/.zprofile` |
 | Connection timeout | Network/VPN issue | Check VPN connection and firewall rules |
+| `Connection reset by peer` | VPN-path flakiness (transient; recurs in bursts) | Retry the same request 2-3x with short backoff (`sleep 2`, `sleep 5`) before re-diagnosing; prefer direct REST with the token over CLI wrappers (standing rule) |
 
 ## Best Practices
 
