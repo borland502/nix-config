@@ -33,7 +33,9 @@ ai-tools/
   superpowers/              (MIT, obra)
   everything-claude-code/   (MIT, ECC)
   webmaton/                 (MIT, AppAutomaton)
-  angular-skills/           (MIT, Google LLC)
+  angular-skills/           (MIT, Google LLC — skills live at the repo ROOT,
+                             e.g. angular-developer/SKILL.md, not under
+                             skills/; layout changed upstream ~2026-07)
 ```
 
 `~/.local/src/ai-tools/anthropic-skills` is registered as a separate Claude Code marketplace by [home-manager/common.nix](../../../home-manager/common.nix); reconciliation here only covers content actually copied into `ai-tools/skills/`.
