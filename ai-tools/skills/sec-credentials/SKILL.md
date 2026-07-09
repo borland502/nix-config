@@ -31,7 +31,7 @@ Use this skill when a task needs a credential and you don't yet know where to fi
 
 ## AWS credentials (Kion)
 
-**Do not trust `~/.aws/credentials` or `AWS_PROFILE`** — they are usually stale and produce `ExpiredTokenException`. The live AWS session lives in the Kion credential cache at `~/.cache/kion-aws-cache/`. Prefer the `kac` helper, which loads from that cache and auto-refreshes via `gkion` when it's empty or expired:
+**Do not trust `~/.aws/credentials`, `AWS_PROFILE`, or `aws --profile <name>`** — the `--profile` flag is the same stale-credential path as the env var — they are usually stale and produce `ExpiredTokenException`. The live AWS session lives in the Kion credential cache at `~/.cache/kion-aws-cache/`. Prefer the `kac` helper, which loads from that cache and auto-refreshes via `gkion` when it's empty or expired:
 
 ```bash
 # Preferred: load valid creds into the current shell (must be sourced; works

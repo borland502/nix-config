@@ -80,7 +80,7 @@ gh pr list --json number,title,updatedAt --jq '.[] | select(.updatedAt < "2026-0
 
 When CI fails:
 
-1. Check the workflow run: `gh run view <run-id> --log-failed`
+1. Persist the failed-job logs first: `gh-run-logs <run-id>` (helper on PATH)
 2. Identify the failing step
 3. Check if it is a flaky test vs real failure
 4. For real failures: identify the root cause and suggest a fix
@@ -90,12 +90,22 @@ When CI fails:
 # List recent failed runs
 gh run list --status failure --limit 10
 
-# View failed run logs
-gh run view <run-id> --log-failed
+# Save failed-job logs to ~/.cache/<agent>/run-<id>-failed.log and tail them
+gh-run-logs <run-id>            # add --all for every job, --tail 0 for path only
+
+# Poll a run to completion (don't hand-roll sleep loops)
+monitor-gh-run <run-id>
 
 # Re-run a failed workflow
 gh run rerun <run-id> --failed
 ```
+
+**Local conventions (this environment):** always land CI logs in the agent
+cache dir via `gh-run-logs` — never `/tmp` (doesn't survive for follow-up
+sessions) and never inline `gh run view --log-failed` dumps into the terminal
+for large runs (buries the log in the session transcript). `monitor-gh-run`
+replaces `sleep N; gh run list` polling loops; both helpers are documented in
+`agent-reference.md`.
 
 ## Release Management
 
@@ -137,6 +147,7 @@ gh pr list --label "dependencies" --json number,title
 ## Quality Gate
 
 Before completing any GitHub operations task:
+
 - all issues triaged have appropriate labels
 - no PRs older than 7 days without a review or comment
 - CI failures have been investigated (not just re-run)

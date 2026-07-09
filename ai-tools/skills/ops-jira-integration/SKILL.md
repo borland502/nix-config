@@ -54,10 +54,11 @@ Populated by [home-manager/modules/sops.nix](../../../home-manager/modules/sops.
 
 ```bash
 JIRA_URL=$(/bin/cat ~/.config/ops-agent/jira-base-url)   # already ends in /rest/api/2
-JIRA_TOKEN=$(/bin/cat ~/.config/ops-agent/jira-token)
 CONFLUENCE_URL=$(/bin/cat ~/.config/confluence/base-url)
-CONFLUENCE_TOKEN=$(/bin/cat ~/.config/confluence/token)
 ```
+
+Tokens are read inside the `jira_curl`/`confluence_curl` helpers below — don't
+export them into variables you'd be tempted to interpolate into argv.
 
 **To create a fresh token** (standalone instances — NOT id.atlassian.com):
 
@@ -112,10 +113,27 @@ When the `mcp-atlassian` MCP server is configured, these tools are available:
 
 `$JIRA_URL` below already ends in `/rest/api/2` (it comes straight from `~/.config/ops-agent/jira-base-url`). All auth is `Authorization: Bearer`.
 
+**Keep the token out of argv.** A `-H "Authorization: Bearer $TOKEN"` argument
+expands the secret into process argv — visible in `ps` and captured verbatim by
+the log-bash PostToolUse hook into the session logs. Pass the header on stdin
+via curl's config instead (adapted from ECC's credentials-out-of-argv fix) and
+use these helpers in every example below:
+
+```bash
+jira_curl() {
+  printf 'header = "Authorization: Bearer %s"\n' "$(/bin/cat ~/.config/ops-agent/jira-token)" |
+    curl -s -K - "$@"
+}
+confluence_curl() {
+  printf 'header = "Authorization: Bearer %s"\n' "$(/bin/cat ~/.config/confluence/token)" |
+    curl -s -K - "$@"
+}
+```
+
 ### Fetch a Ticket
 
 ```bash
-curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
+jira_curl \
   "$JIRA_URL/issue/PROJ-1234" | jq '{
     key: .key,
     summary: .fields.summary,
@@ -131,7 +149,7 @@ curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
 ### Fetch Comments and Remote Links
 
 ```bash
-curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
+jira_curl \
   "$JIRA_URL/issue/PROJ-1234/comment" | jq '.comments[] | {
     author: .author.displayName,
     created: .created[:10],
@@ -139,7 +157,7 @@ curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
   }'
 
 # Remote links (Confluence RFC pages, PRs, etc.)
-curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
+jira_curl \
   "$JIRA_URL/issue/PROJ-1234/remotelink" | jq '[.[] | {title: .object.title, url: .object.url}]'
 ```
 
@@ -148,7 +166,7 @@ curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
 The v2 body is a **plain string** (wiki markup allowed) — not a cloud ADF document.
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $JIRA_TOKEN" \
+jira_curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"body": "Your comment here"}' \
   "$JIRA_URL/issue/PROJ-1234/comment"
@@ -158,11 +176,11 @@ curl -s -X POST -H "Authorization: Bearer $JIRA_TOKEN" \
 
 ```bash
 # 1. Get available transitions
-curl -s -H "Authorization: Bearer $JIRA_TOKEN" \
+jira_curl \
   "$JIRA_URL/issue/PROJ-1234/transitions" | jq '.transitions[] | {id, name: .name}'
 
 # 2. Execute transition (replace TRANSITION_ID)
-curl -s -X POST -H "Authorization: Bearer $JIRA_TOKEN" \
+jira_curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"transition": {"id": "TRANSITION_ID"}}' \
   "$JIRA_URL/issue/PROJ-1234/transitions"
@@ -171,7 +189,7 @@ curl -s -X POST -H "Authorization: Bearer $JIRA_TOKEN" \
 ### Search with JQL
 
 ```bash
-curl -s -G -H "Authorization: Bearer $JIRA_TOKEN" \
+jira_curl -G \
   --data-urlencode "jql=project = PROJ AND status = 'In Progress'" \
   "$JIRA_URL/search"
 ```
@@ -183,7 +201,7 @@ Confluence Server/DC uses the v1 content API under `$CONFLUENCE_URL/rest/api/con
 ### Fetch a Page (body, version, ancestors)
 
 ```bash
-curl -s -H "Authorization: Bearer $CONFLUENCE_TOKEN" \
+confluence_curl \
   "$CONFLUENCE_URL/rest/api/content/PAGE_ID?expand=body.storage,version,ancestors,space" | jq '{
     title, version: .version.number, space: .space.key,
     ancestors: [.ancestors[] | {id, title}]
@@ -197,7 +215,7 @@ The storage body is XHTML with `<ac:structured-macro>` elements; strip/convert i
 Updates go through `PUT /rest/api/content/{id}` with the version bumped by one. To move a page, set `ancestors` in the same PUT — **the `/rest/api/content/{id}/move/...` endpoint 404s on this DC version.** Always re-fetch the current body first and send it back unchanged, or the update wipes the page content.
 
 ```bash
-curl -s -X PUT -H "Authorization: Bearer $CONFLUENCE_TOKEN" \
+confluence_curl -X PUT \
   -H "Content-Type: application/json" \
   -d '{
     "id": "PAGE_ID", "type": "page", "title": "Current Title",

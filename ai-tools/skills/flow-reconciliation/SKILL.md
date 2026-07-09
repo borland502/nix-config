@@ -19,7 +19,8 @@ Use this skill when reconciling `ai-tools/skills/` and `ai-tools/agents/` agains
 ## Layout
 
 **Local source of truth** (deployed to `~/.config/{claude,copilot}` by Home Manager):
-```
+
+```text
 ai-tools/
   .claude-plugin/{marketplace.json,plugin.json}
   skills/<name>/
@@ -27,13 +28,16 @@ ai-tools/
 ```
 
 **Upstream sources** (read-only, refreshed by chezmoi externals at 720h intervals; see [chezmoi/.chezmoiexternal.toml.tmpl](../../../chezmoi/.chezmoiexternal.toml.tmpl)):
-```
+
+```text
 ~/.local/src/ai-tools/
   anthropic-skills/         (mixed license — proprietary doc skills NOT ingested; loaded via upstream marketplace)
   superpowers/              (MIT, obra)
   everything-claude-code/   (MIT, ECC)
   webmaton/                 (MIT, AppAutomaton)
-  angular-skills/           (MIT, Google LLC)
+  angular-skills/           (MIT, Google LLC — skills live at the repo ROOT,
+                             e.g. angular-developer/SKILL.md, not under
+                             skills/; layout changed upstream ~2026-07)
 ```
 
 `~/.local/src/ai-tools/anthropic-skills` is registered as a separate Claude Code marketplace by [home-manager/common.nix](../../../home-manager/common.nix); reconciliation here only covers content actually copied into `ai-tools/skills/`.

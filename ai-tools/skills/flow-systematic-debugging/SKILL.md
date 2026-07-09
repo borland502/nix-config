@@ -45,30 +45,51 @@ Use for ANY technical issue:
 
 ## The Phases
 
-You MUST complete each phase before proceeding to the next. Phase 0 is a preflight that runs before any new investigation; Phases 1–4 are the core debugging loop.
+You MUST complete each phase before proceeding to the next. Phase 0 is a
+project-local preflight that runs before any new investigation; Phases 1–4 are
+the core debugging loop.
 
 ### Phase 0: Check the Log First
 
-**BEFORE you reproduce, BEFORE you re-run the failing command:** check whether you (or a prior session) have already invoked the same command successfully under `~/.cache/<agent>/*.log`. The PostToolUse hook in [home-manager/common.nix](../../../home-manager/common.nix) writes every Bash invocation + output to that directory automatically — so a prior successful run is on disk, not lost to history.
+**BEFORE you reproduce, BEFORE you re-run the failing command:** check whether
+you (or a prior session) have already invoked the same command successfully
+under `~/.cache/<agent>/*.log`. The PostToolUse hook in
+[home-manager/common.nix](../../../home-manager/common.nix) writes every Bash
+invocation + output to that directory automatically — so a prior successful run
+is on disk, not lost to history.
 
-This codifies the rule from [chezmoi/dot_config/instructions/agent-defaults.md L10](../../../chezmoi/dot_config/instructions/agent-defaults.md): *"When investigating tool or command failures, inspect relevant logs under `~/.cache/@@AGENT@@` first; use prior successful executions there as concrete examples before retrying or changing approach."*
+This codifies the failure-investigation rule in
+[chezmoi/dot_config/instructions/agent-defaults.md](../../../chezmoi/dot_config/instructions/agent-defaults.md):
+inspect recent logs under `~/.cache/<agent>` first and prefer the `cache-scan`
+helper over hand-rolled sweeps.
 
 ```bash
-# Find prior runs of the failing command (replace <pattern>)
-rg -l '<pattern>' ~/.cache/claude/*.log ~/.cache/copilot/*.log 2>/dev/null
-
-# Or use the helper skill to summarize recent activity
+# Summarize recent activity, failures, and resume artifacts
 cache-scan --days 3
+
+# Cross-session failure-category trends (what keeps failing?)
+cache-scan --classify
+
+# Find prior runs of the failing command (replace <pattern>)
+rg -l '<pattern>' ~/.cache/copilot/session_*.log 2>/dev/null
 ```
 
-For the index-side workflow (browsing recent activity, classifying failures, picking up a resume point), see the **[cache-scan](../cache-scan/SKILL.md)** skill — that skill produces the index, this Phase 0 consumes it.
+For the index-side workflow (browsing recent activity, classifying failures,
+picking up a resume point), see the
+**[ops-cache-scan](../ops-cache-scan/SKILL.md)** skill — that skill produces
+the index, this Phase 0 consumes it.
 
 **What to look for:**
-- A prior **successful** invocation of the same tool/binary with similar arguments — copy that invocation as a known-good template.
-- A prior **failure** with the same signature — read what was tried last time before repeating it.
-- Environment differences between then and now (cwd, env vars echoed in the log, tool version).
+- A prior **successful** invocation of the same tool/binary with similar
+  arguments — copy that invocation as a known-good template.
+- A prior **failure** with the same signature — read what was tried last time
+  before repeating it.
+- Environment differences between then and now (cwd, env vars echoed in the
+  log, tool version).
 
-**When to skip Phase 0:** brand-new tooling that has never been invoked before, or a problem that has nothing to do with command invocation (UI bug, design question). Phase 0 is for retrying or re-investigating a *command* failure.
+**When to skip Phase 0:** brand-new tooling that has never been invoked before,
+or a problem that has nothing to do with command invocation (UI bug, design
+question). Phase 0 is for retrying or re-investigating a *command* failure.
 
 ### Phase 1: Root Cause Investigation
 
@@ -260,7 +281,7 @@ If you catch yourself thinking:
 - "Is that not happening?" - You assumed without verifying
 - "Will it show us...?" - You should have added evidence gathering
 - "Stop guessing" - You're proposing fixes without understanding
-- "Ultrathink this" - Question fundamentals, not just symptoms
+- "Ultra-think this" - Question fundamentals, not just symptoms
 - "We're stuck?" (frustrated) - Your approach isn't working
 
 **When you see these:** STOP. Return to Phase 1.

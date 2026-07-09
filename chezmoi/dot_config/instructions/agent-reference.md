@@ -18,8 +18,9 @@ Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
 - **Confluence**: token at `~/.config/confluence/token`, base URL at
   `~/.config/confluence/base-url` (same SOPS source)
 - **AWS**: `~/.aws/config` and `~/.aws/credentials`; Kion session cache at
-  `~/.cache/kion-aws-cache/`. Credentials in `~/.aws/credentials` and
-  `AWS_PROFILE` are frequently stale and produce `ExpiredTokenException`.
+  `~/.cache/kion-aws-cache/`. Credentials in `~/.aws/credentials`,
+  `AWS_PROFILE`, and `aws --profile <name>` are frequently stale and produce
+  `ExpiredTokenException`.
   Source `kac` (must be sourced; works from bash or zsh) to load from cache or
   refresh automatically via `gkion` if the cache is stale:
 
@@ -62,6 +63,12 @@ the nix-config repo.
 - **`monitor-gh-run <run-id>`** — Poll a GitHub Actions run, printing per-job
   status transitions. Cancels older duplicate runs; switches to newer runs
   automatically. Exits 0 on success, 1 on failure. Deps: `gh`, `jq`.
+- **`gh-run-logs <run-id> [--repo owner/name] [--all] [--tail N]`** — Save a
+  run's failed-job logs (`--all`: every job) to
+  `~/.cache/<agent>/run-<id>-failed.log` and tail the last N lines (default
+  40). Use instead of piping `gh run view --log-failed` to ad-hoc `/tmp` files
+  — the cache path survives for follow-up sessions and is indexed by
+  `cache-scan`. Deps: `gh`.
 - **`gh-graphql <task-tag> <query-file> [--jq <jq-file>] [-F k=v ...]`** —
   File-backed `gh api graphql` runner. Snapshots the query (and optional jq
   filter) to `~/.cache/<agent>/<task-tag>-<timestamp>.{graphql,jq}`, then calls
