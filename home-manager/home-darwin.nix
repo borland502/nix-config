@@ -7,6 +7,20 @@
     inherit pkgs;
   };
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
+  # Flameshot (Qt6 QSettings) rewrites this INI at runtime, so it cannot be a
+  # read-only nix-store symlink; it is seeded as a mutable copy in
+  # home.activation.seedFlameshotConfig below.
+  flameshotIni = pkgs.writeText "flameshot.ini" ''
+    [General]
+    contrastOpacity=188
+    saveAfterCopy=true
+    startupLaunch=true
+    useJpgForClipboard=true
+
+    [Shortcuts]
+    SCREENSHOT_HISTORY=Ctrl+Shift+3
+    TAKE_SCREENSHOT=Ctrl+Shift+4
+  '';
   vivaldiBrowserWrapper = pkgs.writeShellScriptBin "vivaldi" ''
     exec /usr/bin/open -a "Vivaldi" "$@"
   '';
@@ -159,6 +173,25 @@ in {
             ${pkgs.coreutils}/bin/rm -f "$_f"
           done
         done
+      '';
+
+      # Flameshot rewrites its own INI at runtime (Qt QSettings atomic
+      # temp-file + rename), which clobbers a read-only xdg.configFile symlink
+      # and has been observed to blank the file, wiping the custom capture
+      # shortcuts. Seed a mutable, flameshot-owned copy instead, reseeding only
+      # when the [Shortcuts] block is missing (fresh install or after such a
+      # blanking) so flameshot's own [General] edits survive otherwise.
+      seedFlameshotConfig = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        flameshot_ini="$HOME/.config/flameshot/flameshot.ini"
+        if [ ! -s "$flameshot_ini" ] || ! ${pkgs.gnugrep}/bin/grep -q '^\[Shortcuts\]' "$flameshot_ini"; then
+          echo "Seeding Flameshot config with custom capture shortcuts"
+          ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$flameshot_ini")"
+          ${pkgs.coreutils}/bin/cp ${flameshotIni} "$flameshot_ini"
+          ${pkgs.coreutils}/bin/chmod u+w "$flameshot_ini"
+          # Flameshot only reads the INI at startup; reload the running launchd
+          # agent so the restored shortcuts take effect without a manual restart.
+          /bin/launchctl kickstart -k "gui/$(${pkgs.coreutils}/bin/id -u)/org.nixos.flameshot" >/dev/null 2>&1 || true
+        fi
       '';
 
       # Install SDKMAN! on macOS so Java toolchains can be managed declaratively
@@ -345,17 +378,6 @@ in {
     # Extensions and other VSCode config can be added here
     # Stylix will automatically handle theming
   };
-  xdg.configFile."flameshot/flameshot.ini".text = ''
-    [General]
-    contrastOpacity=188
-    saveAfterCopy=true
-    startupLaunch=true
-    useJpgForClipboard=true
-
-    [Shortcuts]
-    SCREENSHOT_HISTORY=Ctrl+Shift+3
-    TAKE_SCREENSHOT=Ctrl+Shift+4
-  '';
   # Kitty terminal configuration
   xdg.configFile."kitty/kitty.conf".text = let
     c = import ./lib/colors.nix;
