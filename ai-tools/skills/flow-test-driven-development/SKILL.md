@@ -26,15 +26,31 @@ Write the test first. Watch it fail. Write minimal code to pass.
 - Generated code
 - Configuration files
 
+**Validation-only changes (no new red/green test required):**
+- Database migration-only fixes: renumbering prefixes, resolving collisions,
+  adding/removing indexes/constraints/functions, or fixing migration SQL where
+  the proof is migration application/rollback, schema inspection, or existing
+  integration coverage.
+- Reviewer-requested mechanical cleanup with no intended behavior change:
+  removing trivial/over-specific tests, deleting unused test files, restoring
+  base-branch parity, or changing syntax/style because a reviewer explicitly
+  asked for a simpler equivalent form.
+- Reverts or branch-reconciliation edits that remove non-ticket drift and return
+  files to the target/base branch behavior.
+
+For validation-only changes, do not invent tests just to satisfy TDD. Run the
+smallest existing checks that prove the reviewer request or migration/revert is
+safe, and state that no new behavior was introduced.
+
 Thinking "skip TDD just this once"? Stop. That's rationalization.
 
 ## The Iron Law
 
 ```
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
+NO PRODUCTION BEHAVIOR CHANGE WITHOUT A FAILING TEST FIRST
 ```
 
-Write code before the test? Delete it. Start over.
+Write behavior-changing code before the test? Delete it. Start over.
 
 **No exceptions:**
 - Don't keep it as "reference"

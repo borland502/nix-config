@@ -271,6 +271,7 @@
     "claude-cache-stats"
     "compress-old-cache"
     "log-bash.sh"
+    "log-instructions.sh"
     "log-skill.sh"
     "log-thinking.sh"
   ];
@@ -345,20 +346,18 @@ in {
       # surfaced. Stack-specific skills live in ai-tools/skills-stack/ and are
       # linked into individual projects with `task skills:enable` instead.
       #
-      # Claude deliberately does NOT get a personal claude/skills dir: it
-      # already loads the same ai-tools/skills via the nix-config-tools plugin
-      # (enabledPlugins in ensureClaudeSettings). Deploying the personal dir too
-      # double-registered every skill (clean name + nix-config-tools: name),
-      # doubling the skill-listing footprint and overflowing
-      # skillListingBudgetFraction, which silently dropped descriptions and
-      # disabled their auto-triggers. Plugin-only keeps the listing lean so
-      # auto-invocation fires. Copilot has no plugin system, so it still needs
-      # the literal copilot/skills dir below. COPILOT_HOME (zsh.nix as
-      # $XDG_CONFIG_HOME/copilot) is the parallel of CLAUDE_CONFIG_DIR.
-      "claude/agents" = {
-        source = ../ai-tools/agents;
-        recursive = true;
-      };
+      # Claude deliberately does NOT get personal claude/skills or claude/agents
+      # dirs: it already loads the same ai-tools content via the nix-config-tools
+      # plugin (enabledPlugins in ensureClaudeSettings). Deploying the personal
+      # dirs too double-registered every skill AND every agent (clean name +
+      # nix-config-tools: name), doubling the listing footprint; for skills that
+      # overflowed skillListingBudgetFraction, which silently dropped
+      # descriptions and disabled their auto-triggers (agents confirmed
+      # double-listed in session context 2026-07-07). Plugin-only keeps the
+      # listings lean so auto-invocation fires. Copilot has no plugin system, so
+      # it still needs the literal copilot/skills + copilot/agents dirs below.
+      # COPILOT_HOME (zsh.nix as $XDG_CONFIG_HOME/copilot) is the parallel of
+      # CLAUDE_CONFIG_DIR.
       "copilot/agents" = {
         source = ../ai-tools/agents;
         recursive = true;
@@ -470,6 +469,18 @@ in {
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq \
             '.hooks.PostToolUse |= (. // []) + [{"matcher":"Skill","hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/ai-tools/log-skill.sh\"","async":true}]}]' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+        # InstructionsLoaded: ground-truth log of which CLAUDE.md / rules files
+        # actually loaded (and why) per session, to
+        # ~/.cache/claude/session_<id>.instructions.log. Transcripts do NOT
+        # record the claudeMd injection, so this is the only durable evidence
+        # that the federated instructions reached a session. Side-effect-only
+        # event (exit code ignored). Idempotent guard mirrors the hooks above.
+        if ! jq -e '.hooks.InstructionsLoaded[]? | .hooks[]? | select(.command | test("log-instructions"))' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq \
+            '.hooks.InstructionsLoaded |= (. // []) + [{"hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/ai-tools/log-instructions.sh\"","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
         # SessionEnd: append a one-line prompt-cache summary per session. Fires
@@ -656,6 +667,14 @@ in {
                 ${pkgs.coreutils}/bin/printf 'encryption = "age"\n'
                 ${pkgs.coreutils}/bin/printf '\n[age]\n'
                 ${pkgs.coreutils}/bin/printf '  identity = "%s"\n' "$_cm_age_key"
+                # recipient enables encryption (chezmoi add --encrypt); identity
+                # alone only decrypts. Derived from the same key so encrypted
+                # source files (e.g. work-repo agent directives) round-trip on
+                # any host holding the key.
+                _cm_age_recipient=$(${pkgs.age}/bin/age-keygen -y "$_cm_age_key" 2>/dev/null | ${pkgs.coreutils}/bin/head -n1 || true)
+                if [ -n "$_cm_age_recipient" ]; then
+                  ${pkgs.coreutils}/bin/printf '  recipient = "%s"\n' "$_cm_age_recipient"
+                fi
               fi
             } > "${xdgConfigHome}/chezmoi/chezmoi.toml"
           fi

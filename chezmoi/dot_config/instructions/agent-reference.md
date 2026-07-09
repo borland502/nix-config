@@ -131,6 +131,13 @@ agent hooks / MCP clients via absolute path, never by hand.
   Built-in commands like `/model` or `/clear` do **not** route through the
   Skill tool and are intentionally not captured. Handles both Claude
   (`tool_input.skill`) and Copilot (`toolName`) payload shapes.
+- **`log-instructions.sh`** — Claude `InstructionsLoaded` hook logger (injected
+  by `ensureClaudeHook`; Copilot has no equivalent event). For every
+  instruction file Claude loads (CLAUDE.md, CLAUDE.local.md,
+  `.claude/rules/*.md`) it appends `reason=` + `FILE:` records to
+  `~/.cache/claude/session_<id>.instructions.log`. This is the ground truth
+  for "did the federated instructions load?" — transcripts do not record the
+  injection.
 - **`log-thinking.sh`** — agent-reasoning logger. Wired as Claude
   `Stop`/`SubagentStop` hooks and a Copilot `postToolUse` hook. Appends new
   reasoning to `~/.cache/<agent>/session_<id>.thinking.log`, deduped by a
