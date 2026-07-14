@@ -14,7 +14,11 @@ Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
 - **Jira**: token at `~/.config/ops-agent/jira-token`, base URL at
   `~/.config/ops-agent/jira-base-url`, email at
   `~/.config/ops-agent/jira-email` (SOPS-decrypted from
-  `secrets/ops-agent.yaml` in the nix-config repo)
+  `secrets/ops-agent.yaml` in the nix-config repo). **Trap:** despite the
+  name, `jira-base-url` already ends with `/rest/api/2` — composing
+  `"$BASE/rest/api/2/issue/…"` 404s, and the 404 body kills a piped `jq`.
+  Prefer the `jira-get` helper, which owns the composition; if reading the
+  file directly, append API-root-relative paths only (`/issue/…`, `/myself`).
 - **Confluence**: token at `~/.config/confluence/token`, base URL at
   `~/.config/confluence/base-url` (same SOPS source)
 - **AWS**: `~/.aws/config` and `~/.aws/credentials`; Kion session cache at
@@ -78,6 +82,12 @@ the nix-config repo.
   (status not Done, ordered by rank). Reads token from
   `~/.config/ops-agent/jira-token` and email from
   `~/.config/ops-agent/jira-email` (falls back to `git config user.email`).
+- **`jira-get <path>`** — GET a Jira REST path with the sops-managed token;
+  prints JSON for piping to `jq`. `<path>` is relative to the API root — the
+  configured "base URL" already contains `/rest/api/2`, and this helper owns
+  that composition (see the Jira trap above). Non-2xx / non-JSON responses
+  become a clear stderr error instead of a downstream `jq` parse failure.
+  Example: `jira-get 'issue/MDPMDD-828?fields=summary,status'`.
 - **`cache-scan`** — Scan the agent log dir for recent activity. **Terse by
   default** (token-lean, since an agent reads it): a one-line-per-session
   overview plus the commands that hit stderr or were interrupted.
@@ -96,7 +106,16 @@ the nix-config repo.
 - **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
   Safari (darwin only).
 - **`ops-agent`** — Deployed via `home-manager/common.nix` as
-  `writeShellScriptBin` (source `ai-tools/scripts/ops-agent.py`).
+  `writeShellScriptBin` (source `ai-tools/scripts/ops-agent.py`). Two modes:
+  `ops-agent --tool <name> '<json>'` runs one Jira/ECS tool deterministically
+  (no model, no credits — e.g.
+  `ops-agent --tool jira_get_issue '{"ticket_id":"MDPMDD-828"}'`);
+  `ops-agent "<prompt>"` runs the agentic loop **through the `claude` CLI**
+  (subscription OAuth — no `ANTHROPIC_API_KEY` exists on these hosts), with
+  permissions scoped to `Bash(ops-agent --tool:*)`. `OPS_AGENT_MODEL` passes
+  `--model`; otherwise the CLI default applies. `ops-agent --test` probes the
+  Jira/Confluence credentials. Agents should prefer `--tool` (deterministic,
+  cheaper); the prompt mode is mainly for humans.
 
 ## Automation Scripts (~/.local/bin/ai-tools)
 
@@ -158,7 +177,13 @@ agent hooks / MCP clients via absolute path, never by hand.
   `COMPRESS_OLD_CACHE_DRY_RUN=1` lists retention candidates without deleting.
   Agent-aware via `AGENT_NAME` (or explicit `CACHE_DIR`) and self-throttling
   (`COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC`, default 1800s). Invoked by agent
-  hooks and a daily systemd/launchd timer.
+  hooks and a daily systemd/launchd timer. This archives the helper scripts
+  and data files a session writes to the cache root too, so a top-level
+  `helper.py` becomes `helper.py.zst` — an exact `ls helper.py` / anchored
+  `fd 'helper\.py$'` then reports it missing and a fresh session rebuilds a
+  script that already exists. Before rewriting a cache helper, run `cache-scan`
+  (its **SCRIPTS** section lists these, `.zst` included) or match the `.zst`
+  sibling, and recover with `zstdcat helper.py.zst > helper.py`.
 - **`claude-cache-stats`** — Claude `SessionEnd` hook; appends a one-line
   prompt-cache-hit summary per session to `cache-stats.log`.
 - **`aws-mcp-server`** — MCP wrapper for the AWS API MCP server.
@@ -218,9 +243,7 @@ through the active home-manager generation:
 
 - `~/.config/github-copilot/copilot-defaults.instructions.md` — Copilot CLI
 - `~/Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md`
-  — VS Code stable (macOS)
-- `~/Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md`
-  — VS Code Insiders (macOS)
+  — VS Code (macOS)
 - `~/.config/Code/User/prompts/copilot-defaults.instructions.md` — VS Code
   (Linux/XDG)
 - `~/.vscode-server/data/User/prompts/copilot-defaults.instructions.md` —

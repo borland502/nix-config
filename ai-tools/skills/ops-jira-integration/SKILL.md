@@ -50,7 +50,9 @@ Use the Jira REST API **v2** (Server/DC) directly via `curl` or a helper script.
 | `~/.config/confluence/base-url` | Confluence base URL (e.g. `https://confluenceent.cms.gov`) |
 | `~/.config/confluence/token` | Confluence PAT — send as `Authorization: Bearer` |
 
-Populated by [home-manager/modules/sops.nix](../../../home-manager/modules/sops.nix) when `~/.config/sops/age/keys.txt` is present. See [sec-credentials](../sec-credentials/SKILL.md) for the full lookup precedence. A typical preamble:
+Populated by [home-manager/modules/sops.nix](../../../home-manager/modules/sops.nix) when `~/.config/sops/age/keys.txt` is present. See [sec-credentials](../sec-credentials/SKILL.md) for the full lookup precedence.
+
+For Jira GETs, prefer the `jira-get <path>` helper (`~/.local/bin/jira-get`) over a hand-rolled `curl`: it owns the base-URL composition (the "base URL" already ends in `/rest/api/2` — prepending it again 404s) and turns non-2xx / non-JSON responses into clear stderr errors instead of a downstream `jq` parse failure. Paths are API-root-relative: `jira-get 'issue/KEY-123?fields=summary,status'`. For writes or Confluence, use the raw preamble:
 
 ```bash
 JIRA_URL=$(/bin/cat ~/.config/ops-agent/jira-base-url)   # already ends in /rest/api/2

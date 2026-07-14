@@ -1,22 +1,5 @@
 # TODO — brew→nix migration & unmanaged-tool cleanup
 
-Execution-ready plan from the 2026-07-09 brew/nixpkgs audit (locked nixpkgs
-`0ad6f47ea4fe`: 22 of 29 brew items now have working aarch64-darwin packages).
-**Repo side executed 2026-07-09** (branch `feat/brew-to-nix`). Remaining
-manual steps for the user, in order:
-
-1. `task switch` — installs nix packages, `cleanup = "zap"` uninstalls the
-   migrated brew formulas/casks.
-2. Remove stale root-owned app copies the casks left behind:
-   `sudo rm -rf '/Applications/Google Chrome.app' /Applications/Slack.app`
-   (plus any other migrated app still present from its cask).
-3. Launch each migrated GUI app once and re-grant TCC prompts (screen
-   recording for Flameshot, etc.).
-4. Verify: `command -v colima adb session-manager-plugin` → nix paths;
-   `colima status`; `brew leaves` → kion-cli/aws-console/nvm only.
-5. Re-auth Kion (`kac ensure` — the cached AWS creds were cleared during
-   gkion verification) and update memory `project_switch_nonfatal_errors`.
-
 ## Already done (2026-07-09, this machine — no repo change needed)
 
 - `brew uninstall acli` (undeclared; conflicts with direct-REST Jira policy)
@@ -57,17 +40,20 @@ trampolines, so TCC grants generally survive.
 - [x] Batch B: `kitty`, `iterm2`, `keepassxc`, `dbeaver-community`→
       `dbeaver-bin`, `jordanbaird-ice`→`ice-bar`, `moonlight`→`moonlight-qt`,
       `obsidian`, `discord`, `firefox`, `whatsapp`→`whatsapp-for-mac`,
-      `postman`, `flameshot`.
+      `flameshot`.
   - flameshot: drop the cask-era `xattr -cr` quarantine-strip activation
     (nix apps aren't quarantined); check launchd agent path references;
     screen-recording TCC re-grant once.
   - firefox: optionally enable the Stylix firefox target later (README note).
 - [x] Stay in brew (comment the casks list accordingly): `vivaldi`,
-      `chromium` (no aarch64-darwin), `visual-studio-code` + `@insiders`
-      (no insiders channel; keep the pair together), `jetbrains-toolbox`
+      `chromium` (no aarch64-darwin), `jetbrains-toolbox`
       (self-updater vs read-only store), `kion-cli`/`aws-console` (vendor
-      tap), `nvm` (Tier 4), `postman-cli`, `corretto@11` (swap to
+      tap), `nvm` (Tier 4), `corretto@11` (swap to
       `temurin-bin-11` only after confirming the JDK11 consumer allows).
+      (2026-07-10: `visual-studio-code` moved to Nix on nixos-unstable and
+      `visual-studio-code@insiders` was dropped — a dual Homebrew+Nix install
+      corrupted VS Code webview service workers. `postman`/`postman-cli`
+      removed from the repo entirely.)
 - [x] Verify: `task dry-build` green; after user switch: apps land in
       `/Applications/Nix Apps` (or HM Apps), launch, Spotlight finds them;
       `brew list --cask` shrinks to the stay-in-brew set.
@@ -106,3 +92,56 @@ it today.
 Single `nix eval` availability matrix over locked nixpkgs
 (`~/.cache/claude/brew-vs-nixpkgs.nix`); `brew leaves` matched declared brews
 exactly pre-cleanup; unfree already allowed in both darwin and HM configs.
+
+## Agent-workflow follow-ups
+
+- [x] `ops-agent` CLI is broken for agent use: it crashes before doing anything
+      with `TypeError: Could not resolve authentication method` from the
+      Anthropic SDK (needs `ANTHROPIC_API_KEY`/auth_token in the environment;
+      it loads its Jira token from `~/.config/ops-agent/` but not an Anthropic
+      key). Observed 2026-07-13 fetching MDPMDD-828 — had to fall back to
+      direct Jira REST. While in there: it pins model `claude-sonnet-4-6`;
+      bump or make configurable.
+      Done 2026-07-13 (no Anthropic key will exist — refactored to the
+      `claude` CLI instead, per user direction): `ops-agent.py` no longer
+      imports the Anthropic SDK. `ops-agent --tool <name> '<json>'` runs one
+      Jira/ECS tool deterministically (no model call); `ops-agent "<prompt>"`
+      execs `claude -p` (subscription OAuth) with the MDP system prompt
+      appended and permissions scoped to `Bash(ops-agent --tool:*)`. Model now
+      inherits the CLI default; `OPS_AGENT_MODEL` passes `--model`. common.nix
+      drops the `ps.anthropic` python dep. Verified live: `--test` OK, `--tool
+      jira_get_issue` fetches MDPMDD-828, and the prompt mode end-to-end via
+      haiku answered correctly. Docs updated (ops-agent skill + agent,
+      agent-reference helper entry).
+- [x] Jira REST ergonomics trap: `~/.config/ops-agent/jira-base-url` already
+      includes the `/rest/api/2` suffix despite the "base-url" name, so the
+      obvious `"$JIRA_BASE/rest/api/2/issue/…"` composition 404s (and Jira's
+      404 body is XML, so a piped `jq` dies with a parse error that masks the
+      real failure). Rename the secret (e.g. `jira-api-root`), or note the
+      contained path in agent-reference.md's Jira section, or add a tiny
+      `jira-get <path>` helper that owns the composition.
+      Done 2026-07-13 (note + helper; rename skipped — too many consumers of
+      the existing path): new `jira-get <path>` helper
+      (`chezmoi/dot_local/bin/executable_jira-get`) owns the composition,
+      takes API-root-relative paths, and turns non-2xx/non-JSON responses
+      into clear stderr errors instead of downstream `jq` parse failures.
+      agent-reference.md documents the trap in the Jira credential entry and
+      catalogs the helper. Verified live: `myself`, issue fetch with query
+      params, and the old double-prefix mistake now reports
+      `HTTP 404 for …/rest/api/2/rest/api/2/…` plainly.
+- [x] Recognize zstd-compressed cache artifacts before treating a helper script
+      or log as missing. `compress-old-cache` archives idle files under
+      `~/.cache/{claude,copilot}` (the two are symlinked) to `*.zst` — see the
+      "zstd-archived" note in `agent-defaults.md`. Restore with
+      `zstdcat file.zst > file`; search inside archives with `zstdcat`/`zstdgrep`
+      rather than plain `rg`/`ls`. Observed 2026-07-10: the `sno_*.py`
+      SNO-benchmark scripts (`sno_jobtime.py`, `sno_parts.py`, `sno_trace.py`,
+      `sno_quarters.py`) read as "gone" via `ls`/`fd` until found as
+      `sno_*.py.zst` and decompressed.
+      Done 2026-07-13: `cache-scan` now emits a **SCRIPTS** section (default
+      output) listing top-level reusable helper/data files by mtime — code/query
+      extensions incl. their `.zst` archives, tagged `(zstdcat)` for recovery;
+      widen with `--days`. Documented in the ops-cache-scan skill "What To
+      Extract" and in agent-reference's `compress-old-cache` entry (the always-on
+      `agent-defaults.md` note was left untouched — it is at 6991/7000 bytes of
+      its budget). agent-defaults.md unchanged → no instruction regen needed.

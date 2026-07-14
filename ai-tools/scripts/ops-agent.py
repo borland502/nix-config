@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
-
-import anthropic
 
 # ---------------------------------------------------------------------------
 # Credentials
@@ -243,7 +242,8 @@ def dispatch(tool_name: str, tool_input: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool definitions (for API; cache_control on last entry)
+# Tool definitions (rendered into the claude CLI system prompt as a catalog;
+# executed via `ops-agent --tool <name> '<json>'`)
 # ---------------------------------------------------------------------------
 
 TOOLS: list[dict[str, Any]] = [
@@ -335,67 +335,80 @@ TOOLS: list[dict[str, Any]] = [
             },
             "required": ["args"],
         },
-        "cache_control": {"type": "ephemeral"},
     },
 ]
 
-SYSTEM = [
-    {
-        "type": "text",
-        "text": (
-            "You are an ops agent for the MDP platform. You help engineers manage Jira tickets "
-            "and ECS deployments. Cluster names follow the pattern mdp-<ticket-id-lowercase>-cluster. "
-            "Service names within a cluster are mdp-<ticket-id-lowercase>-web and mdp-<ticket-id-lowercase>-data. "
-            "Always confirm destructive actions (force deploys, status transitions) with a short summary "
-            "before reporting them as done."
-        ),
-        "cache_control": {"type": "ephemeral"},
-    }
-]
+SYSTEM = (
+    "You are an ops agent for the MDP platform. You help engineers manage Jira tickets "
+    "and ECS deployments. Cluster names follow the pattern mdp-<ticket-id-lowercase>-cluster. "
+    "Service names within a cluster are mdp-<ticket-id-lowercase>-web and mdp-<ticket-id-lowercase>-data. "
+    "Always confirm destructive actions (force deploys, status transitions) with a short summary "
+    "before reporting them as done."
+)
 
 # ---------------------------------------------------------------------------
-# Agent loop
+# Agent loop — delegated to the claude CLI (subscription OAuth; no API key).
+# The CLI runs the agentic loop and calls back into this script's deterministic
+# `--tool` mode via its Bash tool; only that command prefix is pre-approved.
 # ---------------------------------------------------------------------------
+
+
+def _tool_catalog() -> str:
+    lines = []
+    for tool in TOOLS:
+        schema = json.dumps(tool["input_schema"], separators=(",", ":"))
+        lines.append(f"- {tool['name']}: {tool['description']}\n  input schema: {schema}")
+    return "\n".join(lines)
+
+
+def _system_prompt() -> str:
+    return (
+        f"{SYSTEM}\n\n"
+        "You have no built-in Jira or AWS access. Perform every Jira and ECS "
+        "action by running, via your Bash tool, the pre-approved command\n"
+        "  ops-agent --tool <name> '<json-input>'\n"
+        "which prints the tool's JSON result. Available tools:\n"
+        f"{_tool_catalog()}\n"
+        "Do not attempt these actions any other way, and do not edit files."
+    )
 
 
 def run(prompt: str) -> None:
-    client = anthropic.Anthropic()
-    messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+    claude = shutil.which("claude")
+    if claude is None:
+        print(
+            "[ops-agent] `claude` CLI not found on PATH — it supplies the model "
+            "loop and authorization (subscription login; no ANTHROPIC_API_KEY).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    cmd = [
+        claude,
+        "-p",
+        prompt,
+        "--append-system-prompt",
+        _system_prompt(),
+        "--allowedTools",
+        "Bash(ops-agent --tool:*)",
+    ]
+    model = os.environ.get("OPS_AGENT_MODEL")
+    if model:
+        cmd += ["--model", model]
+    os.execv(claude, cmd)
 
-    while True:
-        with client.messages.stream(
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
-            system=SYSTEM,
-            tools=TOOLS,
-            messages=messages,
-        ) as stream:
-            response = stream.get_final_message()
 
-        stop_reason = response.stop_reason
-        messages.append({"role": "assistant", "content": response.content})
-
-        if stop_reason == "end_turn":
-            for block in response.content:
-                if hasattr(block, "text"):
-                    print(block.text)
-            break
-
-        if stop_reason != "tool_use":
-            print(f"[ops-agent] unexpected stop_reason: {stop_reason}", file=sys.stderr)
-            break
-
-        tool_results: list[dict[str, Any]] = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            print(f"[ops-agent] calling {block.name}({block.input})", file=sys.stderr)
-            result = dispatch(block.name, block.input)
-            tool_results.append(
-                {"type": "tool_result", "tool_use_id": block.id, "content": result}
-            )
-
-        messages.append({"role": "user", "content": tool_results})
+def _run_tool(name: str, raw_input: str) -> None:
+    """Deterministic single-tool mode: `ops-agent --tool <name> '<json>'`."""
+    _require_secrets()
+    try:
+        tool_input = json.loads(raw_input) if raw_input.strip() else {}
+    except json.JSONDecodeError as exc:
+        print(f"[ops-agent] --tool input is not valid JSON: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(tool_input, dict):
+        print("[ops-agent] --tool input must be a JSON object", file=sys.stderr)
+        sys.exit(1)
+    print(dispatch(name, tool_input))
 
 
 def _test_credentials() -> None:
@@ -456,10 +469,18 @@ def main() -> None:
     if len(sys.argv) == 2 and sys.argv[1] == "--test":
         _test_credentials()
         return
+    if len(sys.argv) >= 2 and sys.argv[1] == "--tool":
+        if len(sys.argv) != 4:
+            print("Usage: ops-agent --tool <name> '<json-input>'", file=sys.stderr)
+            print(f"Tools: {', '.join(sorted(TOOL_HANDLERS))}", file=sys.stderr)
+            sys.exit(1)
+        _run_tool(sys.argv[2], sys.argv[3])
+        return
     _require_secrets()
     if len(sys.argv) < 2:
-        print("Usage: ops-agent <prompt>", file=sys.stderr)
-        print("       ops-agent --test   # verify credentials", file=sys.stderr)
+        print("Usage: ops-agent <prompt>              # agentic (via claude CLI)", file=sys.stderr)
+        print("       ops-agent --tool <name> '<json>' # run one tool directly", file=sys.stderr)
+        print("       ops-agent --test                 # verify credentials", file=sys.stderr)
         sys.exit(1)
     prompt = " ".join(sys.argv[1:])
     run(prompt)

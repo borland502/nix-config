@@ -257,9 +257,10 @@
       "${homeDirectory}/.claude/CLAUDE.md"
     ]
     ++ map (p: "${homeDirectory}/${p}") (copilotInstructionPaths ++ copilotInstructionDirPaths);
-  opsAgentPython = pkgs.python3.withPackages (ps: [ps.anthropic]);
+  # ops-agent's model loop runs through the user's `claude` CLI (subscription
+  # OAuth) — stdlib-only Python, no anthropic SDK / API key needed.
   opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
-    exec ${opsAgentPython}/bin/python ${../ai-tools/scripts/ops-agent.py} "$@"
+    exec ${pkgs.python3}/bin/python ${../ai-tools/scripts/ops-agent.py} "$@"
   '';
   # Automation scripts (hook loggers, cache compaction, MCP wrapper) deployed to
   # ~/.local/bin/ai-tools/ from the top-level ai-tools/scripts/ source. Listed
