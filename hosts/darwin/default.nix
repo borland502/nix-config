@@ -77,7 +77,6 @@ in {
       slack
       kitty
       iterm2
-      keepassxc
       dbeaver-bin
       ice-bar
       moonlight-qt
@@ -85,7 +84,6 @@ in {
       discord
       firefox
       whatsapp-for-mac
-      postman
       flameshot
     ];
 
@@ -323,17 +321,19 @@ in {
     #   vivaldi/chromium        no aarch64-darwin build in nixpkgs
     #   corretto@11             corretto11 attr isn't aarch64-darwin; swap to
     #                           temurin-bin-11 only after checking the consumer
-    #   visual-studio-code(+insiders)  nixpkgs has no insiders channel — keep
-    #                           the pair under one manager
     #   jetbrains-toolbox       self-updater fights the read-only nix store
-    #   postman-cli             not packaged
+    #   keepassxc               nixpkgs aarch64-darwin build doesn't detect the
+    #                           YubiKey/hardware key even with the recommended
+    #                           macOS privacy settings (2026-07-10 revert)
+    # VS Code (stable) is provided by Nix via home-manager programs.vscode. The
+    # Homebrew stable + insiders casks were dropped 2026-07-10: two VS Code
+    # versions racing on one ~/Library/Application Support/Code profile corrupted
+    # webview service workers, and nixpkgs has no insiders channel to keep synced.
     casks = [
       "corretto@11" # AWS Corretto 11 JDK for Java tooling compatibility
       "chromium" # Chromium Browser
       "jetbrains-toolbox" # JetBrains Toolbox
-      "postman-cli"
-      "visual-studio-code" # VS Code
-      "visual-studio-code@insiders" # VS Code Insiders
+      "keepassxc" # Password manager — Homebrew build detects the YubiKey
       "vivaldi" # Vivaldi Browser
     ];
 

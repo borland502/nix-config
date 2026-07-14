@@ -215,7 +215,7 @@ tasks:
       HOMEBREW_BUNDLE_CASK_SKIP:
         sh: |
           if command -v brew >/dev/null 2>&1; then
-            echo 'android-platform-tools corretto@11 chromium dbeaver-community discord firefox flameshot google-chrome iterm2 jetbrains-toolbox jordanbaird-ice keepassxc kitty obsidian moonlight postman postman-cli session-manager-plugin slack visual-studio-code visual-studio-code@insiders vivaldi whatsapp'
+            echo 'android-platform-tools corretto@11 chromium dbeaver-community discord firefox flameshot google-chrome iterm2 jetbrains-toolbox jordanbaird-ice keepassxc kitty obsidian moonlight session-manager-plugin slack vivaldi whatsapp'
           fi
     cmd: |
       {{if eq .IN_DEVCONTAINER "true"}}

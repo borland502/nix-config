@@ -164,9 +164,7 @@ in {
       cleanupStaleInstructionBridgesDarwin = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
         for _dir in \
           "$HOME/Library/Application Support/Code/User/prompts/skills" \
-          "$HOME/Library/Application Support/Code/User/prompts/agents" \
-          "$HOME/Library/Application Support/Code - Insiders/User/prompts/skills" \
-          "$HOME/Library/Application Support/Code - Insiders/User/prompts/agents"; do
+          "$HOME/Library/Application Support/Code/User/prompts/agents"; do
           [ -d "$_dir" ] || continue
           for _f in "$_dir"/*.instructions.md; do
             [ -f "$_f" ] && [ ! -L "$_f" ] || continue
@@ -246,50 +244,10 @@ in {
           echo "Skipping Vivaldi default browser registration: /Applications/Vivaldi.app is unavailable."
         fi
       '';
-
-      syncCodeInsidersExtensions = lib.hm.dag.entryAfter ["writeBoundary"] ''
-        stable_code="/opt/homebrew/bin/code"
-        insiders_code="/opt/homebrew/bin/code-insiders"
-
-        if [ ! -x "$stable_code" ] || [ ! -x "$insiders_code" ]; then
-          echo "Skipping VS Code Insiders extension sync: code or code-insiders is unavailable."
-        else
-          mkdir -p "$HOME/.vscode-insiders/extensions"
-          tmp_dir="$(${pkgs.coreutils}/bin/mktemp -d)"
-          cleanup() {
-            ${pkgs.coreutils}/bin/rm -rf "$tmp_dir"
-          }
-          trap cleanup EXIT INT TERM
-
-          "$stable_code" --list-extensions | ${pkgs.coreutils}/bin/sort -u > "$tmp_dir/stable-extensions.txt"
-          "$insiders_code" --list-extensions | ${pkgs.coreutils}/bin/sort -u > "$tmp_dir/insiders-extensions.txt"
-
-          ${pkgs.coreutils}/bin/comm -23 "$tmp_dir/stable-extensions.txt" "$tmp_dir/insiders-extensions.txt" | while IFS= read -r extension; do
-            if [ -z "$extension" ]; then
-              continue
-            fi
-
-            echo "Installing VS Code Insiders extension: $extension"
-            if ! "$insiders_code" --install-extension "$extension" >/dev/null 2>&1; then
-              extension_store_path="$(${pkgs.findutils}/bin/find /nix/store -path "*/share/vscode/extensions/$extension" 2>/dev/null | ${pkgs.coreutils}/bin/head -n 1)"
-              if [ -n "$extension_store_path" ]; then
-                extension_version="$(${pkgs.jq}/bin/jq -r '.version // "nix"' "$extension_store_path/package.json" 2>/dev/null)"
-                ${pkgs.coreutils}/bin/ln -sfn "$extension_store_path" "$HOME/.vscode-insiders/extensions/$extension-$extension_version"
-                echo "Linked Nix-managed VS Code Insiders extension: $extension"
-              else
-                echo "Warning: failed to install VS Code Insiders extension '$extension'"
-              fi
-            fi
-          done
-
-          cleanup
-          trap - EXIT INT TERM
-        fi
-      '';
     };
 
     # Install shared editor settings and Copilot defaults into the macOS
-    # user configuration directories for the stable and Insiders VS Code apps.
+    # user configuration directory for the (stable) VS Code app.
     file = {
       "Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = agentInstructions.copilot;
       "Library/Application Support/Code/User/prompts/skills" = {
@@ -300,22 +258,12 @@ in {
         source = agentInstructions.copilotAgentBridgeDir;
         recursive = true;
       };
-      "Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md".source = agentInstructions.copilot;
-      "Library/Application Support/Code - Insiders/User/prompts/skills" = {
-        source = agentInstructions.copilotSkillBridgeDir;
-        recursive = true;
-      };
-      "Library/Application Support/Code - Insiders/User/prompts/agents" = {
-        source = agentInstructions.copilotAgentBridgeDir;
-        recursive = true;
-      };
-      "Library/Application Support/Code - Insiders/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
 
       # VS Code stable settings are deployed via programs.vscode.userSettings in
       # common.nix (home-manager's vscode module writes the same settings.json).
-      # chat.hookFilesLocations is currently only honoured by Copilot >= 0.53
-      # (Insiders as of 2026-06-15); once stable ships that version the hooks
-      # will start working there too automatically — no code change needed.
+      # chat.hookFilesLocations is currently only honoured by Copilot >= 0.53;
+      # once stable ships that version the hooks will start working there too
+      # automatically — no code change needed.
       # TODO(mainline-vscode): remove this comment once stable ships Copilot >= 0.53.
     };
   };
