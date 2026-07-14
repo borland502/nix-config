@@ -60,15 +60,32 @@
     sops-nix,
     ...
   }: let
-    # Pin fast-moving CLI agents to nixos-unstable while the rest of the
-    # repo stays on nixos-26.05. See AGENTS.md / docs notes if expanded.
+    # Packages tracked on nixos-unstable while the rest of the repo stays on
+    # nixos-26.05. See AGENTS.md / docs notes if expanded.
+    #   - fast-moving CLI agents (claude-code, github-copilot-cli)
+    #   - Electron apps: they ship frequent Chromium/security fixes and the
+    #     stable channel lags badly. Keeping them current also stops their
+    #     bundled Chromium from drifting against any other copy that shares an
+    #     app profile — mismatched Electron builds on one
+    #     ~/Library/Application Support profile corrupt webview service workers
+    #     (2026-07-10: a Homebrew VS Code 1.128 and Nix VS Code 1.119 sharing
+    #     the Code profile broke the Claude panel webview this way).
+    #   - Browsers: same reasoning — frequent Chromium/security fixes the
+    #     stable channel lags on. (Only the Nix-managed browsers; darwin's
+    #     Vivaldi/Chromium remain Homebrew casks.)
     unstableOverlay = _final: prev: let
       unstable = import nixpkgs-unstable {
         system = prev.stdenv.hostPlatform.system;
         config.allowUnfree = true;
       };
     in {
+      # fast-moving CLI agents
       inherit (unstable) claude-code github-copilot-cli;
+      # Electron apps (see comment above)
+      inherit (unstable) vscode slack discord obsidian;
+      # Browsers under Nix control (see comment above). vivaldi is only used on
+      # Linux; the inherit stays lazy on darwin where nothing references it.
+      inherit (unstable) google-chrome firefox vivaldi;
     };
     nixpkgsOverlayModule = {nixpkgs.overlays = [unstableOverlay];};
     systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin"];

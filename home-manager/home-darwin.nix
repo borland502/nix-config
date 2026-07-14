@@ -7,6 +7,20 @@
     inherit pkgs;
   };
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
+  # Flameshot (Qt6 QSettings) rewrites this INI at runtime, so it cannot be a
+  # read-only nix-store symlink; it is seeded as a mutable copy in
+  # home.activation.seedFlameshotConfig below.
+  flameshotIni = pkgs.writeText "flameshot.ini" ''
+    [General]
+    contrastOpacity=188
+    saveAfterCopy=true
+    startupLaunch=true
+    useJpgForClipboard=true
+
+    [Shortcuts]
+    SCREENSHOT_HISTORY=Ctrl+Shift+3
+    TAKE_SCREENSHOT=Ctrl+Shift+4
+  '';
   vivaldiBrowserWrapper = pkgs.writeShellScriptBin "vivaldi" ''
     exec /usr/bin/open -a "Vivaldi" "$@"
   '';
@@ -150,15 +164,32 @@ in {
       cleanupStaleInstructionBridgesDarwin = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
         for _dir in \
           "$HOME/Library/Application Support/Code/User/prompts/skills" \
-          "$HOME/Library/Application Support/Code/User/prompts/agents" \
-          "$HOME/Library/Application Support/Code - Insiders/User/prompts/skills" \
-          "$HOME/Library/Application Support/Code - Insiders/User/prompts/agents"; do
+          "$HOME/Library/Application Support/Code/User/prompts/agents"; do
           [ -d "$_dir" ] || continue
           for _f in "$_dir"/*.instructions.md; do
             [ -f "$_f" ] && [ ! -L "$_f" ] || continue
             ${pkgs.coreutils}/bin/rm -f "$_f"
           done
         done
+      '';
+
+      # Flameshot rewrites its own INI at runtime (Qt QSettings atomic
+      # temp-file + rename), which clobbers a read-only xdg.configFile symlink
+      # and has been observed to blank the file, wiping the custom capture
+      # shortcuts. Seed a mutable, flameshot-owned copy instead, reseeding only
+      # when the [Shortcuts] block is missing (fresh install or after such a
+      # blanking) so flameshot's own [General] edits survive otherwise.
+      seedFlameshotConfig = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        flameshot_ini="$HOME/.config/flameshot/flameshot.ini"
+        if [ ! -s "$flameshot_ini" ] || ! ${pkgs.gnugrep}/bin/grep -q '^\[Shortcuts\]' "$flameshot_ini"; then
+          echo "Seeding Flameshot config with custom capture shortcuts"
+          ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$flameshot_ini")"
+          ${pkgs.coreutils}/bin/cp ${flameshotIni} "$flameshot_ini"
+          ${pkgs.coreutils}/bin/chmod u+w "$flameshot_ini"
+          # Flameshot only reads the INI at startup; reload the running launchd
+          # agent so the restored shortcuts take effect without a manual restart.
+          /bin/launchctl kickstart -k "gui/$(${pkgs.coreutils}/bin/id -u)/org.nixos.flameshot" >/dev/null 2>&1 || true
+        fi
       '';
 
       # Install SDKMAN! on macOS so Java toolchains can be managed declaratively
@@ -213,50 +244,10 @@ in {
           echo "Skipping Vivaldi default browser registration: /Applications/Vivaldi.app is unavailable."
         fi
       '';
-
-      syncCodeInsidersExtensions = lib.hm.dag.entryAfter ["writeBoundary"] ''
-        stable_code="/opt/homebrew/bin/code"
-        insiders_code="/opt/homebrew/bin/code-insiders"
-
-        if [ ! -x "$stable_code" ] || [ ! -x "$insiders_code" ]; then
-          echo "Skipping VS Code Insiders extension sync: code or code-insiders is unavailable."
-        else
-          mkdir -p "$HOME/.vscode-insiders/extensions"
-          tmp_dir="$(${pkgs.coreutils}/bin/mktemp -d)"
-          cleanup() {
-            ${pkgs.coreutils}/bin/rm -rf "$tmp_dir"
-          }
-          trap cleanup EXIT INT TERM
-
-          "$stable_code" --list-extensions | ${pkgs.coreutils}/bin/sort -u > "$tmp_dir/stable-extensions.txt"
-          "$insiders_code" --list-extensions | ${pkgs.coreutils}/bin/sort -u > "$tmp_dir/insiders-extensions.txt"
-
-          ${pkgs.coreutils}/bin/comm -23 "$tmp_dir/stable-extensions.txt" "$tmp_dir/insiders-extensions.txt" | while IFS= read -r extension; do
-            if [ -z "$extension" ]; then
-              continue
-            fi
-
-            echo "Installing VS Code Insiders extension: $extension"
-            if ! "$insiders_code" --install-extension "$extension" >/dev/null 2>&1; then
-              extension_store_path="$(${pkgs.findutils}/bin/find /nix/store -path "*/share/vscode/extensions/$extension" 2>/dev/null | ${pkgs.coreutils}/bin/head -n 1)"
-              if [ -n "$extension_store_path" ]; then
-                extension_version="$(${pkgs.jq}/bin/jq -r '.version // "nix"' "$extension_store_path/package.json" 2>/dev/null)"
-                ${pkgs.coreutils}/bin/ln -sfn "$extension_store_path" "$HOME/.vscode-insiders/extensions/$extension-$extension_version"
-                echo "Linked Nix-managed VS Code Insiders extension: $extension"
-              else
-                echo "Warning: failed to install VS Code Insiders extension '$extension'"
-              fi
-            fi
-          done
-
-          cleanup
-          trap - EXIT INT TERM
-        fi
-      '';
     };
 
     # Install shared editor settings and Copilot defaults into the macOS
-    # user configuration directories for the stable and Insiders VS Code apps.
+    # user configuration directory for the (stable) VS Code app.
     file = {
       "Library/Application Support/Code/User/prompts/copilot-defaults.instructions.md".source = agentInstructions.copilot;
       "Library/Application Support/Code/User/prompts/skills" = {
@@ -267,22 +258,12 @@ in {
         source = agentInstructions.copilotAgentBridgeDir;
         recursive = true;
       };
-      "Library/Application Support/Code - Insiders/User/prompts/copilot-defaults.instructions.md".source = agentInstructions.copilot;
-      "Library/Application Support/Code - Insiders/User/prompts/skills" = {
-        source = agentInstructions.copilotSkillBridgeDir;
-        recursive = true;
-      };
-      "Library/Application Support/Code - Insiders/User/prompts/agents" = {
-        source = agentInstructions.copilotAgentBridgeDir;
-        recursive = true;
-      };
-      "Library/Application Support/Code - Insiders/User/settings.json".text = builtins.toJSON codeEditorUserSettings;
 
       # VS Code stable settings are deployed via programs.vscode.userSettings in
       # common.nix (home-manager's vscode module writes the same settings.json).
-      # chat.hookFilesLocations is currently only honoured by Copilot >= 0.53
-      # (Insiders as of 2026-06-15); once stable ships that version the hooks
-      # will start working there too automatically — no code change needed.
+      # chat.hookFilesLocations is currently only honoured by Copilot >= 0.53;
+      # once stable ships that version the hooks will start working there too
+      # automatically — no code change needed.
       # TODO(mainline-vscode): remove this comment once stable ships Copilot >= 0.53.
     };
   };
@@ -345,17 +326,6 @@ in {
     # Extensions and other VSCode config can be added here
     # Stylix will automatically handle theming
   };
-  xdg.configFile."flameshot/flameshot.ini".text = ''
-    [General]
-    contrastOpacity=188
-    saveAfterCopy=true
-    startupLaunch=true
-    useJpgForClipboard=true
-
-    [Shortcuts]
-    SCREENSHOT_HISTORY=Ctrl+Shift+3
-    TAKE_SCREENSHOT=Ctrl+Shift+4
-  '';
   # Kitty terminal configuration
   xdg.configFile."kitty/kitty.conf".text = let
     c = import ./lib/colors.nix;

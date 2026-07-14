@@ -409,6 +409,39 @@ else
 	echo "  none"
 fi
 
+# Reusable helper scripts an earlier session wrote to the cache root. CLAUDE.md
+# tells agents to drop temporary Go/Python/shell/query helpers here, and
+# compress-old-cache zstd-archives the top-level ones after a day — at which
+# point an exact `ls <name>.py` / `fd '<name>\.py$'` misses the `.zst` sibling
+# and a fresh session rebuilds a helper that already exists. List them (incl.
+# the archives) by mtime, tagging the `.zst` ones with the zstdcat recovery
+# hint, so a resuming agent recovers instead of rewriting. Extensions are code /
+# query helpers only (not fetched data payloads); top-level only, matching the
+# compress pass. Widen with --days to reach older archives.
+echo "SCRIPTS (reusable helpers, newest first — zstdcat to recover)"
+script_pred=()
+for ext in py go sh bash zsh js mjs cjs ts jq graphql nix sql rb pl awk lua; do
+	script_pred+=(-o -iname "*.${ext}" -o -iname "*.${ext}.zst")
+done
+scr_out=$(find "${roots[@]}" -maxdepth 1 -type f \( "${script_pred[@]:1}" \) \
+	-mtime "-$days" 2>/dev/null |
+	while read -r p; do
+		ts=$(stat -c '%Y' "$p" 2>/dev/null || echo 0)
+		d=$(date -d "@$ts" +%F 2>/dev/null || echo '?')
+		[[ -n "$date_filter" && "$d" != "$date_filter"* ]] && continue
+		printf '%s\t%s\t%s\n' "$ts" "$d" "$p"
+	done | sort -rn | head -n 12 |
+	while IFS=$'\t' read -r _ts d p; do
+		z=""
+		[[ "$p" == *.zst ]] && z="  (zstdcat)"
+		printf '  %s  %s%s\n' "$d" "${p/#$HOME/\~}" "$z"
+	done)
+if [[ -n "$scr_out" ]]; then
+	printf '%s\n' "$scr_out"
+else
+	echo "  none"
+fi
+
 # Native transcript enrichment (-t|--transcript). The Bash log captures only
 # `CMD/STDOUT/STDERR`; it has no record of what you asked, what the assistant
 # decided, which files were changed, or any non-Bash tool. Both agents write

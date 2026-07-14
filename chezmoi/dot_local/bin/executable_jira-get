@@ -1,0 +1,57 @@
+#!/bin/zsh
+# jira-get — GET a Jira REST API path with the sops-managed token.
+#
+# Owns the base-URL composition so callers can't fall into the naming trap:
+# ~/.config/ops-agent/jira-base-url already ENDS WITH /rest/api/2 despite the
+# "base-url" name, so composing "$BASE/rest/api/2/..." by hand 404s — and
+# Jira's 404 body is XML, which makes a piped `jq` die with a parse error
+# that masks the real failure. Pass paths relative to the API root instead.
+set -euo pipefail
+
+if [[ $# -ne 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+	cat >&2 <<'EOF'
+Usage: jira-get <path>
+  GET a Jira REST API path using the token at ~/.config/ops-agent/jira-token.
+  <path> is relative to the API root: the configured "base URL"
+  (~/.config/ops-agent/jira-base-url) already contains /rest/api/2,
+  so do NOT prepend it. Examples:
+    jira-get myself
+    jira-get 'issue/MDPMDD-828?fields=summary,status'
+  Prints the JSON body on stdout (pipe to jq). Non-2xx or non-JSON
+  responses (Jira 404s are XML) become a clear stderr error, exit 1.
+EOF
+	exit 2
+fi
+
+JIRA_API_ROOT=$(/bin/cat ~/.config/ops-agent/jira-base-url)
+JIRA_TOKEN=$(/bin/cat ~/.config/ops-agent/jira-token)
+
+# Tolerate a leading slash; the API root has no trailing slash.
+req_path="${1#/}"
+url="${JIRA_API_ROOT}/${req_path}"
+
+body=$(mktemp)
+trap 'rm -f "$body"' EXIT
+
+# NB: zsh reserves `status` (read-only) — use http_code.
+http_code=$(curl -sS -o "$body" -w '%{http_code}' \
+	-H "Authorization: Bearer $JIRA_TOKEN" \
+	-H "Accept: application/json" \
+	"$url")
+
+if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
+	echo "jira-get: HTTP $http_code for $url" >&2
+	head -c 300 "$body" >&2
+	echo >&2
+	exit 1
+fi
+
+first_char=$(head -c 1 "$body")
+if [[ "$first_char" != "{" && "$first_char" != "[" ]]; then
+	echo "jira-get: non-JSON response from $url — check the path (the configured base URL already includes /rest/api/2)" >&2
+	head -c 300 "$body" >&2
+	echo >&2
+	exit 1
+fi
+
+/bin/cat "$body"

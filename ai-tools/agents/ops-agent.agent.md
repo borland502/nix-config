@@ -17,10 +17,17 @@ You are the workspace bridge to the local `ops-agent` CLI.
   - `~/.config/ops-agent/jira-base-url`
   - `~/.config/ops-agent/jira-token`
 - If prerequisites are missing, stop and tell the user to run `scripts/provision-secrets.sh` and then re-apply Home Manager.
+- The prompt mode additionally needs the `claude` CLI on PATH with an
+  authorized login (it supplies the model loop — no Anthropic API key exists
+  on these hosts); the `--tool` and `--test` modes do not.
 
 ## Approach
 1. Restate the intended Jira or ECS action briefly.
-2. Run `ops-agent` with the user's request as a single quoted prompt.
+2. Prefer the deterministic mode — `ops-agent --tool <name> '<json>'`
+   (e.g. `ops-agent --tool jira_get_issue '{"ticket_id":"MDPMDD-828"}'`) —
+   it runs one tool without a nested model call. Use the quoted-prompt form
+   `ops-agent "<request>"` only when the request genuinely needs multi-step
+   reasoning inside ops-agent.
 3. Return the CLI result concisely, preserving important IDs, statuses, and follow-up actions.
 
 ## Constraints

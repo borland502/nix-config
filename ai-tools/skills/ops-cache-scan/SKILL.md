@@ -79,6 +79,13 @@ This is *not* something a session needs to wire up — if the host has had `home
   (`PHASE*`, `*handoff*`, `*plan*.md`, `*note*.md`, `*resume*.md`, plus `.zst`
   archives), newest first. These are hand-written context the `session_*.log`
   stream never contained; open one directly (`zstdcat` for `.zst`) to resume.
+- **SCRIPTS** (default) — reusable helper scripts a prior session wrote to the
+  cache root (code / query extensions: `.py`, `.go`, `.sh`, `.js`, `.ts`, `.jq`,
+  `.graphql`, `.nix`, `.sql`, …), newest first, including the `.zst` archives
+  `compress-old-cache` makes after a day. Check this **before** rewriting a
+  helper: an exact `ls <name>.py` misses the archived `<name>.py.zst` and makes
+  an existing script look gone. `.zst` rows are tagged `(zstdcat)` — recover
+  with `zstdcat file.zst > file`. Widen with `--days` to reach older archives.
 - **TIMELINE** (`--verbose`) — `[ts] status :: cmd` from the newest session; the
   tail is where work was interrupted.
 - **KEYWORD HITS** (`--verbose`) — heuristic backstop for errors a `status=ok`

@@ -39,13 +39,6 @@
     else
       echo -e "\e[1;31merror: Homebrew is not installed, skipping...\e[0m" >&2
     fi
-
-    # 3. Strip the Gatekeeper quarantine attribute from Flameshot after the
-    #    bundle installs/updates it, so the launchd agent can start it.
-    if [ -d "/Applications/Flameshot.app" ]; then
-      echo "Stripping quarantine attribute from Flameshot..."
-      xattr -cr /Applications/Flameshot.app || true
-    fi
   '';
 in {
   # Allow unfree packages
@@ -68,6 +61,30 @@ in {
       # log-bash.sh, etc.) can rely on GNU flags like `stat -c`. Linux/WSL have
       # GNU coreutils natively; this makes darwin match.
       coreutils
+
+      # --- Migrated from Homebrew (2026-07-09 audit: aarch64-darwin support
+      # --- now in nixpkgs). cleanup="zap" removes the brew copies on switch.
+      # CLI:
+      colima
+      lima-additional-guestagents
+      docker-credential-helpers
+      ssm-session-manager-plugin
+      android-tools
+      # GUI apps — nix-darwin links them into /Applications/Nix Apps; TCC
+      # grants re-prompt once on first launch. google-chrome + slack migrate
+      # away from the root-owned casks whose upgrades kept failing.
+      google-chrome
+      slack
+      kitty
+      iterm2
+      dbeaver-bin
+      ice-bar
+      moonlight-qt
+      obsidian
+      discord
+      firefox
+      whatsapp-for-mac
+      flameshot
     ];
 
     # Ensure Homebrew is in PATH for all shells and applications
@@ -236,7 +253,9 @@ in {
   launchd.user.agents.flameshot = {
     serviceConfig = {
       KeepAlive = true;
-      ProgramArguments = ["/Applications/Flameshot.app/Contents/MacOS/flameshot"];
+      # Nix-packaged flameshot (migrated from the cask, which needed a
+      # quarantine-strip activation step); store path needs no xattr fixups.
+      ProgramArguments = ["${pkgs.flameshot}/bin/flameshot"];
       ProcessType = "Interactive";
       RunAtLoad = true;
     };
@@ -287,42 +306,35 @@ in {
     ];
 
     # CLI tools and libraries
+    # Only what nixpkgs can't provide: the Kion vendor tap and nvm (node
+    # versions deliberately nvm-managed — see agent-reference). colima,
+    # docker-credential-helper, lima-additional-guestagents moved to
+    # systemPackages (2026-07-09); pydantic dropped (no consumer found).
     brews = [
       "kion-cli"
       "aws-console"
-      "colima"
-      "docker-credential-helper"
-      "lima-additional-guestagents"
       "nvm"
-      "pydantic"
     ];
 
-    # GUI applications
+    # Casks that must stay in Homebrew (2026-07-09 audit — everything else
+    # migrated to systemPackages above):
+    #   vivaldi/chromium        no aarch64-darwin build in nixpkgs
+    #   corretto@11             corretto11 attr isn't aarch64-darwin; swap to
+    #                           temurin-bin-11 only after checking the consumer
+    #   jetbrains-toolbox       self-updater fights the read-only nix store
+    #   keepassxc               nixpkgs aarch64-darwin build doesn't detect the
+    #                           YubiKey/hardware key even with the recommended
+    #                           macOS privacy settings (2026-07-10 revert)
+    # VS Code (stable) is provided by Nix via home-manager programs.vscode. The
+    # Homebrew stable + insiders casks were dropped 2026-07-10: two VS Code
+    # versions racing on one ~/Library/Application Support/Code profile corrupted
+    # webview service workers, and nixpkgs has no insiders channel to keep synced.
     casks = [
-      # GUI applications that work better via Homebrew
-      "android-platform-tools"
       "corretto@11" # AWS Corretto 11 JDK for Java tooling compatibility
       "chromium" # Chromium Browser
-      "dbeaver-community" # Database management tool
-      "discord" # Discord
-      "firefox" # Firefox Browser
-      "flameshot" # Flameshot screenshot tool
-      "google-chrome" # Google Chrome
-      "iterm2" # iTerm2 terminal
       "jetbrains-toolbox" # JetBrains Toolbox
-      "jordanbaird-ice"
-      "keepassxc"
-      "kitty" # Kitty terminal
-      "obsidian" # Note-taking app
-      "moonlight"
-      "postman"
-      "postman-cli"
-      "session-manager-plugin"
-      "slack" # Team communication
-      "visual-studio-code" # VS Code
-      "visual-studio-code@insiders" # VS Code Insiders
+      "keepassxc" # Password manager — Homebrew build detects the YubiKey
       "vivaldi" # Vivaldi Browser
-      "whatsapp"
     ];
 
     # Mac App Store applications
