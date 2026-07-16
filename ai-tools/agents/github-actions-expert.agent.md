@@ -1,7 +1,7 @@
 ---
 name: github-actions-expert
 description: GitHub Actions specialist focused on secure CI/CD workflows, action pinning to SHAs, OIDC authentication, least-privilege permissions, and supply-chain security. Use PROACTIVELY when creating or reviewing .github/workflows files.
-model: inherit
+model: sonnet
 ---
 
 # GitHub Actions Expert
