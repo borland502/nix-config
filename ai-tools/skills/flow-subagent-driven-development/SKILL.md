@@ -98,21 +98,25 @@ conflicts that only emerge from implementation.
 
 ## Model Selection
 
-Use the least powerful model that can handle each role to conserve cost and increase speed.
+Pick a capability **tier** for each role — `high`, `mid`, or `low` — then
+resolve the tier to your harness's model via
+`~/.config/instructions/agent-reference.md` § Model Tiers (Claude Code:
+tier aliases; Copilot CLI: the current sol/terra/luna slugs). Never write a
+versioned model ID. Use the lowest tier that can handle the role to
+conserve cost and increase speed.
 
-**Mechanical implementation tasks** (isolated functions, clear specs, 1-2 files): use a fast, cheap model (`haiku`). Most implementation tasks are mechanical when the plan is well-specified.
+**Mechanical implementation tasks** (isolated functions, clear specs, 1-2 files): **low** tier. Most implementation tasks are mechanical when the plan is well-specified.
 
-**Integration and judgment tasks** (multi-file coordination, pattern matching, debugging): use a standard model (`sonnet`).
+**Integration and judgment tasks** (multi-file coordination, pattern matching, debugging): **mid** tier.
 
-**Architecture and design tasks**: use the most capable general model
-(`opus`). The final whole-branch review is one of these — dispatch it on
-`opus` explicitly, not the session default: a premium session model (e.g.
-`fable`) draws from its own tighter usage budget, which subagent fan-out
-drains fast.
+**Architecture and design tasks**: **high** tier. The final whole-branch
+review is one of these — dispatch it on the high tier explicitly, not the
+session default: a premium session model (e.g. `fable`) draws from its own
+tighter usage budget, which subagent fan-out drains fast.
 
-**Review tasks**: choose the model with the same judgment, scaled to the
+**Review tasks**: choose the tier with the same judgment, scaled to the
 diff's size, complexity, and risk. A small mechanical diff does not need the
-most capable model; a subtle concurrency change does.
+high tier; a subtle concurrency change does.
 
 **Always specify the model explicitly when dispatching a subagent.** An
 omitted model inherits your session's model — often the most capable and
@@ -120,7 +124,7 @@ most expensive — which silently defeats this section.
 
 **Turn count beats token price.** Wall-clock and context cost scale with how
 many turns a subagent takes, and the cheapest models routinely take 2-3× the
-turns on multi-step work — costing more overall. Use a mid-tier model as the
+turns on multi-step work — costing more overall. Use the mid tier as the
 floor for reviewers and for implementers working from prose descriptions.
 When the task's plan text contains the complete code to write, the
 implementation is transcription plus testing: use the cheapest tier for

@@ -49,8 +49,9 @@ workflows through `task` — do not hand-assemble `nixos-rebuild` /
   latest model of its tier — bump those IDs when new models ship. Copilot
   biases to OpenAI's top tier: common.nix pins `gpt-5.6-sol` (tier slugs are
   `gpt-5.6-{sol,terra,luna}`; the CLI's `help config` list lags the backend,
-  so don't gate on it) — bump alongside the Claude pins when a new
-  generation ships.
+  so don't gate on it). Subagent-dispatch guidance speaks in high/mid/low
+  tiers, resolved per harness by agent-reference.md § Model Tiers — bump
+  that table together with the pins when a new generation ships.
 - Secrets go through sops — use the sec-sops-encrypt skill.
 - For build/switch failures use the ops-nix-pitfalls skill; for chezmoi
   behavior the ops-chezmoi skill; token-cost levers are documented in

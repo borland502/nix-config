@@ -7,6 +7,26 @@ task needs the detail. Deployed by chezmoi to
 source path (`chezmoi/dot_config/instructions/`) keeps these locations
 discoverable on hosts that have chezmoi but not the full nix config.
 
+## Model Tiers (subagent dispatch)
+
+Skills and plans speak in capability **tiers** — `high`, `mid`, `low` —
+never in versioned model IDs. Resolve a tier to your own harness:
+
+| Tier | Claude Code (alias) | Copilot CLI (slug)  |
+| ---- | ------------------- | ------------------- |
+| high | `opus`              | `gpt-5.6-sol`       |
+| mid  | `sonnet`            | `gpt-5.6-terra`     |
+| low  | `haiku`             | `gpt-5.6-luna`      |
+
+Claude aliases resolve to the latest model of their tier via the
+`ANTHROPIC_DEFAULT_*_MODEL` env pins in `~/.claude/settings.json`; `fable`
+is the premium *session* tier — never dispatch subagents on it (it draws
+from a tighter usage budget). Copilot has no alias mechanism, so the slugs
+here are literal; GitHub's sol/terra/luna tier names carry across
+generations, and this table plus the pins get bumped together when a new
+generation ships (see AGENTS.md). Do not gate Copilot slugs on
+`copilot help config` — its model list lags what the backend accepts.
+
 ## Credential & Auth Locations
 
 Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:

@@ -442,12 +442,13 @@ tasks:
     desc: Enforce model-tier aliases in ai-tools — no versioned Claude model IDs
     platforms: [linux, darwin]
     cmd: |
-      hits=$(rg -n 'claude-(opus|sonnet|haiku|fable|mythos)-[0-9]|claude-[0-9]' ai-tools/ || true)
+      hits=$(rg -n 'claude-(opus|sonnet|haiku|fable|mythos)-[0-9]|claude-[0-9]|gpt-[0-9]' ai-tools/ || true)
       if [ -n "$hits" ]; then
         printf '%s\n' "$hits" >&2
-        printf 'Versioned Claude model IDs found in ai-tools/. Skills and agents must stay model-agnostic:\n' >&2
-        printf 'use tier aliases (fable/sonnet/haiku) in model: frontmatter. Latest-per-tier resolution is\n' >&2
-        printf 'pinned once, in the ANTHROPIC_DEFAULT_*_MODEL env block of chezmoi/dot_claude/settings.json.\n' >&2
+        printf 'Versioned model IDs found in ai-tools/. Skills and agents must stay model-agnostic:\n' >&2
+        printf 'speak in high/mid/low tiers (or Claude tier aliases in model: frontmatter) and resolve\n' >&2
+        printf 'via agent-reference.md § Model Tiers. Pins live only in chezmoi/dot_claude/settings.json\n' >&2
+        printf '(ANTHROPIC_DEFAULT_*_MODEL), common.nix (Copilot default), and that tier map.\n' >&2
         exit 1
       fi
       echo 'model-agnostic OK: no versioned model IDs in ai-tools/'
