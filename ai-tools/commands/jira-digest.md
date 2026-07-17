@@ -5,9 +5,9 @@ description: Weekday Jira triage digest — list open assigned tickets and flag 
 Produce a short Jira triage digest for the current user. Safe to run unattended:
 **read-only — do not transition, comment on, or assign any ticket.**
 
-1. Run `jira-my-tickets` (zero-token helper; reads the token from
-   `~/.config/ops-agent/jira-token` and the email from
-   `~/.config/ops-agent/jira-email`). This is the open-ticket list, ranked.
+1. Run `jira-my-tickets` (zero-token helper; Bearer auth via the token at
+   `~/.config/ops-agent/jira-token` — no email needed). This is the
+   open-ticket list, ranked.
 2. For triage detail on specific tickets, use the `ops-agent` skill/CLI
    (summary, status, assignee) — prefer it over ad-hoc REST.
 3. Assess each ticket: actionable now, blocked, or stale (no recent movement)?

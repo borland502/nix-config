@@ -12,9 +12,10 @@ discoverable on hosts that have chezmoi but not the full nix config.
 Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
 
 - **Jira**: token at `~/.config/ops-agent/jira-token`, base URL at
-  `~/.config/ops-agent/jira-base-url`, email at
-  `~/.config/ops-agent/jira-email` (SOPS-decrypted from
-  `secrets/ops-agent.yaml` in the nix-config repo). **Trap:** despite the
+  `~/.config/ops-agent/jira-base-url` (SOPS-decrypted from
+  `secrets/ops-agent.yaml` in the nix-config repo). The token is a Jira
+  Data Center PAT — always `Authorization: Bearer`, never cloud-style
+  `email:token` Basic auth (401s). **Trap:** despite the
   name, `jira-base-url` already ends with `/rest/api/2` — composing
   `"$BASE/rest/api/2/issue/…"` 404s, and the 404 body kills a piped `jq`.
   Prefer the `jira-get` helper, which owns the composition; if reading the
@@ -86,9 +87,8 @@ the nix-config repo.
   GraphQL + jq pipelines — no inline brace/quote rot. See the
   gh-graphql-jq-pipelines skill. Deps: `gh`.
 - **`jira-my-tickets`** — Print open Jira tickets assigned to the current user
-  (status not Done, ordered by rank). Reads token from
-  `~/.config/ops-agent/jira-token` and email from
-  `~/.config/ops-agent/jira-email` (falls back to `git config user.email`).
+  (status not Done, ordered by rank). Delegates auth and base-URL
+  composition to `jira-get` (Bearer PAT; no email involved).
 - **`jira-get <path>`** — GET a Jira REST path with the sops-managed token;
   prints JSON for piping to `jq`. `<path>` is relative to the API root — the
   configured "base URL" already contains `/rest/api/2`, and this helper owns
