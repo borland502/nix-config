@@ -562,7 +562,11 @@ tasks:
     platforms: [linux, darwin]
     cmd: |
       _src="$PWD/ai-tools/skills-stack/{{.SKILL}}"
-      _dest="{{.DIR | default "."}}/.claude/skills"
+      _dir="{{.DIR | default "."}}"
+      # A quoted DIR='~/...' reaches here with a literal tilde; expand it so
+      # mkdir -p doesn't create a real './~' directory in the repo root.
+      case "$_dir" in "~"|"~/"*) _dir="$HOME${_dir#"~"}" ;; esac
+      _dest="$_dir/.claude/skills"
       if [ ! -d "$_src" ]; then
         printf 'Unknown stack skill: %s\nAvailable:\n' "{{.SKILL}}" >&2
         ls ai-tools/skills-stack >&2
