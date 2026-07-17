@@ -3,9 +3,6 @@
   lib,
   ...
 }: let
-  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
-    inherit pkgs;
-  };
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
   # Flameshot (Qt6 QSettings) rewrites this INI at runtime, so it cannot be a
   # read-only nix-store symlink; it is seeded as a mutable copy in
