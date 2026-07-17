@@ -152,7 +152,12 @@ in {
 
     # Darwin-specific packages
     packages = darwinPackages;
-    sessionVariables.BROWSER = "vivaldi";
+    sessionVariables = {
+      BROWSER = "vivaldi";
+      # Nix's OpenSSL curl otherwise follows SSL_CERT_DIR and misses certificates
+      # available through macOS's system CA bundle.
+      SSL_CERT_FILE = "/etc/ssl/cert.pem";
+    };
 
     activation = {
       # Remove stale *.instructions.md files from macOS skill/agent bridge
