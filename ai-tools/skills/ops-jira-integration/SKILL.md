@@ -1,6 +1,6 @@
 ---
 name: ops-jira-integration
-description: Use when creating, updating, or transitioning Jira issues, adding comments or attachments, running JQL searches, extracting testable requirements from a ticket, or reading/updating Confluence pages on the standalone (Server/DC) instances. NOT needed for a plain ticket read — use `jira-get 'issue/KEY-123?fields=summary,status'` or `ops-agent --tool jira_get_issue '{"ticket_id":"KEY-123"}'` directly, without loading this skill.
+description: Use when creating, updating, or transitioning Jira issues, adding comments or attachments, running JQL searches, extracting testable requirements from a ticket, or reading/updating Confluence pages on the standalone (Server/DC) instances. NOT needed for a plain ticket read — use `jira-get 'issue/KEY-123?fields=summary,status'` or `ops-agent --tool jira_get_issue '{"ticket_id":"KEY-123"}'` directly, without loading this skill. Likewise NOT needed for a single comment or transition — prefer `ops-agent --tool jira_comment` / `jira_transition`; this skill earns its load for issue creation, JQL, attachments, multi-step write workflows, and Confluence.
 origin: ECC
 ---
 
@@ -24,8 +24,11 @@ helpers and stop here:
 - `ops-agent --tool jira_get_issue '{"ticket_id":"KEY-123"}'` — issue details;
   also `jira_get_transitions`, and (writes) `jira_comment`, `jira_transition`
 
-Both are cataloged in `~/.config/instructions/agent-reference.md`. This skill
-earns its load for **writes, JQL, attachments, Confluence, and analysis**.
+Both are cataloged in `~/.config/instructions/agent-reference.md`. The same
+goes for a **single comment or transition** — `ops-agent --tool jira_comment`
+/ `jira_transition` handles those without loading this skill. This skill
+earns its load for **issue creation, JQL, attachments, multi-step write
+workflows, Confluence, and analysis**.
 
 ## Standalone, Not Cloud
 
