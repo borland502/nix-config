@@ -528,18 +528,17 @@ in {
         fi
       '';
 
-      # Copilot CLI default model: bias to OpenAI's top tier. Preference order
-      # is sol > terra > today's best available OpenAI slug (gpt-5.4, then the
-      # codex/5.2 mid tier); "auto" only as the safety net if the installed CLI
-      # advertises none of them (or `copilot help config` changes format).
-      # sol/terra/luna are GitHub's upcoming OpenAI tier names — the installed
-      # CLI doesn't ship those slugs yet, so the picker parses the CLI's own
-      # `help config` model list and selects the first preference it actually
-      # supports; each `home-switch` after a CLI update re-resolves, so sol is
-      # adopted automatically when it appears. luna (light tier) is never the
-      # default — reach for it per-session via /model. Merged (not overwritten)
-      # so Copilot can still persist its other settings; self-healing —
-      # reconciles whenever the value drifts.
+      # Copilot CLI default model: bias to OpenAI's top tier — GPT-5.6 Sol.
+      # The tier slugs are gpt-5.6-{sol,terra,luna} (top/mid/light); sol and
+      # terra verified accepted via `copilot -p --model` 2026-07-17. Do NOT
+      # gate this on `copilot help config` — its model list demonstrably lags
+      # what the backend accepts (1.0.26 lists nothing past gpt-5.4 yet serves
+      # 5.5/5.6). Like the ANTHROPIC_DEFAULT_*_MODEL pins in
+      # dot_claude/settings.json, bump the slug when a new generation ships
+      # (see AGENTS.md). terra/luna are for lighter work per-session via
+      # /model — never the default. Merged (not overwritten) so Copilot can
+      # still persist its other settings; self-healing — reconciles whenever
+      # the value drifts.
       # COPILOT_HOME (zsh.nix) points the config dir at ~/.config/copilot.
       ensureCopilotSettings = lib.hm.dag.entryAfter ["writeBoundary"] ''
         _settings="${xdgConfigHome}/copilot/settings.json"
@@ -547,18 +546,9 @@ in {
           ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/copilot"
           ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
         fi
-        _model_list=$("${pkgs.github-copilot-cli}/bin/copilot" help config 2>/dev/null \
-          | ${pkgs.gnused}/bin/sed -n '/`model`/,/^$/p') || _model_list=""
-        _copilot_model="auto"
-        for _cand in sol terra gpt-5.4 gpt-5.3-codex gpt-5.2; do
-          if ${pkgs.coreutils}/bin/printf '%s' "$_model_list" | ${pkgs.gnugrep}/bin/grep -q "\"$_cand\""; then
-            _copilot_model="$_cand"
-            break
-          fi
-        done
-        if [ "$(jq -r '.model // empty' "$_settings")" != "$_copilot_model" ]; then
+        if [ "$(jq -r '.model // empty' "$_settings")" != "gpt-5.6-sol" ]; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
-          jq --arg m "$_copilot_model" '.model = $m' \
+          jq '.model = "gpt-5.6-sol"' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
       '';

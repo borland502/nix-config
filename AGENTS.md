@@ -47,10 +47,10 @@ workflows through `task` — do not hand-assemble `nixos-rebuild` /
   sanctioned pin point is the `ANTHROPIC_DEFAULT_*_MODEL` env block in
   `chezmoi/dot_claude/settings.json`, which resolves each alias to the
   latest model of its tier — bump those IDs when new models ship. Copilot
-  biases to OpenAI's top tier: common.nix resolves sol > terra > best
-  available gpt-5.x slug from the installed CLI's own model list (auto only
-  as safety net), re-resolving on every switch so sol/terra/luna are adopted
-  as GitHub ships them.
+  biases to OpenAI's top tier: common.nix pins `gpt-5.6-sol` (tier slugs are
+  `gpt-5.6-{sol,terra,luna}`; the CLI's `help config` list lags the backend,
+  so don't gate on it) — bump alongside the Claude pins when a new
+  generation ships.
 - Secrets go through sops — use the sec-sops-encrypt skill.
 - For build/switch failures use the ops-nix-pitfalls skill; for chezmoi
   behavior the ops-chezmoi skill; token-cost levers are documented in
