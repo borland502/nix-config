@@ -17,14 +17,13 @@ read that file on demand instead of asking the user.
   for routine logging. Add an explicit `tee` to a timestamped ~/.cache/copilot
   file only for truly large content whose full output exceeds that ceiling and
   you need it preserved verbatim.
-- For helper scripts or long text payloads, write temporary Go/Python/shell/data
-  files to ~/.cache/copilot rather than inline heredocs or long inline command
-  strings. Prefer file-editing tools for long text; reserve shell text
-  construction for short, stable snippets.
-- Download attachments and fetched files (Slack/Gmail/Drive files, WebFetch or
-  curl payloads) to a named file under ~/.cache/copilot/ — don't stream their
-  bytes through the shell, which buries them in the session log rather than
-  leaving a reusable file on disk.
+- Preserve repositories: unless explicitly requested as tracked deliverables,
+  write agent-generated specs, plans, handoffs, notes, reports, helpers, long
+  payloads, and logs to `~/.cache/copilot` or an existing ignored operational
+  directory. Never add ignore rules or force-add ignored files for agent artifacts;
+  keep product docs tracked and unrelated changes intact.
+- Download attachments and fetched files to named files under
+  `~/.cache/copilot/`; do not stream bytes through shell logs.
 - When investigating tool or command failures, inspect recent logs under
   ~/.cache/copilot first — prefer the `cache-scan` helper (see the
   ops-cache-scan skill) over hand-rolled sweeps. Logs older than 1 day (or over
