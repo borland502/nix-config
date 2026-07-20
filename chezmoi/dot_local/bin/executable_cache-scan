@@ -61,9 +61,9 @@ Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
 Scans the agent log dir (~/.cache/claude, symlinked to ~/.cache/copilot).
 Besides the session_*.log stream it also lists standalone
 plan/spec/design/handoff/note artifacts dropped in the cache root (PHASE*,
-*handoff*, *plan*.md, *spec*.md, *design*.md, *note*.md, *resume*.md) as
-resume candidates. With -t it also reads each agent's own
-session record — Claude transcripts
+*handoff*, *plan*.md*, *spec*.md*, *design*.md*, *note*.md*, *resume*.md*) as
+resume candidates, including .zst variants. With -t it also reads each agent's
+own session record — Claude transcripts
 (~/.config/claude/projects/*/<id>.jsonl) + history.jsonl, or Copilot's event
 stream (~/.config/copilot/session-state/<id>/events.jsonl) + process log —
 joined to the cache logs by session id. Those are written for free by the
