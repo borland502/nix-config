@@ -26,6 +26,8 @@ if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
 	done
 	# Last resort: a bash 4+ anywhere on PATH that is not this one.
 	_b=$(command -v bash 2>/dev/null || true)
+	# Expand BASH_VERSINFO in the candidate child, not in this process.
+	# shellcheck disable=SC2016
 	if [ -n "$_b" ] && "$_b" -c '[ "${BASH_VERSINFO[0]}" -ge 4 ]' 2>/dev/null; then
 		exec "$_b" "$0" "$@"
 	fi
@@ -57,9 +59,10 @@ Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
   -v|--verbose     Add the command timeline, keyword scan, and full paths
 
 Scans the agent log dir (~/.cache/claude, symlinked to ~/.cache/copilot).
-Besides the session_*.log stream it also lists standalone plan/handoff/note
-artifacts dropped in the cache root (PHASE*, *handoff*, *plan*.md, *note*.md,
-*resume*.md) as resume candidates. With -t it also reads each agent's own
+Besides the session_*.log stream it also lists standalone
+plan/spec/design/handoff/note artifacts dropped in the cache root (PHASE*,
+*handoff*, *plan*.md, *spec*.md, *design*.md, *note*.md, *resume*.md) as
+resume candidates. With -t it also reads each agent's own
 session record — Claude transcripts
 (~/.config/claude/projects/*/<id>.jsonl) + history.jsonl, or Copilot's event
 stream (~/.config/copilot/session-state/<id>/events.jsonl) + process log —
@@ -385,16 +388,17 @@ else
 	echo "  none"
 fi
 
-# Standalone plan/handoff/note artifacts. cache-scan otherwise only indexes the
-# session_*.log* stream, so hand-written planning docs dropped in the cache root
-# (PHASE*, *handoff*, *plan*.md, *note*.md, *resume*.md — and their .zst
-# archives) were invisible to a resuming agent even though they are often the
-# highest-signal context. List them by mtime so they show up as resume
-# candidates; read one directly (zstdcat for .zst) for the detail.
-echo "ARTIFACTS (plan/handoff/notes, newest first)"
+# Standalone plan/spec/design/handoff/note artifacts. cache-scan otherwise only
+# indexes the session_*.log* stream, so hand-written context dropped in the
+# cache root (PHASE*, *handoff*, *plan*.md, *spec*.md, *design*.md, *note*.md,
+# *resume*.md — and their .zst archives) was invisible to a resuming agent even
+# though it is often the highest-signal context. List files by mtime so they
+# show up as resume candidates; read one directly (zstdcat for .zst) for detail.
+echo "ARTIFACTS (plans/specs/handoffs/notes, newest first)"
 art_out=$(find "${roots[@]}" -maxdepth 2 -type f \
 	\( -iname 'PHASE*' -o -iname '*handoff*' -o -iname '*plan*.md*' \
-	-o -iname '*note*.md*' -o -iname '*resume*.md*' \) \
+	-o -iname '*spec*.md*' -o -iname '*design*.md*' -o -iname '*note*.md*' \
+	-o -iname '*resume*.md*' \) \
 	-mtime "-$days" 2>/dev/null |
 	while read -r p; do
 		ts=$(stat -c '%Y' "$p" 2>/dev/null || echo 0)
