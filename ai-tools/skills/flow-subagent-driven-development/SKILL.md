@@ -256,18 +256,22 @@ controllers that lost their place have re-dispatched entire completed task
 sequences — the single most expensive failure observed. Track progress in
 a ledger file, not only in todos.
 
-- At skill start, check for a ledger:
-  `cat "$(git rev-parse --show-toplevel)/.superpowers/sdd/progress.md"`. Tasks listed there
-  as complete are DONE — do not re-dispatch them; resume at the first task
-  not marked complete.
+- At skill start, resolve the workspace with
+  `workspace=$(scripts/sdd-workspace)`, then check
+  `cat "$workspace/progress.md"`. The helper uses
+  `<repository>/.superpowers/sdd` only when that path is already ignored;
+  otherwise it uses a stable path under
+  `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/`. It never changes repository
+  ignore rules. Tasks listed as complete are DONE — do not re-dispatch them;
+  resume at the first task not marked complete.
 - When a task's review comes back clean, append one line to the ledger in
   the same message as your other bookkeeping:
   `Task N: complete (commits <base7>..<head7>, review clean)`.
 - The ledger is your recovery map: the commits it names exist in git even
   when your context no longer remembers creating them. After compaction,
   trust the ledger and `git log` over your own recollection.
-- `git clean -fdx` will destroy the ledger (it's git-ignored scratch); if
-  that happens, recover from `git log`.
+- `git clean -fdx` can destroy a local ignored ledger; a cache-backed ledger
+  is outside the repository. If either is lost, recover from `git log`.
 
 ## Prompt Templates
 
@@ -280,7 +284,7 @@ a ledger file, not only in todos.
 ```
 You: I'm using Subagent-Driven Development to execute this plan.
 
-[Read plan file once: docs/plans/feature-plan.md]
+[Read plan file once: ~/.cache/copilot/2026-07-20-feature-plan.md]
 [Create todos for all tasks]
 
 Task 1: Hook installation script

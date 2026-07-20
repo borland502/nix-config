@@ -64,28 +64,28 @@ Only proceed to Step 1b if you have no native worktree tool available.
 
 Follow this priority order. Explicit user preference always beats observed filesystem state.
 
-1. **Check your instructions for a declared worktree directory preference.** If the user has already specified one, use it without asking.
+1. **Check your instructions for a declared worktree directory preference.**
+   Use it unless it is repository-local and `git check-ignore -q` does not
+   confirm it is already ignored. Reject an unignored repository-local
+   preference; do not alter repository ignore rules.
 
 2. **Check for an existing project-local worktree directory:**
    ```bash
    ls -d .worktrees 2>/dev/null     # Preferred (hidden)
    ls -d worktrees 2>/dev/null      # Alternative
    ```
-   If found, use it. If both exist, `.worktrees` wins.
+   Use `.worktrees/` only when `git check-ignore -q .worktrees` succeeds;
+   otherwise use `worktrees/` only when `git check-ignore -q worktrees`
+   succeeds. If both qualify, `.worktrees/` wins.
 
-3. **If there is no other guidance available**, default to `.worktrees/` at the project root.
+3. **Otherwise, default outside the repository:**
+   `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>/<branch>`.
+   Resolve `<repository>` from the repository root basename and `<branch>`
+   from the selected branch name.
 
-#### Safety Verification (project-local directories only)
-
-**MUST verify directory is ignored before creating worktree:**
-
-```bash
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
-```
-
-**If NOT ignored:** Add to .gitignore, commit the change, then proceed.
-
-**Why critical:** Prevents accidentally committing worktree contents to repository.
+**Why critical:** A repository-local worktree must already be ignored to
+prevent accidental tracking. Cache fallback preserves that safety without
+modifying repository files.
 
 #### Create the Worktree
 
@@ -147,11 +147,12 @@ Ready to implement <feature-name>
 | In a submodule | Treat as normal repo (Step 0 guard) |
 | Native worktree tool available | Use it (Step 1a) |
 | No native tool | Git worktree fallback (Step 1b) |
-| `.worktrees/` exists | Use it (verify ignored) |
-| `worktrees/` exists | Use it (verify ignored) |
-| Both exist | Use `.worktrees/` |
-| Neither exists | Check instruction file, then default `.worktrees/` |
-| Directory not ignored | Add to .gitignore + commit |
+| Explicit directory preference | Use it only if repository-local path is already ignored |
+| `.worktrees/` exists | Use it only if already ignored |
+| `worktrees/` exists | Use it only if already ignored |
+| Both existing directories qualify | Use `.worktrees/` |
+| No qualifying local directory | Use cache fallback |
+| Directory not ignored | Reject repository-local path; use cache fallback |
 | Permission error on create | Sandbox fallback, work in place |
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |
@@ -171,12 +172,14 @@ Ready to implement <feature-name>
 ### Skipping ignore verification
 
 - **Problem:** Worktree contents get tracked, pollute git status
-- **Fix:** Always use `git check-ignore` before creating project-local worktree
+- **Fix:** Use `git check-ignore` before a project-local worktree; use the
+  cache fallback when it is not already ignored
 
 ### Assuming directory location
 
 - **Problem:** Creates inconsistency, violates project conventions
-- **Fix:** Follow priority: explicit instructions > existing project-local directory > default
+- **Fix:** Follow priority: qualifying explicit preference > qualifying
+  existing project-local directory > cache fallback
 
 ### Proceeding with failing tests
 
@@ -190,13 +193,14 @@ Ready to implement <feature-name>
 - Use `git worktree add` when you have a native worktree tool (e.g., `EnterWorktree`). This is the #1 mistake — if you have it, use it.
 - Skip Step 1a by jumping straight to Step 1b's git commands
 - Create worktree without verifying it's ignored (project-local)
+- Create or change repository ignore rules for worktree storage
 - Skip baseline test verification
 - Proceed with failing tests without asking
 
 **Always:**
 - Run Step 0 detection first
 - Prefer native tools over git fallback
-- Follow directory priority: explicit instructions > existing project-local directory > default
+- Follow directory priority: explicit preference > existing ignored local directory > cache fallback
 - Verify directory is ignored for project-local
 - Auto-detect and run project setup
 - Verify clean test baseline
