@@ -394,7 +394,7 @@ fi
 # *resume*.md — and their .zst archives) was invisible to a resuming agent even
 # though it is often the highest-signal context. List files by mtime so they
 # show up as resume candidates; read one directly (zstdcat for .zst) for detail.
-echo "ARTIFACTS (plans/specs/handoffs/notes, newest first)"
+echo "ARTIFACTS (plans/specs/designs/handoffs/notes incl. .zst; newest first)"
 art_out=$(find "${roots[@]}" -maxdepth 2 -type f \
 	\( -iname 'PHASE*' -o -iname '*handoff*' -o -iname '*plan*.md*' \
 	-o -iname '*spec*.md*' -o -iname '*design*.md*' -o -iname '*note*.md*' \
