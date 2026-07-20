@@ -174,7 +174,7 @@ Ready to implement <feature-name>
 | `.worktrees/` exists | Use it only if already ignored |
 | `worktrees/` exists | Use it only if already ignored |
 | Both existing directories qualify | Use `.worktrees/` |
-| No qualifying local directory | Use `worktrees/<repository>-<root-hash>`, then append branch once |
+| No qualifying local directory | Use `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>-<root-hash>`, then append branch once |
 | Directory not ignored | Reject repository-local path; use cache fallback |
 | Merge or discard cache worktree | Remove the exact worktree, then prune |
 | Permission error on create | Sandbox fallback, work in place |
