@@ -261,8 +261,9 @@ a ledger file, not only in todos.
   `cat "$workspace/progress.md"`. The helper uses
   `<repository>/.superpowers/sdd` only when that path is already ignored;
   otherwise it uses a stable path under
-  `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/`. It never changes repository
-  ignore rules. Tasks listed as complete are DONE — do not re-dispatch them;
+  `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/`, keyed by a full Git object hash
+  of the absolute repository root. It never changes repository ignore rules.
+  Tasks listed as complete are DONE — do not re-dispatch them;
   resume at the first task not marked complete.
 - When a task's review comes back clean, append one line to the ledger in
   the same message as your other bookkeeping:

@@ -24,7 +24,7 @@ else
     branch="detached-$(git rev-parse --short HEAD)"
   fi
   branch=$(printf '%s' "$branch" | tr -cs '[:alnum:]._-' '-')
-  fingerprint=$(printf '%s' "$root" | cksum | awk '{print $1}')
+  fingerprint=$(printf '%s' "$root" | git hash-object --stdin)
   dir="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/sdd-${repo}-${branch}-${fingerprint}"
 fi
 

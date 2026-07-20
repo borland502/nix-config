@@ -79,9 +79,13 @@ Follow this priority order. Explicit user preference always beats observed files
    succeeds. If both qualify, `.worktrees/` wins.
 
 3. **Otherwise, default outside the repository:**
-   `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>/<branch>`.
-   Resolve `<repository>` from the repository root basename and `<branch>`
-   from the selected branch name.
+   `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>-<root-hash>`.
+   Resolve `<repository>` from the repository root basename and calculate
+   `<root-hash>` with:
+   ```bash
+   printf '%s' "$root" | git hash-object --stdin
+   ```
+   Keep this as `LOCATION`; the creation step appends the selected branch once.
 
 **Why critical:** A repository-local worktree must already be ignored to
 prevent accidental tracking. Cache fallback preserves that safety without
@@ -96,6 +100,25 @@ path="$LOCATION/$BRANCH_NAME"
 git worktree add "$path" -b "$BRANCH_NAME"
 cd "$path"
 ```
+
+#### Cleanup
+
+The workflow owns cache-hosted worktrees under
+`${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/`; they are removed for
+merge and discard choices. After the user chooses to merge or discard the
+work, remove the exact worktree path created above:
+
+```bash
+# After merge
+git worktree remove "$path"
+
+# When discarding uncommitted work
+git worktree remove --force "$path"
+
+git worktree prune
+```
+
+Do not remove sibling cache worktrees.
 
 **Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and you're working in the current directory instead. Then run setup and baseline tests in place.
 
@@ -151,8 +174,9 @@ Ready to implement <feature-name>
 | `.worktrees/` exists | Use it only if already ignored |
 | `worktrees/` exists | Use it only if already ignored |
 | Both existing directories qualify | Use `.worktrees/` |
-| No qualifying local directory | Use cache fallback |
+| No qualifying local directory | Use `worktrees/<repository>-<root-hash>`, then append branch once |
 | Directory not ignored | Reject repository-local path; use cache fallback |
+| Merge or discard cache worktree | Remove the exact worktree, then prune |
 | Permission error on create | Sandbox fallback, work in place |
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |
@@ -181,6 +205,13 @@ Ready to implement <feature-name>
 - **Fix:** Follow priority: qualifying explicit preference > qualifying
   existing project-local directory > cache fallback
 
+### Leaving cache worktrees behind
+
+- **Problem:** Cache-hosted worktrees accumulate after merge or discard.
+- **Fix:** The fallback owner removes the exact cache worktree with
+  `git worktree remove` (use `--force` when discarding), then runs
+  `git worktree prune`.
+
 ### Proceeding with failing tests
 
 - **Problem:** Can't distinguish new bugs from pre-existing issues
@@ -194,6 +225,7 @@ Ready to implement <feature-name>
 - Skip Step 1a by jumping straight to Step 1b's git commands
 - Create worktree without verifying it's ignored (project-local)
 - Create or change repository ignore rules for worktree storage
+- Leave a cache-hosted worktree after merge or discard
 - Skip baseline test verification
 - Proceed with failing tests without asking
 
@@ -202,5 +234,6 @@ Ready to implement <feature-name>
 - Prefer native tools over git fallback
 - Follow directory priority: explicit preference > existing ignored local directory > cache fallback
 - Verify directory is ignored for project-local
+- Remove cache-hosted worktrees for merge and discard choices
 - Auto-detect and run project setup
 - Verify clean test baseline
