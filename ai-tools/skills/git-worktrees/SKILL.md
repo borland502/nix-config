@@ -95,6 +95,7 @@ between turns. Replace `BRANCH_NAME`; set `PREFERRED_LOCATION` only when
 instructions declare one.
 
 ```bash
+set -euo pipefail
 BRANCH_NAME='<requested-feature-branch>'
 PREFERRED_LOCATION=''
 ROOT=$(cd "$(git rev-parse --show-toplevel)" && pwd -P)
@@ -127,31 +128,49 @@ else
 fi
 
 WORKTREE_PATH="$LOCATION/$BRANCH_NAME"
+mkdir -p "$LOCATION"
 git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME"
-cd "$WORKTREE_PATH"
+WORKTREE_PATH=$(cd "$WORKTREE_PATH" && pwd -P)
+printf 'WORKTREE_PATH=%s\n' "$WORKTREE_PATH"
 ```
+
+Use that printed absolute path explicitly as the working directory for every
+later shell call. A terminal `cd` does not persist across tool invocations.
 
 #### Cleanup
 
 The workflow owns cache-hosted worktrees under
 `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/`; they are removed for
 merge and discard choices. After the user chooses to merge or discard the
-work, remove the exact worktree path created above:
+work, run this from any checkout of the same repository:
 
 ```bash
-# Run this entire block in one shell call from inside the cache worktree.
-# Change MODE to discard only after the user chooses to discard the work.
+set -euo pipefail
+BRANCH_NAME='<same-requested-feature-branch>'
 MODE=merge
-WORKTREE_PATH=$(git rev-parse --show-toplevel)
-CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees"
-CACHE_WORKTREE_ROOT=$(cd "$CACHE_WORKTREE_ROOT" && pwd -P)
-case "$WORKTREE_PATH/" in
-  "$CACHE_WORKTREE_ROOT/"*) ;;
-  *) echo "Refusing to remove non-cache worktree: $WORKTREE_PATH" >&2; exit 1 ;;
-esac
-GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
-MAIN_ROOT=$(cd "$GIT_COMMON/.." && pwd -P)
-cd "$MAIN_ROOT"
+ROOT=$(git worktree list --porcelain |
+  awk '/^worktree / { sub(/^worktree /, ""); print; exit }')
+ROOT=$(cd "$ROOT" && pwd -P)
+GIT_COMMON=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)
+REPOSITORY=$(printf '%s' "$(basename "$ROOT")" |
+  LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-80)
+ROOT_HASH=$(printf '%s' "$ROOT" | git hash-object --stdin)
+EXPECTED_PARENT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/${REPOSITORY}-${ROOT_HASH}"
+EXPECTED_PARENT=$(cd "$EXPECTED_PARENT" && pwd -P)
+WORKTREE_PATH="$EXPECTED_PARENT/$BRANCH_NAME"
+WORKTREE_PATH=$(cd "$WORKTREE_PATH" && pwd -P)
+WORKTREE_COMMON=$(cd "$WORKTREE_PATH" &&
+  cd "$(git rev-parse --git-common-dir)" && pwd -P)
+ACTUAL_BRANCH=$(git -C "$WORKTREE_PATH" symbolic-ref -q HEAD || true)
+[[ "$WORKTREE_COMMON" == "$GIT_COMMON" ]] || {
+  echo "Refusing to remove worktree owned by another repository" >&2
+  exit 1
+}
+[[ "$ACTUAL_BRANCH" == "refs/heads/$BRANCH_NAME" ]] || {
+  echo "Refusing to remove worktree on unexpected branch: $ACTUAL_BRANCH" >&2
+  exit 1
+}
+cd "$ROOT"
 case "$MODE" in
   merge) git worktree remove "$WORKTREE_PATH" ;;
   discard) git worktree remove --force "$WORKTREE_PATH" ;;
@@ -160,8 +179,9 @@ esac
 git worktree prune
 ```
 
-This recomputes the exact path instead of relying on variables from the
-creation turn. Do not remove sibling cache worktrees.
+This recomputes the root-hash/branch path and verifies its Git common directory
+and branch instead of relying on variables from the creation turn. Do not
+remove sibling cache worktrees.
 
 **Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and you're working in the current directory instead. Then run setup and baseline tests in place.
 
@@ -219,7 +239,7 @@ Ready to implement <feature-name>
 | Both existing directories qualify | Use `.worktrees/` |
 | No qualifying local directory | Use `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>-<root-hash>`, then append branch once |
 | Directory not ignored | Reject repository-local path; use cache fallback |
-| Merge or discard cache worktree | Recompute its exact path in one cleanup invocation, remove it, then prune |
+| Merge or discard cache worktree | Recompute and validate its root-hash/branch path, remove it, then prune |
 | Permission error on create | Sandbox fallback, work in place |
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |
@@ -251,8 +271,9 @@ Ready to implement <feature-name>
 ### Leaving cache worktrees behind
 
 - **Problem:** Cache-hosted worktrees accumulate after merge or discard.
-- **Fix:** From inside it, run the complete cleanup block so it recomputes and
-  validates the exact cache path before removal, then prunes.
+- **Fix:** Run the complete cleanup block from any same-repository checkout so
+  it reconstructs and validates the exact cache path before removal, then
+  prunes.
 
 ### Proceeding with failing tests
 
