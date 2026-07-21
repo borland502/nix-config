@@ -75,11 +75,11 @@ This is *not* something a session needs to wire up — if the host has had `home
   counts, last status + command.
 - **FAILURES** (default) — commands with `status=stderr|interrupted`; the concrete
   resume points.
-- **ARTIFACTS** (default) — standalone plan/spec/design/handoff/note files in
-  the cache root (`PHASE*`, `*handoff*`, `*plan*.md*`, `*spec*.md*`,
-  `*design*.md*`, `*note*.md*`, `*resume*.md*`), newest first, including
-  `.zst` archives. These are hand-written context the `session_*.log` stream
-  never contained; open one directly (`zstdcat` for `.zst`) to resume.
+- **ARTIFACTS** (default) — standalone plan/spec/design/handoff/note/resume
+  files in the cache root (`PHASE*`, `*handoff*`, `*plan*.md*`, `*spec*.md*`,
+  `*design*.md*`, `*note*.md*`, `*resume*.md*`), newest first, including `.zst`
+  archives. These are hand-written context the `session_*.log` stream never
+  contained; open one directly (`zstdcat` for `.zst`) to resume.
 - **SCRIPTS** (default) — reusable helper scripts a prior session wrote to the
   cache root (code / query extensions: `.py`, `.go`, `.sh`, `.js`, `.ts`, `.jq`,
   `.graphql`, `.nix`, `.sql`, …), newest first, including the `.zst` archives

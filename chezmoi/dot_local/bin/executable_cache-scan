@@ -60,10 +60,10 @@ Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
 
 Scans the agent log dir (~/.cache/claude, symlinked to ~/.cache/copilot).
 Besides the session_*.log stream it also lists standalone
-plan/spec/design/handoff/note artifacts dropped in the cache root (PHASE*,
-*handoff*, *plan*.md*, *spec*.md*, *design*.md*, *note*.md*, *resume*.md*) as
-resume candidates, including .zst variants. With -t it also reads each agent's
-own session record — Claude transcripts
+plan/spec/design/handoff/note/resume artifacts dropped in the cache root
+(PHASE*, *handoff*, *plan*.md*, *spec*.md*, *design*.md*, *note*.md*,
+*resume*.md*) as resume candidates, including .zst variants. With -t it also
+reads each agent's own session record — Claude transcripts
 (~/.config/claude/projects/*/<id>.jsonl) + history.jsonl, or Copilot's event
 stream (~/.config/copilot/session-state/<id>/events.jsonl) + process log —
 joined to the cache logs by session id. Those are written for free by the
@@ -388,13 +388,14 @@ else
 	echo "  none"
 fi
 
-# Standalone plan/spec/design/handoff/note artifacts. cache-scan otherwise only
-# indexes the session_*.log* stream, so hand-written context dropped in the
-# cache root (PHASE*, *handoff*, *plan*.md, *spec*.md, *design*.md, *note*.md,
-# *resume*.md — and their .zst archives) was invisible to a resuming agent even
-# though it is often the highest-signal context. List files by mtime so they
-# show up as resume candidates; read one directly (zstdcat for .zst) for detail.
-echo "ARTIFACTS (plans/specs/designs/handoffs/notes incl. .zst; newest first)"
+# Standalone plan/spec/design/handoff/note/resume artifacts. cache-scan
+# otherwise only indexes the session_*.log* stream, so hand-written context
+# dropped in the cache root (PHASE*, *handoff*, *plan*.md, *spec*.md,
+# *design*.md, *note*.md, *resume*.md — and their .zst archives) was invisible
+# to a resuming agent even though it is often the highest-signal context. List
+# files by mtime so they show up as resume candidates; read one directly
+# (zstdcat for .zst) for detail.
+echo "ARTIFACTS (plans/specs/designs/handoffs/notes/resumes incl. .zst; newest first)"
 art_out=$(find "${roots[@]}" -maxdepth 2 -type f \
 	\( -iname 'PHASE*' -o -iname '*handoff*' -o -iname '*plan*.md*' \
 	-o -iname '*spec*.md*' -o -iname '*design*.md*' -o -iname '*note*.md*' \

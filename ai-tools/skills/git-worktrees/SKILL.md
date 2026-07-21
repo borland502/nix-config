@@ -105,6 +105,7 @@ if [[ -n "$PREFERRED_LOCATION" ]]; then
     /*) ;;
     *) PREFERRED_LOCATION="$ROOT/$PREFERRED_LOCATION" ;;
   esac
+  PREFERRED_LOCATION=$(realpath -m -- "$PREFERRED_LOCATION")
   case "$PREFERRED_LOCATION/" in
     "$ROOT/"*)
       git check-ignore -q "$PREFERRED_LOCATION/" || {
@@ -157,8 +158,12 @@ REPOSITORY=$(printf '%s' "$(basename "$ROOT")" |
 ROOT_HASH=$(printf '%s' "$ROOT" | git hash-object --stdin)
 EXPECTED_PARENT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/${REPOSITORY}-${ROOT_HASH}"
 EXPECTED_PARENT=$(cd "$EXPECTED_PARENT" && pwd -P)
-WORKTREE_PATH="$EXPECTED_PARENT/$BRANCH_NAME"
-WORKTREE_PATH=$(cd "$WORKTREE_PATH" && pwd -P)
+EXPECTED_WORKTREE_PATH="$EXPECTED_PARENT/$BRANCH_NAME"
+WORKTREE_PATH=$(cd "$EXPECTED_WORKTREE_PATH" && pwd -P)
+[[ "$WORKTREE_PATH" == "$EXPECTED_WORKTREE_PATH" ]] || {
+  echo "Refusing cleanup through redirected path: $EXPECTED_WORKTREE_PATH" >&2
+  exit 1
+}
 WORKTREE_COMMON=$(cd "$WORKTREE_PATH" &&
   cd "$(git rev-parse --git-common-dir)" && pwd -P)
 ACTUAL_BRANCH=$(git -C "$WORKTREE_PATH" symbolic-ref -q HEAD || true)
@@ -179,9 +184,9 @@ esac
 git worktree prune
 ```
 
-This recomputes the root-hash/branch path and verifies its Git common directory
-and branch instead of relying on variables from the creation turn. Do not
-remove sibling cache worktrees.
+This recomputes the root-hash/branch path, rejects symlink redirection, and
+verifies its Git common directory and branch instead of relying on variables
+from the creation turn. Do not remove sibling cache worktrees.
 
 **Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and you're working in the current directory instead. Then run setup and baseline tests in place.
 
