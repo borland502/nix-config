@@ -125,11 +125,24 @@ else
   REPOSITORY=$(printf '%s' "$(basename "$ROOT")" |
     LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-80)
   ROOT_HASH=$(printf '%s' "$ROOT" | git hash-object --stdin)
-  LOCATION="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/${REPOSITORY}-${ROOT_HASH}"
+  CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees"
+  mkdir -p "$CACHE_WORKTREE_ROOT"
+  CACHE_WORKTREE_ROOT=$(cd "$CACHE_WORKTREE_ROOT" && pwd -P)
+  LOCATION="$CACHE_WORKTREE_ROOT/${REPOSITORY}-${ROOT_HASH}"
+  mkdir -p "$LOCATION"
+  LOCATION_PHYSICAL=$(cd "$LOCATION" && pwd -P)
+  [[ "$LOCATION_PHYSICAL" == "$LOCATION" ]] || {
+    echo "Refusing redirected cache parent: $LOCATION" >&2
+    exit 1
+  }
 fi
 
 WORKTREE_PATH="$LOCATION/$BRANCH_NAME"
 mkdir -p "$LOCATION"
+[[ ! -e "$WORKTREE_PATH" && ! -L "$WORKTREE_PATH" ]] || {
+  echo "Refusing existing or redirected worktree path: $WORKTREE_PATH" >&2
+  exit 1
+}
 git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME"
 WORKTREE_PATH=$(cd "$WORKTREE_PATH" && pwd -P)
 printf 'WORKTREE_PATH=%s\n' "$WORKTREE_PATH"
@@ -156,8 +169,9 @@ GIT_COMMON=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)
 REPOSITORY=$(printf '%s' "$(basename "$ROOT")" |
   LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-80)
 ROOT_HASH=$(printf '%s' "$ROOT" | git hash-object --stdin)
-EXPECTED_PARENT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/${REPOSITORY}-${ROOT_HASH}"
-EXPECTED_PARENT=$(cd "$EXPECTED_PARENT" && pwd -P)
+CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees"
+CACHE_WORKTREE_ROOT=$(cd "$CACHE_WORKTREE_ROOT" && pwd -P)
+EXPECTED_PARENT="$CACHE_WORKTREE_ROOT/${REPOSITORY}-${ROOT_HASH}"
 EXPECTED_WORKTREE_PATH="$EXPECTED_PARENT/$BRANCH_NAME"
 WORKTREE_PATH=$(cd "$EXPECTED_WORKTREE_PATH" && pwd -P)
 [[ "$WORKTREE_PATH" == "$EXPECTED_WORKTREE_PATH" ]] || {
