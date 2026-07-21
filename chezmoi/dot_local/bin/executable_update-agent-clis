@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#
+# Install / update the fast-moving agent CLIs off nixpkgs so they track latest.
+# Both use their vendor's native self-updating installer into ~/.local (no npm,
+# no external node runtime), and ~/.local/bin is prepended to PATH by the login
+# shells so these win over any nix-provided copy:
+#
+#   - Claude Code (`claude`): ~/.local/share/claude via https://claude.ai/install.sh;
+#     self-updates with `claude update`.
+#   - GitHub Copilot CLI (`copilot`): ~/.local/bin via https://gh.io/copilot-install
+#     (github/copilot-cli release tarballs, SHA256-verified); self-updates with
+#     `copilot update`.
+#
+# Why off nixpkgs: nixos-unstable lags the Copilot CLI by weeks, and — crucially
+# — a nix-store install is read-only, so the CLI's own auto-update / `update`
+# cannot refresh it (that is why the nix copy was frozen at 1.0.26). A stale
+# Copilot build hardcodes a subagent model allowlist (`OD` in the vendored
+# bundle) that the interactive /model picker does not use, so an explicit Task
+# dispatch with a current model (e.g. gpt-5.6-luna) is rejected before launch
+# even though the session can select it. A writable, current install fixes both.
+# See docs/agent-token-cost-levers.md and agent-reference.md.
+#
+# Both branches are update-or-bootstrap (idempotent), so this one script serves
+# creation and upgrade. Invoked by chezmoi's run_onchange_install-agent-clis
+# script and by `task agents:update` / the tail of `task upgrade`.
+
+set -euo pipefail
+
+case "$(uname -s)" in
+Darwin | Linux) ;;
+*)
+  printf 'update-agent-clis: unsupported OS %s — skipping\n' "$(uname -s)" >&2
+  exit 0
+  ;;
+esac
+
+if ! command -v curl >/dev/null 2>&1; then
+  printf 'update-agent-clis: curl not found — skipping\n' >&2
+  exit 0
+fi
+
+prefix="$HOME/.local"
+mkdir -p "$prefix/bin"
+
+# The vendor `update` commands stream their own progress, so this run is not the
+# silent one — but keep a clear banner so it is obvious what is happening.
+printf '==> updating agent CLIs (Claude Code, GitHub Copilot) — contacts GitHub; may pause a few seconds. Do not cancel.\n'
+
+# Update the writable ~/.local copy in place if present, else bootstrap it.
+# We target $prefix/bin explicitly rather than `command -v`, because a
+# read-only nix-store copy may still shadow PATH until the switch removes it.
+
+# --- Claude Code -----------------------------------------------------------
+if [ -x "$prefix/bin/claude" ]; then
+  printf '==> updating Claude Code (claude update)\n'
+  "$prefix/bin/claude" update || printf 'update-agent-clis: claude update failed (continuing)\n' >&2
+else
+  printf '==> installing Claude Code native build\n'
+  curl -fsSL https://claude.ai/install.sh | bash ||
+    printf 'update-agent-clis: Claude Code install failed (continuing)\n' >&2
+fi
+
+# --- GitHub Copilot CLI ----------------------------------------------------
+if [ -x "$prefix/bin/copilot" ]; then
+  printf '==> updating GitHub Copilot CLI (copilot update)\n'
+  "$prefix/bin/copilot" update || printf 'update-agent-clis: copilot update failed (continuing)\n' >&2
+else
+  printf '==> installing GitHub Copilot CLI native build into %s\n' "$prefix"
+  # Installer defaults PREFIX to $HOME/.local for non-root (binary → ~/.local/bin).
+  curl -fsSL https://gh.io/copilot-install | PREFIX="$prefix" bash ||
+    printf 'update-agent-clis: Copilot CLI install failed (continuing)\n' >&2
+fi
+
+# --- Report ----------------------------------------------------------------
+printf '==> claude   %s\n' "$("$prefix/bin/claude" --version 2>/dev/null || echo '(not runnable)')"
+printf '==> copilot  %s\n' "$("$prefix/bin/copilot" --version 2>/dev/null | head -n 1 || echo '(not runnable)')"

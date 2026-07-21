@@ -12,9 +12,16 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-26.05";
-    # Tracks fast-moving upstream releases (currently used only for the
-    # claude-code / github-copilot-cli overlay below — nixos-26.05 lags
-    # Anthropic/GitHub Copilot CLI releases by days-to-weeks).
+    # Tracks fast-moving upstream releases for the overlay below (Electron
+    # apps + Nix-managed browsers, which nixos-26.05 lags on for
+    # Chromium/security fixes). The agent CLIs (claude-code, github-copilot-cli)
+    # are deliberately NOT here — they install off nixpkgs via
+    # ~/.local/bin/update-agent-clis, each using its vendor's native
+    # self-updating installer into ~/.local. Even nixpkgs-unstable lags the
+    # GitHub Copilot CLI by weeks, and a read-only nix-store copy cannot
+    # self-update, so it stays frozen on a build whose hardcoded subagent model
+    # allowlist rejects current models (e.g. gpt-5.6 luna). See
+    # docs/agent-token-cost-levers.md.
     nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
     nixos-wsl = {
       url = "github:nix-community/NixOS-WSL/main";
@@ -62,7 +69,6 @@
   }: let
     # Packages tracked on nixos-unstable while the rest of the repo stays on
     # nixos-26.05. See AGENTS.md / docs notes if expanded.
-    #   - fast-moving CLI agents (claude-code, github-copilot-cli)
     #   - Electron apps: they ship frequent Chromium/security fixes and the
     #     stable channel lags badly. Keeping them current also stops their
     #     bundled Chromium from drifting against any other copy that shares an
@@ -79,8 +85,6 @@
         config.allowUnfree = true;
       };
     in {
-      # fast-moving CLI agents
-      inherit (unstable) claude-code github-copilot-cli;
       # Electron apps (see comment above)
       inherit (unstable) vscode slack discord obsidian;
       # Browsers under Nix control (see comment above). vivaldi is only used on

@@ -3,9 +3,6 @@
   lib,
   ...
 }: let
-  codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
-    inherit pkgs;
-  };
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
   # Flameshot (Qt6 QSettings) rewrites this INI at runtime, so it cannot be a
   # read-only nix-store symlink; it is seeded as a mutable copy in
@@ -155,7 +152,12 @@ in {
 
     # Darwin-specific packages
     packages = darwinPackages;
-    sessionVariables.BROWSER = "vivaldi";
+    sessionVariables = {
+      BROWSER = "vivaldi";
+      # Nix's OpenSSL curl otherwise follows SSL_CERT_DIR and misses certificates
+      # available through macOS's system CA bundle.
+      SSL_CERT_FILE = "/etc/ssl/cert.pem";
+    };
 
     activation = {
       # Remove stale *.instructions.md files from macOS skill/agent bridge
@@ -235,10 +237,84 @@ in {
         fi
       '';
 
+      # LaunchServices keeps a registration for every bundle it has ever seen,
+      # and duplicates that claim one bundle id break handler binding. Two
+      # sources of duplicates recur on this host:
+      #
+      #   * Homebrew cask upgrades rename the outgoing bundle aside as
+      #     /Applications/<App>.app.broken-<version> rather than deleting it.
+      #     The leftover keeps claiming the original bundle id, and
+      #     LSSetDefaultHandlerForURLScheme then fails with -54 on the ambiguous
+      #     id. That is how the 2026-07-20 Vivaldi cask upgrade (8.0.4033.44 ->
+      #     8.1.4087.55) silently reverted http/https to Safari: this activation
+      #     step ran, failed with -54, and only warned.
+      #   * Every nix rebuild of a GUI app mints a new /nix/store path; the
+      #     superseded generations stay registered until their store path is
+      #     garbage-collected.
+      #
+      # Pruning only drops LaunchServices entries — it never touches files.
+      pruneStaleAppRegistrations = lib.hm.dag.entryBefore ["setDefaultBrowser"] ''
+        lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+        if [ -x "$lsregister" ]; then
+          # Cask upgrade leftovers: a complete, superseded bundle under its
+          # original id. Always safe to unregister; the file stays on disk.
+          for stale in /Applications/*.app.broken-*; do
+            [ -e "$stale" ] || continue
+            echo "Unregistering stale cask leftover: $stale"
+            "$lsregister" -u "$stale" >/dev/null 2>&1 || true
+          done
+
+          # Store-path registrations, pruned under two narrow rules:
+          #
+          #   1. The store path no longer exists (dead generation after a GC).
+          #   2. The app also exists in ~/Applications/Home Manager Apps. That
+          #      copy is the canonical, Spotlight-indexable bundle; the store
+          #      duplicate is always redundant. This matters because Spotlight
+          #      cannot index /nix, so whenever LaunchServices resolves a bundle
+          #      id to a store path the app disappears from Cmd-Space. The
+          #      `code` CLI execs the store path directly and re-registers it on
+          #      every launch, so this needs re-running, not a one-off cleanup.
+          #
+          # Superseded generations that are still on disk and have no Home
+          # Manager Apps counterpart are left alone: unregistering those is a
+          # no-op once the app relaunches, and risks dropping the only
+          # registration an app has.
+          hm_apps="$HOME/Applications/Home Manager Apps"
+          "$lsregister" -dump 2>/dev/null \
+            | ${pkgs.gnused}/bin/sed -n 's|^[[:space:]]*path:[[:space:]]*\(/nix/store/.*\.app\)[[:space:]]*(0x[0-9a-f]*)[[:space:]]*$|\1|p' \
+            | sort -u \
+            | while IFS= read -r bundle; do
+                if [ ! -e "$bundle" ]; then
+                  echo "Unregistering dead store registration: $bundle"
+                elif [ -e "$hm_apps/''${bundle##*/}" ]; then
+                  echo "Unregistering store duplicate of ''${bundle##*/}: $bundle"
+                else
+                  continue
+                fi
+                "$lsregister" -u "$bundle" >/dev/null 2>&1 || true
+              done
+
+          # A store-launched app that has since quit can leave the canonical
+          # copy unregistered; re-assert it so Spotlight keeps the app.
+          if [ -d "$hm_apps" ]; then
+            for app in "$hm_apps"/*.app; do
+              [ -e "$app" ] || continue
+              "$lsregister" -f "$app" >/dev/null 2>&1 || true
+            done
+          fi
+        fi
+      '';
+
       setDefaultBrowser = lib.hm.dag.entryAfter ["writeBoundary"] ''
         if [ -d "/Applications/Vivaldi.app" ]; then
           if ! ${setDefaultBrowser}/bin/set-default-browser com.vivaldi.Vivaldi; then
-            echo "Warning: failed to register Vivaldi as the default browser; leaving existing LaunchServices handlers unchanged"
+            # Loud on purpose: this previously failed with -54 and the warning
+            # scrolled past in an otherwise-successful switch, leaving Safari as
+            # the default browser for hours.
+            echo "ERROR: failed to register Vivaldi as the default browser." >&2
+            echo "       Usually an ambiguous com.vivaldi.Vivaldi bundle id (LaunchServices -54)." >&2
+            echo "       Check for duplicates:  lsregister -dump | grep -i 'Vivaldi\.app'" >&2
+            echo "       Then re-run:           set-default-browser com.vivaldi.Vivaldi" >&2
           fi
         else
           echo "Skipping Vivaldi default browser registration: /Applications/Vivaldi.app is unavailable."

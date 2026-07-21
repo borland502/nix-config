@@ -41,6 +41,17 @@ workflows through `task` — do not hand-assemble `nixos-rebuild` /
   edit `agent-defaults.md` and regenerate.
 - `agent-defaults.md` is budgeted (`task check:instruction-size`); put
   reference material in `agent-reference.md`, not the always-on prefix.
+- Skills and agents must stay model-agnostic: use tier aliases
+  (`opus`/`sonnet`/`haiku`) in `model:` frontmatter, never versioned model
+  IDs (`task check:model-agnostic` enforces this on ai-tools/). The single
+  sanctioned pin point is the `ANTHROPIC_DEFAULT_*_MODEL` env block in
+  `chezmoi/dot_claude/settings.json`, which resolves each alias to the
+  latest model of its tier — bump those IDs when new models ship. Copilot
+  biases to OpenAI's top tier: common.nix pins `gpt-5.6-sol` (tier slugs are
+  `gpt-5.6-{sol,terra,luna}`; the CLI's `help config` list lags the backend,
+  so don't gate on it). Subagent-dispatch guidance speaks in high/mid/low
+  tiers, resolved per harness by agent-reference.md § Model Tiers — bump
+  that table together with the pins when a new generation ships.
 - Secrets go through sops — use the sec-sops-encrypt skill.
 - For build/switch failures use the ops-nix-pitfalls skill; for chezmoi
   behavior the ops-chezmoi skill; token-cost levers are documented in

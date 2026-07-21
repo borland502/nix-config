@@ -98,19 +98,25 @@ conflicts that only emerge from implementation.
 
 ## Model Selection
 
-Use the least powerful model that can handle each role to conserve cost and increase speed.
+Pick a capability **tier** for each role — `high`, `mid`, or `low` — then
+resolve the tier to your harness's model via
+`~/.config/instructions/agent-reference.md` § Model Tiers (Claude Code:
+tier aliases; Copilot CLI: the current sol/terra/luna slugs). Never write a
+versioned model ID. Use the lowest tier that can handle the role to
+conserve cost and increase speed.
 
-**Mechanical implementation tasks** (isolated functions, clear specs, 1-2 files): use a fast, cheap model. Most implementation tasks are mechanical when the plan is well-specified.
+**Mechanical implementation tasks** (isolated functions, clear specs, 1-2 files): **low** tier. Most implementation tasks are mechanical when the plan is well-specified.
 
-**Integration and judgment tasks** (multi-file coordination, pattern matching, debugging): use a standard model.
+**Integration and judgment tasks** (multi-file coordination, pattern matching, debugging): **mid** tier.
 
-**Architecture and design tasks**: use the most capable available model.
-The final whole-branch review is one of these — dispatch it on the most
-capable available model, not the session default.
+**Architecture and design tasks**: **high** tier. The final whole-branch
+review is one of these — dispatch it on the high tier explicitly, not the
+session default: a premium session model draws from its own
+tighter usage budget, which subagent fan-out drains fast.
 
-**Review tasks**: choose the model with the same judgment, scaled to the
+**Review tasks**: choose the tier with the same judgment, scaled to the
 diff's size, complexity, and risk. A small mechanical diff does not need the
-most capable model; a subtle concurrency change does.
+high tier; a subtle concurrency change does.
 
 **Always specify the model explicitly when dispatching a subagent.** An
 omitted model inherits your session's model — often the most capable and
@@ -118,7 +124,7 @@ most expensive — which silently defeats this section.
 
 **Turn count beats token price.** Wall-clock and context cost scale with how
 many turns a subagent takes, and the cheapest models routinely take 2-3× the
-turns on multi-step work — costing more overall. Use a mid-tier model as the
+turns on multi-step work — costing more overall. Use the mid tier as the
 floor for reviewers and for implementers working from prose descriptions.
 When the task's plan text contains the complete code to write, the
 implementation is transcription plus testing: use the cheapest tier for
@@ -250,18 +256,23 @@ controllers that lost their place have re-dispatched entire completed task
 sequences — the single most expensive failure observed. Track progress in
 a ledger file, not only in todos.
 
-- At skill start, check for a ledger:
-  `cat "$(git rev-parse --show-toplevel)/.superpowers/sdd/progress.md"`. Tasks listed there
-  as complete are DONE — do not re-dispatch them; resume at the first task
-  not marked complete.
+- At skill start, resolve the workspace with
+  `workspace=$(scripts/sdd-workspace)`, then check
+  `cat "$workspace/progress.md"`. The helper uses
+  `<repository>/.superpowers/sdd` only when that path is already ignored;
+  otherwise it uses a stable path under
+  `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/`, keyed by a full Git object hash
+  of the absolute repository root. It never changes repository ignore rules.
+  Tasks listed as complete are DONE — do not re-dispatch them;
+  resume at the first task not marked complete.
 - When a task's review comes back clean, append one line to the ledger in
   the same message as your other bookkeeping:
   `Task N: complete (commits <base7>..<head7>, review clean)`.
 - The ledger is your recovery map: the commits it names exist in git even
   when your context no longer remembers creating them. After compaction,
   trust the ledger and `git log` over your own recollection.
-- `git clean -fdx` will destroy the ledger (it's git-ignored scratch); if
-  that happens, recover from `git log`.
+- `git clean -fdx` can destroy a local ignored ledger; a cache-backed ledger
+  is outside the repository. If either is lost, recover from `git log`.
 
 ## Prompt Templates
 
@@ -274,7 +285,7 @@ a ledger file, not only in todos.
 ```
 You: I'm using Subagent-Driven Development to execute this plan.
 
-[Read plan file once: docs/plans/feature-plan.md]
+[Read plan file once: ~/.cache/copilot/2026-07-20-feature-plan.md]
 [Create todos for all tasks]
 
 Task 1: Hook installation script

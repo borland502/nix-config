@@ -18,9 +18,10 @@ Ensure work happens in an isolated workspace. Prefer your platform's native work
 **Before creating anything, check if you are already in an isolated workspace.**
 
 ```bash
+ROOT=$(cd "$(git rev-parse --show-toplevel)" 2>/dev/null && pwd -P)
 GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
 GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
-BRANCH=$(git branch --show-current)
+CURRENT_BRANCH=$(git branch --show-current)
 ```
 
 **Submodule guard:** `GIT_DIR != GIT_COMMON` is also true inside git submodules. Before concluding "already in a worktree," verify you are not in a submodule:
@@ -64,38 +65,142 @@ Only proceed to Step 1b if you have no native worktree tool available.
 
 Follow this priority order. Explicit user preference always beats observed filesystem state.
 
-1. **Check your instructions for a declared worktree directory preference.** If the user has already specified one, use it without asking.
+1. **Check your instructions for a declared worktree directory preference.**
+   Use it unless it is repository-local and `git check-ignore -q` does not
+   confirm it is already ignored. Reject an unignored repository-local
+   preference; do not alter repository ignore rules.
 
 2. **Check for an existing project-local worktree directory:**
    ```bash
    ls -d .worktrees 2>/dev/null     # Preferred (hidden)
    ls -d worktrees 2>/dev/null      # Alternative
    ```
-   If found, use it. If both exist, `.worktrees` wins.
+   Use `.worktrees/` only when `git check-ignore -q .worktrees` succeeds;
+   otherwise use `worktrees/` only when `git check-ignore -q worktrees`
+   succeeds. If both qualify, `.worktrees/` wins.
 
-3. **If there is no other guidance available**, default to `.worktrees/` at the project root.
+3. **Otherwise, default outside the repository:**
+   `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>-<root-hash>`.
+   The creation block calculates the physical root and collision-safe cache
+   location itself.
 
-#### Safety Verification (project-local directories only)
-
-**MUST verify directory is ignored before creating worktree:**
-
-```bash
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
-```
-
-**If NOT ignored:** Add to .gitignore, commit the change, then proceed.
-
-**Why critical:** Prevents accidentally committing worktree contents to repository.
+**Why critical:** A repository-local worktree must already be ignored to
+prevent accidental tracking. Cache fallback preserves that safety without
+modifying repository files.
 
 #### Create the Worktree
 
-```bash
-# Determine path based on chosen location
-path="$LOCATION/$BRANCH_NAME"
+Run this entire block in one shell call so selection state cannot be lost
+between turns. Replace `BRANCH_NAME`; set `PREFERRED_LOCATION` only when
+instructions declare one.
 
-git worktree add "$path" -b "$BRANCH_NAME"
-cd "$path"
+```bash
+set -euo pipefail
+BRANCH_NAME='<requested-feature-branch>'
+PREFERRED_LOCATION=''
+ROOT=$(cd "$(git rev-parse --show-toplevel)" && pwd -P)
+
+if [[ -n "$PREFERRED_LOCATION" ]]; then
+  case "$PREFERRED_LOCATION" in
+    /*) ;;
+    *) PREFERRED_LOCATION="$ROOT/$PREFERRED_LOCATION" ;;
+  esac
+  PREFERRED_LOCATION=$(realpath -m -- "$PREFERRED_LOCATION")
+  case "$PREFERRED_LOCATION/" in
+    "$ROOT/"*)
+      git check-ignore -q "$PREFERRED_LOCATION/" || {
+        echo "Repository-local worktree path is not ignored: $PREFERRED_LOCATION" >&2
+        exit 1
+      }
+      ;;
+  esac
+  LOCATION="$PREFERRED_LOCATION"
+elif [[ -d "$ROOT/.worktrees" ]] &&
+  git check-ignore -q "$ROOT/.worktrees/"; then
+  LOCATION="$ROOT/.worktrees"
+elif [[ -d "$ROOT/worktrees" ]] &&
+  git check-ignore -q "$ROOT/worktrees/"; then
+  LOCATION="$ROOT/worktrees"
+else
+  REPOSITORY=$(printf '%s' "$(basename "$ROOT")" |
+    LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-80)
+  ROOT_HASH=$(printf '%s' "$ROOT" | git hash-object --stdin)
+  CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees"
+  mkdir -p "$CACHE_WORKTREE_ROOT"
+  CACHE_WORKTREE_ROOT=$(cd "$CACHE_WORKTREE_ROOT" && pwd -P)
+  LOCATION="$CACHE_WORKTREE_ROOT/${REPOSITORY}-${ROOT_HASH}"
+  mkdir -p "$LOCATION"
+  LOCATION_PHYSICAL=$(cd "$LOCATION" && pwd -P)
+  [[ "$LOCATION_PHYSICAL" == "$LOCATION" ]] || {
+    echo "Refusing redirected cache parent: $LOCATION" >&2
+    exit 1
+  }
+fi
+
+WORKTREE_PATH="$LOCATION/$BRANCH_NAME"
+mkdir -p "$LOCATION"
+[[ ! -e "$WORKTREE_PATH" && ! -L "$WORKTREE_PATH" ]] || {
+  echo "Refusing existing or redirected worktree path: $WORKTREE_PATH" >&2
+  exit 1
+}
+git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME"
+WORKTREE_PATH=$(cd "$WORKTREE_PATH" && pwd -P)
+printf 'WORKTREE_PATH=%s\n' "$WORKTREE_PATH"
 ```
+
+Use that printed absolute path explicitly as the working directory for every
+later shell call. A terminal `cd` does not persist across tool invocations.
+
+#### Cleanup
+
+The workflow owns cache-hosted worktrees under
+`${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/`; they are removed for
+merge and discard choices. After the user chooses to merge or discard the
+work, run this from any checkout of the same repository:
+
+```bash
+set -euo pipefail
+BRANCH_NAME='<same-requested-feature-branch>'
+MODE=merge
+ROOT=$(git worktree list --porcelain |
+  awk '/^worktree / { sub(/^worktree /, ""); print; exit }')
+ROOT=$(cd "$ROOT" && pwd -P)
+GIT_COMMON=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)
+REPOSITORY=$(printf '%s' "$(basename "$ROOT")" |
+  LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-80)
+ROOT_HASH=$(printf '%s' "$ROOT" | git hash-object --stdin)
+CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees"
+CACHE_WORKTREE_ROOT=$(cd "$CACHE_WORKTREE_ROOT" && pwd -P)
+EXPECTED_PARENT="$CACHE_WORKTREE_ROOT/${REPOSITORY}-${ROOT_HASH}"
+EXPECTED_WORKTREE_PATH="$EXPECTED_PARENT/$BRANCH_NAME"
+WORKTREE_PATH=$(cd "$EXPECTED_WORKTREE_PATH" && pwd -P)
+[[ "$WORKTREE_PATH" == "$EXPECTED_WORKTREE_PATH" ]] || {
+  echo "Refusing cleanup through redirected path: $EXPECTED_WORKTREE_PATH" >&2
+  exit 1
+}
+WORKTREE_COMMON=$(cd "$WORKTREE_PATH" &&
+  cd "$(git rev-parse --git-common-dir)" && pwd -P)
+ACTUAL_BRANCH=$(git -C "$WORKTREE_PATH" symbolic-ref -q HEAD || true)
+[[ "$WORKTREE_COMMON" == "$GIT_COMMON" ]] || {
+  echo "Refusing to remove worktree owned by another repository" >&2
+  exit 1
+}
+[[ "$ACTUAL_BRANCH" == "refs/heads/$BRANCH_NAME" ]] || {
+  echo "Refusing to remove worktree on unexpected branch: $ACTUAL_BRANCH" >&2
+  exit 1
+}
+cd "$ROOT"
+case "$MODE" in
+  merge) git worktree remove "$WORKTREE_PATH" ;;
+  discard) git worktree remove --force "$WORKTREE_PATH" ;;
+  *) echo "MODE must be merge or discard" >&2; exit 1 ;;
+esac
+git worktree prune
+```
+
+This recomputes the root-hash/branch path, rejects symlink redirection, and
+verifies its Git common directory and branch instead of relying on variables
+from the creation turn. Do not remove sibling cache worktrees.
 
 **Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and you're working in the current directory instead. Then run setup and baseline tests in place.
 
@@ -147,11 +252,13 @@ Ready to implement <feature-name>
 | In a submodule | Treat as normal repo (Step 0 guard) |
 | Native worktree tool available | Use it (Step 1a) |
 | No native tool | Git worktree fallback (Step 1b) |
-| `.worktrees/` exists | Use it (verify ignored) |
-| `worktrees/` exists | Use it (verify ignored) |
-| Both exist | Use `.worktrees/` |
-| Neither exists | Check instruction file, then default `.worktrees/` |
-| Directory not ignored | Add to .gitignore + commit |
+| Explicit directory preference | Use it only if repository-local path is already ignored |
+| `.worktrees/` exists | Use it only if already ignored |
+| `worktrees/` exists | Use it only if already ignored |
+| Both existing directories qualify | Use `.worktrees/` |
+| No qualifying local directory | Use `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>-<root-hash>`, then append branch once |
+| Directory not ignored | Reject repository-local path; use cache fallback |
+| Merge or discard cache worktree | Recompute and validate its root-hash/branch path, remove it, then prune |
 | Permission error on create | Sandbox fallback, work in place |
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |
@@ -171,12 +278,21 @@ Ready to implement <feature-name>
 ### Skipping ignore verification
 
 - **Problem:** Worktree contents get tracked, pollute git status
-- **Fix:** Always use `git check-ignore` before creating project-local worktree
+- **Fix:** Use `git check-ignore` before a project-local worktree; use the
+  cache fallback when it is not already ignored
 
 ### Assuming directory location
 
 - **Problem:** Creates inconsistency, violates project conventions
-- **Fix:** Follow priority: explicit instructions > existing project-local directory > default
+- **Fix:** Follow priority: qualifying explicit preference > qualifying
+  existing project-local directory > cache fallback
+
+### Leaving cache worktrees behind
+
+- **Problem:** Cache-hosted worktrees accumulate after merge or discard.
+- **Fix:** Run the complete cleanup block from any same-repository checkout so
+  it reconstructs and validates the exact cache path before removal, then
+  prunes.
 
 ### Proceeding with failing tests
 
@@ -190,13 +306,16 @@ Ready to implement <feature-name>
 - Use `git worktree add` when you have a native worktree tool (e.g., `EnterWorktree`). This is the #1 mistake — if you have it, use it.
 - Skip Step 1a by jumping straight to Step 1b's git commands
 - Create worktree without verifying it's ignored (project-local)
+- Create or change repository ignore rules for worktree storage
+- Leave a cache-hosted worktree after merge or discard
 - Skip baseline test verification
 - Proceed with failing tests without asking
 
 **Always:**
 - Run Step 0 detection first
 - Prefer native tools over git fallback
-- Follow directory priority: explicit instructions > existing project-local directory > default
+- Follow directory priority: explicit preference > existing ignored local directory > cache fallback
 - Verify directory is ignored for project-local
+- Remove cache-hosted worktrees for merge and discard choices
 - Auto-detect and run project setup
 - Verify clean test baseline

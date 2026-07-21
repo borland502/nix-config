@@ -110,7 +110,8 @@ modules/                    Shared system modules (e.g. audio/pulseaudio.nix)
 home-manager/               Shared user config — common.nix (packages), per-platform entrypoints,
                               zsh.nix, starship.nix, lib/ (renderers & helpers), profiles/
 chezmoi/                    chezmoi-managed dotfiles for every platform (incl. Windows)
-ai-tools/                   Skills, agents, and the Claude Code plugin marketplace
+ai-tools/                   Skills, agents, slash commands, and the Claude Code plugin marketplace
+secrets/                    SOPS-encrypted secrets (age); never plaintext — see sec-sops-encrypt skill
 scripts/                    Provisioning and CI helper scripts
 docs/                       Design notes (e.g. agent-token-cost-levers.md)
 .github/workflows/          CI: nix-validation, secrets-scan, update-flake
@@ -185,6 +186,8 @@ modeled on the [obra/superpowers](https://github.com/obra/superpowers) layout:
 ai-tools/
 ├── .claude-plugin/   Marketplace + plugin metadata registering nix-config-tools
 ├── agents/           Custom sub-agents (*.agent.md)
+├── commands/         Slash commands for routine chores (flake-refresh, jira-digest, reconcile-audit)
+├── scripts/          Hook loggers, cache compaction, the ops-agent CLI, and the AWS MCP wrapper
 ├── skills/           Always-on core set (flow, git, ops, sec, web, shell)
 └── skills-stack/     Stack-specific set (Angular, Spring Boot, Go, Python, JS/TS, …) — opt-in per project
 ```
@@ -249,7 +252,14 @@ intentionally off-`PATH` location — these are hook/MCP scripts, not for manual
 |---|---|---|
 | `log-bash.sh` | Bash `PostToolUse` | each command + stdout/stderr → `session_<id>.log` |
 | `log-thinking.sh` | `Stop` / `SubagentStop` (Claude), `postToolUse` (Copilot) | agent reasoning → `session_<id>.thinking.log` |
+| `log-skill.sh` | Skill `PostToolUse` (Claude), skill hook (Copilot) | skill invocations → `session_<id>.skills.log` |
+| `log-instructions.sh` | `InstructionsLoaded` (Claude) | loaded instruction files → `session_<id>.instructions.log` |
 | `claude-cache-stats` | `SessionEnd` | prompt-cache-hit summary → `cache-stats.log` |
+
+`compress-old-cache` (session-end hook + daily timer) zstd-compresses logs older than a day (or over
+1 MB) and prunes anything untouched for ~1.5 years. The same directory also carries `aws-mcp-server`
+and `ops-agent.py` — the implementation behind the `ops-agent` CLI, which is exposed as a wrapper
+script rather than run directly.
 
 Read it back with **`cache-scan`** — terse by default, `--verbose` adds the full command timeline and a
 keyword scan (`--days N`, `--date`, `--session ID`, `--limit N`).
@@ -273,7 +283,8 @@ chezmoi owns the profile, Home Manager owns the Starship config.
 ## Editor configuration
 
 - `home-manager/lib/code-editor-user-settings.nix` is the shared source for VS Code user settings;
-  `common.nix` and `home-darwin.nix` install them and the Copilot prompt files into each editor.
+  `common.nix` deploys them everywhere via `programs.vscode.userSettings`, and `home-wsl.nix` reuses
+  them for the `.vscode-server` (VS Code Remote) settings on WSL.
 - `.devcontainer/devcontainer.json` bootstraps container sessions before the Home Manager profile applies.
 - `.vscode/` is repo-workspace-specific (Nix formatter, language server, extension recommendations) and
   should stay focused on this repository.
@@ -334,14 +345,19 @@ automatically — close/reopen or push to the branch to run CI before merging.
 
 This project's own code is MIT-licensed ([LICENSE](LICENSE)). Ingested upstream skills under
 `ai-tools/skills/` and `ai-tools/skills-stack/` retain their original licenses and `origin:` frontmatter;
-project-local skills (`ops-*`, `flow-reconciliation`, `sec-credentials`, `sec-sops-encrypt`,
-`shell-pitfalls`) are original to this repo.
+skills without an `origin:` line (`flow-reconciliation`, `gh-graphql-jq-pipelines`, the `ops-agent` /
+`ops-cache-scan` / `ops-chezmoi` / `ops-nix-pitfalls` set, `sec-credentials`, `sec-sops-encrypt`,
+`shell-pitfalls`, and others) are original to this repo. `ops-repo-scan` is community-sourced (see its
+frontmatter).
 
 | Upstream | License | Borrowed |
 |---|---|---|
 | [anthropics/skills](https://github.com/anthropics/skills) | Apache 2.0 / proprietary | `claude-api`, `document-skills` (loaded via marketplace, not redistributed) |
 | [obra/superpowers](https://github.com/obra/superpowers) | MIT | `flow-*`, `git-worktrees`, `git-finish-branch`, `git-request-review` |
-| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `golang-*`, `python-*`, `springboot-*`, `github-ops`, `ops-jira-integration`, `ops-repo-scan`, `git-workflow`, `security-*` |
+| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `golang-*`, `python-*`, `springboot-*`, `postgres-patterns`, `database-migrations`, `e2e-testing`, `github-ops`, `ops-jira-integration`, `git-workflow`, `sec-review` |
+| [github/awesome-copilot](https://github.com/github/awesome-copilot) | MIT | `github-actions`, `react18-batching-patterns` |
+| [kepano/obsidian-skills](https://github.com/kepano/obsidian-skills) | MIT | `defuddle`, `json-canvas` |
+| [wshobson/agents](https://github.com/wshobson/agents) | MIT | `javascript-testing-patterns`, `modern-javascript-patterns`, `nodejs-backend-patterns`, `typescript-advanced-types` |
 | [appautomaton/webmaton](https://github.com/appautomaton/webmaton) | MIT | `web-*` |
 | [angular/skills](https://github.com/angular/skills) | MIT (Google LLC) | `angular-developer`, `angular-new-app` |
 

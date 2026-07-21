@@ -200,8 +200,12 @@
     taplo
 
     # AI & agent tools
-    claude-code
-    github-copilot-cli
+    # claude-code and github-copilot-cli intentionally omitted — they install
+    # off nixpkgs via ~/.local/bin/update-agent-clis, each using its vendor's
+    # native self-updating installer into ~/.local (run on chezmoi apply and
+    # `task agents:update`). nixpkgs lags these CLIs by weeks and a read-only
+    # store copy cannot self-update, freezing the Copilot CLI on a build that
+    # rejects current subagent models. See flake.nix / AGENTS.md.
     opsAgent
 
     # Secret management
@@ -528,11 +532,17 @@ in {
         fi
       '';
 
-      # Copilot CLI default model = "auto": let Copilot route each request to a
-      # capability-appropriate model. Under GitHub's usage-based billing (from
-      # June 2026) the CLI is token-metered, so the model choice is the primary
-      # cost lever. Merged (not overwritten) so Copilot can still persist its
-      # other settings; self-healing — reconciles whenever the value drifts.
+      # Copilot CLI default model: bias to OpenAI's top tier — GPT-5.6 Sol.
+      # The tier slugs are gpt-5.6-{sol,terra,luna} (top/mid/light); sol and
+      # terra verified accepted via `copilot -p --model` 2026-07-17. Do NOT
+      # gate this on `copilot help config` — its model list demonstrably lags
+      # what the backend accepts (1.0.26 lists nothing past gpt-5.4 yet serves
+      # 5.5/5.6). Like the ANTHROPIC_DEFAULT_*_MODEL pins in
+      # dot_claude/settings.json, bump the slug when a new generation ships
+      # (see AGENTS.md). terra/luna are for lighter work per-session via
+      # /model — never the default. Merged (not overwritten) so Copilot can
+      # still persist its other settings; self-healing — reconciles whenever
+      # the value drifts.
       # COPILOT_HOME (zsh.nix) points the config dir at ~/.config/copilot.
       ensureCopilotSettings = lib.hm.dag.entryAfter ["writeBoundary"] ''
         _settings="${xdgConfigHome}/copilot/settings.json"
@@ -540,9 +550,9 @@ in {
           ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/copilot"
           ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
         fi
-        if [ "$(jq -r '.model // empty' "$_settings")" != "auto" ]; then
+        if [ "$(jq -r '.model // empty' "$_settings")" != "gpt-5.6-sol" ]; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
-          jq '.model = "auto"' \
+          jq '.model = "gpt-5.6-sol"' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
       '';
