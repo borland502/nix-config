@@ -42,7 +42,7 @@ workflows through `task` — do not hand-assemble `nixos-rebuild` /
 - `agent-defaults.md` is budgeted (`task check:instruction-size`); put
   reference material in `agent-reference.md`, not the always-on prefix.
 - Skills and agents must stay model-agnostic: use tier aliases
-  (`fable`/`sonnet`/`haiku`) in `model:` frontmatter, never versioned model
+  (`opus`/`sonnet`/`haiku`) in `model:` frontmatter, never versioned model
   IDs (`task check:model-agnostic` enforces this on ai-tools/). The single
   sanctioned pin point is the `ANTHROPIC_DEFAULT_*_MODEL` env block in
   `chezmoi/dot_claude/settings.json`, which resolves each alias to the

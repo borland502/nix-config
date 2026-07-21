@@ -27,7 +27,7 @@ tokens to save tokens.
 | Rules/reference split | `agent-defaults.md` carries behavioral rules only; catalogs and paths moved to `agent-reference.md`, read on demand (pattern: khanelinix tiny-root) | active |
 | Repo-level `AGENTS.md` | layout map + task targets at the repo root, so sessions here don't re-explore the repo (uncached, full-price tokens) each time | active |
 | Scheduled update PRs | `.github/workflows/update-flake.yml` bumps `flake.lock` weekly via PR, removing routine update sessions entirely (pattern: budimanjojo Renovate / wimpysworld DS automation) | active |
-| Copilot default model | `ensureCopilotSettings` sets `model: "auto"` in `~/.config/copilot/settings.json` | active |
+| Copilot default model | `ensureCopilotSettings` pins `model: "gpt-5.6-sol"` in `~/.config/copilot/settings.json` (bias to OpenAI's top tier; bump the slug when a new generation ships) | active |
 | Lean Copilot MCP set | managed `copilot/mcp-config.json` (empty by default); servers added deliberately in `common.nix`, not accumulated via `/mcp add` | active |
 | Jira read routing | plain ticket reads go through `jira-get` / `ops-agent --tool jira_get_issue` with no skill load; the ops-jira-integration description routes reads there (measured 2026-07: 4/5 skill loads were simple lookups) | active |
 | Progressive-disclosure skill bodies | heavy skills keep a small router SKILL.md and move recipes/templates to `references/*.md` read on demand (first applied to ops-jira-integration: 15KB → ~4KB router) | active |
@@ -50,8 +50,22 @@ tokens to save tokens.
 
 ## Notes
 
-- `auto` routes Copilot to a capability-appropriate model, optimizing for fit,
-  not strictly lowest cost. For hard cost-minimization, pin a cheap model
-  instead (also settable in `ensureCopilotSettings`).
+- The pinned `gpt-5.6-sol` biases Copilot to OpenAI's top tier for capability,
+  not lowest cost. For hard cost-minimization, pin a cheaper tier
+  (`gpt-5.6-terra`/`gpt-5.6-luna`) in `ensureCopilotSettings` instead; `auto`
+  would let Copilot pick a capability-appropriate model per turn.
 - The managed `copilot/mcp-config.json` is read-only (a nix-store symlink), so
   add MCP servers by editing `common.nix`, not with interactive `/mcp add`.
+- **Copilot subagent model dispatch is gated by the CLI's own hardcoded model
+  allowlist**, not by config. In the vendored bundle, Task subagent dispatch
+  intersects the live model catalog with a baked-in constant (`OD`), while the
+  session model and the `/model` picker use the live catalog directly. A stale
+  CLI (e.g. nixpkgs' 1.0.26, whose `OD` stops at `gpt-5.4`) therefore rejects an
+  explicit `model: gpt-5.6-luna` subagent dispatch even though the session can
+  select luna. There is no env/flag lever to extend `OD` — the fix is a current
+  CLI. A nix-store install can't self-update (read-only), so
+  `claude-code`/`github-copilot-cli` install off nixpkgs via `update-agent-clis`
+  using each vendor's native self-updating installer into `~/.local`
+  (`claude update` / `copilot update`) instead of nixpkgs (which lags by weeks).
+  To dispatch a Copilot subagent on a specific tier, verify the CLI is current
+  first.

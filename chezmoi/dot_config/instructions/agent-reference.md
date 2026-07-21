@@ -19,10 +19,9 @@ never in versioned model IDs. Resolve a tier to your own harness:
 | low  | `haiku`             | `gpt-5.6-luna`      |
 
 Claude aliases resolve to the latest model of their tier via the
-`ANTHROPIC_DEFAULT_*_MODEL` env pins in `~/.claude/settings.json`; `fable`
-is the premium *session* tier — never dispatch subagents on it (it draws
-from a tighter usage budget). Copilot has no alias mechanism, so the slugs
-here are literal; GitHub's sol/terra/luna tier names carry across
+`ANTHROPIC_DEFAULT_*_MODEL` env pins in `~/.claude/settings.json`. Copilot
+has no alias mechanism, so the slugs here are literal; GitHub's
+sol/terra/luna tier names carry across
 generations, and this table plus the pins get bumped together when a new
 generation ships (see AGENTS.md). Do not gate Copilot slugs on
 `copilot help config` — its model list lags what the backend accepts.
@@ -132,6 +131,22 @@ the nix-config repo.
   Run: `sync-to-gdrive` or `sync-to-gdrive --verbose`.
 - **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
   Safari (darwin only).
+- **`update-agent-clis`** — Install/update the Claude Code (`claude`) and GitHub
+  Copilot (`copilot`) CLIs off nixpkgs, each via its vendor's native
+  self-updating installer into `~/.local` (binaries → `~/.local/bin`, which the
+  login shells prepend to PATH; no npm, no external node): Claude via
+  `claude.ai/install.sh` + `claude update`, Copilot via `gh.io/copilot-install`
+  (github/copilot-cli release tarballs) + `copilot update`. These live off
+  nixpkgs on purpose: nixos-unstable lags the Copilot CLI by weeks, and a
+  read-only nix-store copy cannot self-update, freezing it on a build whose
+  hardcoded subagent model allowlist (`OD` in the vendored bundle) rejects
+  current models — an explicit Task dispatch with `gpt-5.6-luna` was rejected
+  even though `/model` accepted it, because subagent dispatch intersects the
+  live catalog with that baked-in allowlist while session/`/model` selection
+  uses the live catalog directly. Update-or-bootstrap, so one script covers
+  first install and update. Runs on `chezmoi apply` (via
+  `run_onchange_install-agent-clis`), on `task agents:update`, and at the tail
+  of `task upgrade`.
 - **`ops-agent`** — Deployed via `home-manager/common.nix` as
   `writeShellScriptBin` (source `ai-tools/scripts/ops-agent.py`). Two modes:
   `ops-agent --tool <name> '<json>'` runs one Jira/ECS tool deterministically
@@ -232,7 +247,9 @@ Known gaps and traps (verified on managed darwin hosts):
 
 - **node/npm are nvm-managed, not nix** (`~/.nvm`, active v26.x): `node`
   resolves outside the nix profiles by design. Don't add nixpkgs nodejs to fix
-  a "wrong node version" — switch with `nvm use`.
+  a "wrong node version" — switch with `nvm use`. The Claude Code and GitHub
+  Copilot CLIs do NOT use this node: both are vendor native builds in `~/.local`
+  (see `update-agent-clis` below) that bundle their own runtime.
 
 - **`psql` is NOT installed.** For a local database, exec into its container:
   `docker exec -i <db-container> psql -U <user> <db>`. Don't retry bare `psql`.

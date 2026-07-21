@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# Bootstrap the off-nixpkgs agent CLIs (Claude Code, GitHub Copilot CLI) on
+# chezmoi apply. run_onchange re-runs whenever the helper's content changes
+# (its hash is embedded below), so bumping update-agent-clis re-triggers this;
+# routine "pull latest" is `task agents:update`. dot_local/ (target ".local")
+# sorts before this script, so ~/.local/bin/update-agent-clis is already
+# deployed when this runs.
+#
+# helper hash: {{ include "dot_local/bin/executable_update-agent-clis" | sha256sum }}
+
+{{ if eq .chezmoi.os "windows" -}}
+exit 0
+{{ end -}}
+
+set -euo pipefail
+
+helper="$HOME/.local/bin/update-agent-clis"
+if [ ! -x "$helper" ]; then
+  printf 'install-agent-clis: %s not deployed yet — skipping (rerun chezmoi apply)\n' "$helper" >&2
+  exit 0
+fi
+
+exec "$helper"

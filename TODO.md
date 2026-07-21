@@ -95,6 +95,43 @@ exactly pre-cleanup; unfree already allowed in both darwin and HM configs.
 
 ## Agent-workflow follow-ups
 
+- [x] Fix Copilot Task subagent model catalog drift (observed 2026-07-20 with
+      CLI 1.0.26). The interactive `/model` picker exposed and accepted
+      GPT-5.6 Luna, but an explicit Task dispatch with
+      `model: gpt-5.6-luna` was rejected before launch. The Task tool's runtime
+      schema advertised only the older Claude 4.x / GPT-5.4-and-earlier set, so
+      its local model-argument validation never attempted a backend request.
+      Keep the GPT-5.6 Sol parent-session default unchanged. Determine why the
+      Task model enum lags the interactive CLI catalog, refresh or unify those
+      catalogs, and verify an explicit Luna subagent dispatch succeeds.
+      Root cause (traced in 1.0.26's vendored `app.js`): subagent dispatch
+      resolves `availableModels` via `qOn(getModelList())`, which intersects the
+      live backend catalog with `ble()` → the hardcoded constant `OD`
+      (`["claude-…","gpt-5.4","gpt-5.3-codex",…,"gpt-4.1"]`, newest GPT
+      `gpt-5.4`, no gpt-5.5/5.6). `validateAndResolveModel` then can't match
+      `gpt-5.6-luna` and hard-errors. The session model and `/model` picker use
+      the live catalog directly (`getModelList()` → `m7()` backend fetch), so
+      they accept luna — hence the split. No env/flag lever extends `OD` (`ble`
+      only reorders it via `isGptDefaultModelEnabled`); it's compile-time baked.
+      nixpkgs (even unstable HEAD) was still stuck at 1.0.26 while npm shipped
+      1.0.71, so a flake bump could not fix it.
+      Extra root cause: a nix-store install is read-only, so the CLI's own
+      `update` / auto-update can't refresh it — that is what froze the Copilot
+      copy at 1.0.26 in the first place.
+      Done 2026-07-20 (per user direction): moved both agent CLIs off nixpkgs to
+      their vendor native self-updating installers into `~/.local`, so each
+      tracks upstream via its own `update`. Removed `claude-code`
+      /`github-copilot-cli` from the flake overlay (`flake.nix`) and
+      `commonPackages` (`common.nix`); added `~/.local/bin/update-agent-clis`
+      (`chezmoi/dot_local/bin/executable_update-agent-clis`) that runs
+      `claude update` (or `claude.ai/install.sh`) and `copilot update` (or
+      `gh.io/copilot-install`, github/copilot-cli release tarballs) —
+      update-or-bootstrap, no npm/node dependency. Bootstrapped via
+      `run_onchange_install-agent-clis` and re-run by `task agents:update` and
+      the tail of `task upgrade`. Docs: agent-reference (node note + helper
+      catalog), docs/agent-token-cost-levers (subagent allowlist note). Verify
+      after switch: `copilot --version` ≥ 1.0.71 from `~/.local/bin`, and an
+      explicit `gpt-5.6-luna` subagent dispatch launches.
 - [x] `ops-agent` CLI is broken for agent use: it crashes before doing anything
       with `TypeError: Could not resolve authentication method` from the
       Anthropic SDK (needs `ANTHROPIC_API_KEY`/auth_token in the environment;

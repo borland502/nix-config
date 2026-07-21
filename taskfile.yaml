@@ -149,14 +149,34 @@ tasks:
       SSH_ASKPASS: "true"
       GCM_INTERACTIVE: "never"
       GIT_SSH_COMMAND: "ssh -oBatchMode=yes -oConnectTimeout=10"
+      # The SSH/prompt guards above only cover SSH and credential prompts; the
+      # git-repo externals pull over HTTPS, which had NO stall timeout — so an
+      # unreachable/slow repo blocked the apply for the whole backstop below
+      # (observed: a 5-min freeze tempting a Ctrl-C that then wedges the state
+      # lock). Inject http.lowSpeed* config via env (git honours GIT_CONFIG_*),
+      # so a fetch that stays under ~1 KB/s for 20s aborts and --keep-going moves
+      # on, instead of hanging.
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: "http.lowSpeedLimit"
+      GIT_CONFIG_VALUE_0: "1000"
+      GIT_CONFIG_KEY_1: "http.lowSpeedTime"
+      GIT_CONFIG_VALUE_1: "20"
     cmd: |
       _src=$(printf '%s/chezmoi' "$PWD" | tr '\\' '/')
       {{.CHEZMOI}} init --source "$_src"
+      # chezmoi apply is silent while it fetches externals, so print a dotted
+      # heartbeat to show it is alive — an impatient Ctrl-C mid-apply wedges the
+      # chezmoi state lock. The heartbeat is killed on any exit path.
+      echo "==> applying chezmoi dotfiles (refreshing any due externals — do not cancel)"
+      (while true; do sleep 8; printf '    …still applying dotfiles (do not cancel)\n'; done) &
+      _hb=$!
+      trap 'kill "$_hb" 2>/dev/null || true' EXIT
       # --keep-going: a failing external (unreachable/private/rate-limited/deleted
       # repo) is reported but does NOT abort — chezmoi applies every other
-      # external and all dotfiles. The timeout is a last-resort backstop against a
-      # total network stall; only on a genuine timeout do we re-apply without
-      # externals so the dotfiles still land.
+      # external and all dotfiles. With the http.lowSpeed* guards above a stalled
+      # external now aborts in ~20s; the timeout stays as a last-resort backstop
+      # against a total network stall, and only on a genuine timeout do we
+      # re-apply without externals so the dotfiles still land.
       timeout -k 10 300 {{.CHEZMOI}} apply --force --keep-going || {
         rc=$?
         echo "chezmoi apply reported errors (rc=$rc; one or more externals unavailable) — continuing with the switch."
@@ -165,6 +185,7 @@ tasks:
           {{.CHEZMOI}} apply --force --keep-going --exclude=externals || true
         fi
       }
+      kill "$_hb" 2>/dev/null || true
 
 
   chezmoi-diff:
@@ -594,6 +615,17 @@ tasks:
     requires:
       vars: [SKILL]
 
+  agents:update:
+    desc: Update the off-nixpkgs agent CLIs (Claude Code, Copilot CLI) to latest via their native installers
+    platforms: [linux, darwin]
+    cmd: |
+      _helper="$HOME/.local/bin/update-agent-clis"
+      if [ ! -x "$_helper" ]; then
+        printf 'update-agent-clis not deployed yet — run `task home-switch` first.\n' >&2
+        exit 1
+      fi
+      "$_helper"
+
   dev:go-gui:
     desc: Enter the Go GUI development shell
     platforms: [linux]
@@ -676,3 +708,7 @@ tasks:
           sudo usermod -s "$_zsh" "$USER" || chsh -s "$_zsh" || printf 'Note: run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
         fi
       {{end}}
+      # Pull the off-nixpkgs agent CLIs (Claude Code, Copilot CLI) to latest too
+      # — they are not in the flake, so `nix flake update` does not touch them.
+      _agents="$HOME/.local/bin/update-agent-clis"
+      if [ -x "$_agents" ]; then "$_agents"; else printf 'note: update-agent-clis not deployed; skipping agent CLI update\n'; fi

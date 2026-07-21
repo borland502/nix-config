@@ -200,8 +200,12 @@
     taplo
 
     # AI & agent tools
-    claude-code
-    github-copilot-cli
+    # claude-code and github-copilot-cli intentionally omitted — they install
+    # off nixpkgs via ~/.local/bin/update-agent-clis, each using its vendor's
+    # native self-updating installer into ~/.local (run on chezmoi apply and
+    # `task agents:update`). nixpkgs lags these CLIs by weeks and a read-only
+    # store copy cannot self-update, freezing the Copilot CLI on a build that
+    # rejects current subagent models. See flake.nix / AGENTS.md.
     opsAgent
 
     # Secret management

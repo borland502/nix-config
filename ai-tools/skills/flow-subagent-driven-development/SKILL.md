@@ -111,7 +111,7 @@ conserve cost and increase speed.
 
 **Architecture and design tasks**: **high** tier. The final whole-branch
 review is one of these — dispatch it on the high tier explicitly, not the
-session default: a premium session model (e.g. `fable`) draws from its own
+session default: a premium session model draws from its own
 tighter usage budget, which subagent fan-out drains fast.
 
 **Review tasks**: choose the tier with the same judgment, scaled to the
