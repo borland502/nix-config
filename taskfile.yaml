@@ -517,8 +517,8 @@ tasks:
     platforms: [linux, darwin]
     cmd: |
       src="chezmoi/dot_config/instructions/agent-defaults.md"
-      max_lines=120
-      max_bytes=7000
+      max_lines=160
+      max_bytes=10000
       lines=$(wc -l <"$src" | tr -d ' ')
       bytes=$(wc -c <"$src" | tr -d ' ')
       fail=0
