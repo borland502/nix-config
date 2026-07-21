@@ -18,13 +18,15 @@ local_dir="$root/.superpowers/sdd"
 if git check-ignore -q "$local_dir/"; then
   dir="$local_dir"
 else
-  repo=$(printf '%s' "$(basename "$root")" | tr -cs '[:alnum:]._-' '-')
+  repo=$(printf '%s' "$(basename "$root")" |
+    LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-60)
   branch=$(git branch --show-current)
   if [[ -z "$branch" ]]; then
     branch="detached-$(git rev-parse --short HEAD)"
   fi
   branch_fingerprint=$(printf '%s' "$branch" | git hash-object --stdin)
-  branch=$(printf '%s' "$branch" | tr -cs '[:alnum:]._-' '-')
+  branch=$(printf '%s' "$branch" |
+    LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-80)
   fingerprint=$(printf '%s' "$root" | git hash-object --stdin)
   dir="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/sdd-${repo}-${branch}-${branch_fingerprint}-${fingerprint}"
 fi

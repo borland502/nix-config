@@ -18,9 +18,10 @@ Ensure work happens in an isolated workspace. Prefer your platform's native work
 **Before creating anything, check if you are already in an isolated workspace.**
 
 ```bash
+ROOT=$(cd "$(git rev-parse --show-toplevel)" 2>/dev/null && pwd -P)
 GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
 GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
-BRANCH=$(git branch --show-current)
+CURRENT_BRANCH=$(git branch --show-current)
 ```
 
 **Submodule guard:** `GIT_DIR != GIT_COMMON` is also true inside git submodules. Before concluding "already in a worktree," verify you are not in a submodule:
@@ -80,12 +81,8 @@ Follow this priority order. Explicit user preference always beats observed files
 
 3. **Otherwise, default outside the repository:**
    `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>-<root-hash>`.
-   Resolve `<repository>` from the repository root basename and calculate
-   `<root-hash>` with:
-   ```bash
-   printf '%s' "$root" | git hash-object --stdin
-   ```
-   Keep this as `LOCATION`; the creation step appends the selected branch once.
+   The creation block calculates the physical root and collision-safe cache
+   location itself.
 
 **Why critical:** A repository-local worktree must already be ignored to
 prevent accidental tracking. Cache fallback preserves that safety without
@@ -93,12 +90,45 @@ modifying repository files.
 
 #### Create the Worktree
 
-```bash
-# Determine path based on chosen location
-path="$LOCATION/$BRANCH_NAME"
+Run this entire block in one shell call so selection state cannot be lost
+between turns. Replace `BRANCH_NAME`; set `PREFERRED_LOCATION` only when
+instructions declare one.
 
-git worktree add "$path" -b "$BRANCH_NAME"
-cd "$path"
+```bash
+BRANCH_NAME='<requested-feature-branch>'
+PREFERRED_LOCATION=''
+ROOT=$(cd "$(git rev-parse --show-toplevel)" && pwd -P)
+
+if [[ -n "$PREFERRED_LOCATION" ]]; then
+  case "$PREFERRED_LOCATION" in
+    /*) ;;
+    *) PREFERRED_LOCATION="$ROOT/$PREFERRED_LOCATION" ;;
+  esac
+  case "$PREFERRED_LOCATION/" in
+    "$ROOT/"*)
+      git check-ignore -q "$PREFERRED_LOCATION/" || {
+        echo "Repository-local worktree path is not ignored: $PREFERRED_LOCATION" >&2
+        exit 1
+      }
+      ;;
+  esac
+  LOCATION="$PREFERRED_LOCATION"
+elif [[ -d "$ROOT/.worktrees" ]] &&
+  git check-ignore -q "$ROOT/.worktrees/"; then
+  LOCATION="$ROOT/.worktrees"
+elif [[ -d "$ROOT/worktrees" ]] &&
+  git check-ignore -q "$ROOT/worktrees/"; then
+  LOCATION="$ROOT/worktrees"
+else
+  REPOSITORY=$(printf '%s' "$(basename "$ROOT")" |
+    LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-80)
+  ROOT_HASH=$(printf '%s' "$ROOT" | git hash-object --stdin)
+  LOCATION="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/${REPOSITORY}-${ROOT_HASH}"
+fi
+
+WORKTREE_PATH="$LOCATION/$BRANCH_NAME"
+git worktree add "$WORKTREE_PATH" -b "$BRANCH_NAME"
+cd "$WORKTREE_PATH"
 ```
 
 #### Cleanup
@@ -109,16 +139,29 @@ merge and discard choices. After the user chooses to merge or discard the
 work, remove the exact worktree path created above:
 
 ```bash
-# After merge
-git worktree remove "$path"
-
-# When discarding uncommitted work
-git worktree remove --force "$path"
-
+# Run this entire block in one shell call from inside the cache worktree.
+# Change MODE to discard only after the user chooses to discard the work.
+MODE=merge
+WORKTREE_PATH=$(git rev-parse --show-toplevel)
+CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees"
+CACHE_WORKTREE_ROOT=$(cd "$CACHE_WORKTREE_ROOT" && pwd -P)
+case "$WORKTREE_PATH/" in
+  "$CACHE_WORKTREE_ROOT/"*) ;;
+  *) echo "Refusing to remove non-cache worktree: $WORKTREE_PATH" >&2; exit 1 ;;
+esac
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
+MAIN_ROOT=$(cd "$GIT_COMMON/.." && pwd -P)
+cd "$MAIN_ROOT"
+case "$MODE" in
+  merge) git worktree remove "$WORKTREE_PATH" ;;
+  discard) git worktree remove --force "$WORKTREE_PATH" ;;
+  *) echo "MODE must be merge or discard" >&2; exit 1 ;;
+esac
 git worktree prune
 ```
 
-Do not remove sibling cache worktrees.
+This recomputes the exact path instead of relying on variables from the
+creation turn. Do not remove sibling cache worktrees.
 
 **Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and you're working in the current directory instead. Then run setup and baseline tests in place.
 
@@ -176,7 +219,7 @@ Ready to implement <feature-name>
 | Both existing directories qualify | Use `.worktrees/` |
 | No qualifying local directory | Use `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>-<root-hash>`, then append branch once |
 | Directory not ignored | Reject repository-local path; use cache fallback |
-| Merge or discard cache worktree | Remove the exact worktree, then prune |
+| Merge or discard cache worktree | Recompute its exact path in one cleanup invocation, remove it, then prune |
 | Permission error on create | Sandbox fallback, work in place |
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |
@@ -208,9 +251,8 @@ Ready to implement <feature-name>
 ### Leaving cache worktrees behind
 
 - **Problem:** Cache-hosted worktrees accumulate after merge or discard.
-- **Fix:** The fallback owner removes the exact cache worktree with
-  `git worktree remove` (use `--force` when discarding), then runs
-  `git worktree prune`.
+- **Fix:** From inside it, run the complete cleanup block so it recomputes and
+  validates the exact cache path before removal, then prunes.
 
 ### Proceeding with failing tests
 

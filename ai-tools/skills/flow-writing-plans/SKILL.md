@@ -164,7 +164,7 @@ Plan complete and saved to `<plan-path>`. Two execution options:
 
 **2. Inline Execution** - Execute tasks in this session using flow-executing-plans, batch execution with checkpoints
 
-**Which approach?"**
+**Which approach?**
 
 **If Subagent-Driven chosen:**
 - **REQUIRED SUB-SKILL:** Use nix-config-tools:flow-subagent-driven-development
