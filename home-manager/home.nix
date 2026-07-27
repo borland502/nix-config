@@ -67,6 +67,19 @@ in {
     };
   };
 
+  # Flameshot rewrites its own flameshot.ini at runtime (adding [Shortcuts]
+  # etc.), turning the HM-managed symlink into a real file. Without force, the
+  # next switch tries to back it up to flameshot.ini.backup and fails once that
+  # backup already exists. Let HM win outright: overwrite in place, no backup.
+  # (darwin instead seeds a mutable copy — see home-darwin.nix.)
+  xdg.configFile."flameshot/flameshot.ini".force = true;
+
+  # flameshot uses savePathFixed=true, so it errors if the configured savePath
+  # does not already exist. Ensure the screenshot directory is present.
+  home.activation.ensureFlameshotSavePath = lib.hm.dag.entryAfter ["writeBoundary"] ''
+    ${pkgs.coreutils}/bin/mkdir -p "${config.home.homeDirectory}/Pictures/Screenshots"
+  '';
+
   # Autostart GUI apps via systemd user services
   systemd.user.services =
     lib.optionalAttrs (availableOnHost pkgs.discord) {
