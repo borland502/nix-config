@@ -74,6 +74,13 @@ in {
   # (darwin instead seeds a mutable copy — see home-darwin.nix.)
   xdg.configFile."flameshot/flameshot.ini".force = true;
 
+  # GTK2 apps rewrite ~/.gtkrc-2.0 at runtime, replacing the Stylix-managed
+  # symlink with a real file. Same failure mode as flameshot above: the next
+  # switch's `-b backup` collides with an existing .gtkrc-2.0.backup. Force HM
+  # (Stylix) to overwrite in place without a backup. Key by the gtk module's
+  # own configLocation so this merges with its entry instead of colliding.
+  home.file.${config.gtk.gtk2.configLocation}.force = lib.mkForce true;
+
   # flameshot uses savePathFixed=true, so it errors if the configured savePath
   # does not already exist. Ensure the screenshot directory is present.
   home.activation.ensureFlameshotSavePath = lib.hm.dag.entryAfter ["writeBoundary"] ''
@@ -121,6 +128,23 @@ in {
         "flameshot" = {
           "Capture" = "Meta+Shift+4";
         };
+      };
+
+      # Disable Plasma "hot corners" — the corner-triggered screen-edge
+      # actions. Plasma 6 enables top-left -> Overview by default; the other
+      # corners are already inert but are pinned to "no action" so nothing
+      # fires when the pointer hits a corner. KWin ElectricBorder value
+      # 9 = ElectricNone (disabled); "None" is the ElectricBorders action.
+      configFile.kwinrc = {
+        "Effect-overview".BorderActivate = 9;
+        "Effect-overview".BorderActivateAll = 9;
+        "Effect-windowview".BorderActivate = 9;
+        "Effect-windowview".BorderActivateAll = 9;
+        "Effect-windowview".BorderActivateClass = 9;
+        ElectricBorders.TopLeft = "None";
+        ElectricBorders.TopRight = "None";
+        ElectricBorders.BottomLeft = "None";
+        ElectricBorders.BottomRight = "None";
       };
     };
 
