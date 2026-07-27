@@ -22,6 +22,7 @@
 
     # Communication
     discord
+    zoom-us
 
     # Productivity
     libreoffice

@@ -137,6 +137,7 @@
   darwinPackages = lib.filter availableOnHost (with pkgs; [
     mas
     vivaldiBrowserWrapper
+    zoom-us # Zoom has a clean Nix path on darwin, so no Homebrew cask needed
   ]);
 in {
   _module.args.isWsl = lib.mkDefault false;
