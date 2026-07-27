@@ -158,15 +158,21 @@ in {
       # fires when the pointer hits a corner. KWin ElectricBorder value
       # 9 = ElectricNone (disabled); "None" is the ElectricBorders action.
       configFile.kwinrc = {
-        "Effect-overview".BorderActivate = 9;
-        "Effect-overview".BorderActivateAll = 9;
-        "Effect-windowview".BorderActivate = 9;
-        "Effect-windowview".BorderActivateAll = 9;
-        "Effect-windowview".BorderActivateClass = 9;
-        ElectricBorders.TopLeft = "None";
-        ElectricBorders.TopRight = "None";
-        ElectricBorders.BottomLeft = "None";
-        ElectricBorders.BottomRight = "None";
+        "Effect-overview" = {
+          BorderActivate = 9;
+          BorderActivateAll = 9;
+        };
+        "Effect-windowview" = {
+          BorderActivate = 9;
+          BorderActivateAll = 9;
+          BorderActivateClass = 9;
+        };
+        ElectricBorders = {
+          TopLeft = "None";
+          TopRight = "None";
+          BottomLeft = "None";
+          BottomRight = "None";
+        };
       };
 
       # Default terminal (KDE's "open terminal here", Ctrl+Alt+T targets, etc.).
