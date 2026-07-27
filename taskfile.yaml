@@ -119,6 +119,42 @@ tasks:
       mkdir -p "$HOME/.local/state/chezmoi"
       printf '%s\n' "$PWD" > "$HOME/.local/state/chezmoi/nix-config-dir"
 
+  _snapshot-pre:
+    internal: true
+    platforms: [linux, darwin]
+    # Best-effort btrfs safety snapshot taken BEFORE any activation (switch /
+    # home-switch / upgrade). snap-pac already brackets pacman transactions, but
+    # nothing captured nix/home-manager switches — this fills that gap so a bad
+    # switch can be rolled back (grub-btrfs boot-into-snapshot). The `root`
+    # config's subvolume is `/`, which includes `/nix`, so the pre-switch store
+    # closure is preserved (this is exactly what a dangling-profile recovery
+    # needs). It does NOT capture `/home` (@home has no snapper config); user
+    # dotfiles are already covered by home-manager generations + `-b backup`.
+    #
+    # No-op unless a snapper `root` config exists, so it silently skips on macOS,
+    # WSL, and non-snapper Linux. Fail-closed: if snapper is present but the
+    # snapshot fails, the switch aborts rather than proceeding unprotected —
+    # bypass with SKIP_SNAPSHOT=1. Snapshots use the `number` cleanup algorithm
+    # so snapper's NUMBER_CLEANUP rotates them out like snap-pac's.
+    cmd: |
+      if [ "${SKIP_SNAPSHOT:-}" = "1" ]; then
+        printf 'snapshot: skipped (SKIP_SNAPSHOT=1)\n'
+        exit 0
+      fi
+      command -v snapper >/dev/null 2>&1 || exit 0
+      [ -f /etc/snapper/configs/root ] || exit 0
+      desc="pre nix switch $(date +%FT%T)"
+      printf 'snapshot: creating pre-switch btrfs snapshot (may prompt for sudo)...\n'
+      if {{.ROOT_CMD}} snapper -c root create \
+          --description "$desc" \
+          --cleanup-algorithm number \
+          --userdata "task=nix-switch"; then
+        printf 'snapshot: created root snapshot: %s\n' "$desc"
+      else
+        printf 'snapshot: ERROR snapper create failed; aborting switch (bypass with SKIP_SNAPSHOT=1)\n' >&2
+        exit 1
+      fi
+
   # chezmoi — dotfile management backed by this repo
   chezmoi-init:
     desc: Point chezmoi at this repo and regenerate config from template (run once after cloning to a new path)
@@ -226,7 +262,7 @@ tasks:
   switch:
     desc: Build and switch to the system configuration
     platforms: [linux, darwin]
-    deps: [_record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
+    deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
     # TEMP: bypass Homebrew cask operations during nix-darwin activation using
     # Homebrew's supported skip mechanism. Survives activation's
     # `sudo --preserve-env=PATH` via env_keep in hosts/darwin/default.nix.
@@ -268,7 +304,7 @@ tasks:
   darwin-switch:
     desc: Build and switch to the nix-darwin configuration
     platforms: [darwin]
-    deps: [_record-nix-config-dir, _chezmoi-ensure]
+    deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure]
     # See `switch`: skip an already-installed Discord cask in the darwin bundle.
     env: *brew-cask-skip-env
     # Tolerates VPN-blocked Homebrew cask downloads (see scripts/darwin-switch-tolerant.sh).
@@ -286,7 +322,7 @@ tasks:
   nixos-switch:
     desc: Build and switch to the NixOS configuration
     platforms: [linux]
-    deps: [_record-nix-config-dir, _chezmoi-ensure]
+    deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure]
     cmd: 'bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
@@ -338,7 +374,7 @@ tasks:
   home-switch:
     desc: Switch home-manager configuration
     platforms: [linux, darwin]
-    deps: [_record-nix-config-dir, _chezmoi-ensure]
+    deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure]
     # See `switch`: skip an already-installed Discord cask in the darwin bundle.
     env: *brew-cask-skip-env
     cmd: |
@@ -690,7 +726,7 @@ tasks:
   upgrade:
     desc: Update nixpkgs and rebuild the system
     platforms: [linux, darwin]
-    deps: [_record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
+    deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
     env: *brew-cask-skip-env
     cmd: |
       nix flake update
