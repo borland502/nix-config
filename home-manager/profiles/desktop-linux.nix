@@ -49,6 +49,21 @@ in {
   # Note: Removed duplicated discord entry
 
   xdg = {
+    # Keep /etc/xdg in XDG_CONFIG_DIRS. This is a standalone Home Manager host
+    # (non-NixOS CachyOS), so /etc/xdg is only XDG's *implicit* default when the
+    # variable is unset. Stylix's KDE target sets XDG_CONFIG_DIRS explicitly (via
+    # xdg.systemDirs.config, adding its generated stylix-kde-config path), which
+    # replaces that implicit default — and since the systemd user session starts
+    # with XDG_CONFIG_DIRS empty, the `${XDG_CONFIG_DIRS:+…}` append leaves
+    # /etc/xdg out entirely. Without it KDE's VFolderMenu can't find
+    # /etc/xdg/menus/plasma-applications.menu, so no application directories are
+    # scanned: the KService database ends up empty, and the Kickoff launcher and
+    # taskbar show no applications (though apps still launch directly). mkAfter
+    # appends /etc/xdg *after* the stylix entry so theme config keeps precedence.
+    # (On NixOS the system provides /etc/xdg here, so this is only needed on
+    # foreign distros.)
+    systemDirs.config = lib.mkAfter ["/etc/xdg"];
+
     # No custom desktopEntries.vivaldi: the nixpkgs vivaldi package already
     # ships vivaldi-stable.desktop (Exec wired to the Nix binary), which is the
     # id Vivaldi self-checks against. A second vivaldi.desktop only shadows it
