@@ -209,6 +209,38 @@ in {
         autoLock = true;
         timeout = 30;
       };
+
+      # Bottom panel, captured from the live layout so it is reproducible.
+      # NOTE: applying this deletes and regenerates
+      # plasma-org.kde.plasma.desktop-appletsrc on next login (plasma-manager
+      # avoids unbounded growth this way). The desktop is all-default (Folder
+      # View, empty icon positions, Stylix wallpaper), so nothing is lost there;
+      # only this panel needs declaring. The icontasks launchers below preserve
+      # the pinned taskbar entries that would otherwise reset.
+      panels = [
+        {
+          location = "bottom";
+          widgets = [
+            "org.kde.plasma.kickoff"
+            "org.kde.plasma.pager"
+            {
+              iconTasks.launchers = [
+                "preferred://filemanager"
+                "applications:kitty.desktop"
+                "applications:com.slack.Slack.desktop"
+                "applications:org.kde.kmail2.desktop"
+                "applications:com.vivaldi.Vivaldi.desktop"
+                "applications:org.keepassxc.KeePassXC.desktop"
+                "applications:code.desktop"
+              ];
+            }
+            "org.kde.plasma.marginsseparator"
+            "org.kde.plasma.systemtray"
+            "org.kde.plasma.digitalclock"
+            "org.kde.plasma.showdesktop"
+          ];
+        }
+      ];
     };
 
     # Thunderbird configuration
