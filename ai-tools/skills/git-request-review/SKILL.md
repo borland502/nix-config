@@ -33,6 +33,12 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 Dispatch a `general-purpose` subagent, filling the template at [code-reviewer.md](code-reviewer.md)
 
+Dispatch it on the **high** tier for a substantive diff (correctness, security,
+concurrency, broad or multi-file change); the **low–mid** tier suffices for a
+trivial one (typo, style, single-file). Always name the tier explicitly — an
+omitted model inherits your session's mid default, under-powering a review that
+needs judgment.
+
 **Placeholders:**
 - `{DESCRIPTION}` - Brief summary of what you built
 - `{PLAN_OR_REQUIREMENTS}` - What it should do
