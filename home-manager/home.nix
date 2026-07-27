@@ -175,10 +175,12 @@ in {
         TerminalService = "kitty.desktop";
       };
 
-      # Input — sensible laptop defaults (live config was all-default). numlock
-      # on at boot; touchpad tap-to-click, natural scroll, disable-while-typing.
+      # Input — sensible laptop defaults (live config was all-default). Touchpad
+      # tap-to-click, natural scroll, disable-while-typing. numlockOnStartup was
+      # intentionally dropped: it perturbs password entry (numpad digits), the
+      # live config left it at the default, and it was implicated in the greeter
+      # login-failure incident.
       input = {
-        keyboard.numlockOnStartup = "on";
         touchpads = [
           {
             name = "DELL0A69:00 0488:120A Touchpad";
