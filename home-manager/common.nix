@@ -532,17 +532,20 @@ in {
         fi
       '';
 
-      # Copilot CLI default model: bias to OpenAI's top tier — GPT-5.6 Sol.
+      # Copilot CLI default model: the mid tier — GPT-5.6 Terra. Copilot has no
+      # plan-mode escalation, so its session default is the mid tier for
+      # everyday coding; the top tier (Sol) is reserved per-role — planning,
+      # brainstorming, substantive review — selected via /model or a high-tier
+      # subagent dispatch (role→tier map: agent-reference.md § Model Tiers).
       # The tier slugs are gpt-5.6-{sol,terra,luna} (top/mid/light); sol and
       # terra verified accepted via `copilot -p --model` 2026-07-17. Do NOT
       # gate this on `copilot help config` — its model list demonstrably lags
       # what the backend accepts (1.0.26 lists nothing past gpt-5.4 yet serves
       # 5.5/5.6). Like the ANTHROPIC_DEFAULT_*_MODEL pins in
       # dot_claude/settings.json, bump the slug when a new generation ships
-      # (see AGENTS.md). terra/luna are for lighter work per-session via
-      # /model — never the default. Merged (not overwritten) so Copilot can
-      # still persist its other settings; self-healing — reconciles whenever
-      # the value drifts.
+      # (see AGENTS.md). Merged (not overwritten) so Copilot can still persist
+      # its other settings; self-healing — reconciles whenever the value
+      # drifts.
       # COPILOT_HOME (zsh.nix) points the config dir at ~/.config/copilot.
       ensureCopilotSettings = lib.hm.dag.entryAfter ["writeBoundary"] ''
         _settings="${xdgConfigHome}/copilot/settings.json"
@@ -550,9 +553,9 @@ in {
           ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/copilot"
           ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
         fi
-        if [ "$(jq -r '.model // empty' "$_settings")" != "gpt-5.6-sol" ]; then
+        if [ "$(jq -r '.model // empty' "$_settings")" != "gpt-5.6-terra" ]; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
-          jq '.model = "gpt-5.6-sol"' \
+          jq '.model = "gpt-5.6-terra"' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
       '';

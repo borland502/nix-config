@@ -13,6 +13,10 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Announce at start:** "I'm using the flow-writing-plans skill to create the implementation plan."
 
+Planning is a **high**-tier role. If this session is on the mid default, switch
+up with `/model` (or dispatch the planning to a high-tier subagent) before
+designing the plan — this is where the strongest model earns its cost.
+
 **Context:** If working in an isolated worktree, it should have been created via the `nix-config-tools:git-worktrees` skill at execution time.
 
 **Save plans to:** `~/.cache/copilot/YYYY-MM-DD-<repository-or-ticket>-<feature-name>-plan.md`
