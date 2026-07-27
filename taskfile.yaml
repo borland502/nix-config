@@ -115,6 +115,12 @@ tasks:
   _record-nix-config-dir:
     internal: true
     platforms: [linux, darwin]
+    # Ordered after the snapshot so the snapshot's interactive sudo prompt gets
+    # the terminal to itself. go-task runs a task's deps concurrently, so without
+    # this the snapshot competed with _chezmoi-ensure's heartbeat and the sudo
+    # password prompt was buried. Every switch task pairs these helpers with
+    # _snapshot-pre, so this only reorders — it never adds a snapshot anywhere.
+    deps: [_snapshot-pre]
     cmd: |
       mkdir -p "$HOME/.local/state/chezmoi"
       printf '%s\n' "$PWD" > "$HOME/.local/state/chezmoi/nix-config-dir"
@@ -122,6 +128,12 @@ tasks:
   _snapshot-pre:
     internal: true
     platforms: [linux, darwin]
+    # run: once — go-task's default `run` is `always`, so a task runs once per
+    # reference. This is now depended on directly by the switch tasks AND
+    # transitively via _record-nix-config-dir / _chezmoi-ensure, so without this
+    # it would fire (and prompt for sudo / create a snapshot) up to three times
+    # per switch. `once` collapses that to a single execution per invocation.
+    run: once
     # Best-effort btrfs safety snapshot taken BEFORE any activation (switch /
     # home-switch / upgrade). snap-pac already brackets pacman transactions, but
     # nothing captured nix/home-manager switches — this fills that gap so a bad
@@ -132,10 +144,13 @@ tasks:
     # dotfiles are already covered by home-manager generations + `-b backup`.
     #
     # No-op unless a snapper `root` config exists, so it silently skips on macOS,
-    # WSL, and non-snapper Linux. Fail-closed: if snapper is present but the
-    # snapshot fails, the switch aborts rather than proceeding unprotected —
-    # bypass with SKIP_SNAPSHOT=1. Snapshots use the `number` cleanup algorithm
-    # so snapper's NUMBER_CLEANUP rotates them out like snap-pac's.
+    # WSL, and non-snapper Linux. It also skips when running non-interactively
+    # without usable root (CI, agent shells) so a sudo password prompt can't
+    # abort an otherwise-headless switch. When snapper IS present and root is
+    # reachable it is fail-closed: a genuine snapshot failure aborts the switch
+    # rather than proceeding unprotected — bypass with SKIP_SNAPSHOT=1. Snapshots
+    # use the `number` cleanup algorithm so snapper's NUMBER_CLEANUP rotates them
+    # out like snap-pac's.
     cmd: |
       if [ "${SKIP_SNAPSHOT:-}" = "1" ]; then
         printf 'snapshot: skipped (SKIP_SNAPSHOT=1)\n'
@@ -143,6 +158,15 @@ tasks:
       fi
       command -v snapper >/dev/null 2>&1 || exit 0
       [ -f /etc/snapper/configs/root ] || exit 0
+      # Skip gracefully when we can't elevate non-interactively AND there is no
+      # TTY to prompt on (CI runners with snapper installed, agent shells,
+      # `!`-prefixed commands). Without this the sudo below aborts the whole
+      # switch on `sudo: a terminal is required`. `sudo -n true` succeeds when
+      # sudo is passwordless or credentials are cached — in that case proceed.
+      if ! {{.ROOT_CMD}} -n true 2>/dev/null && [ ! -t 0 ]; then
+        printf 'snapshot: skipped (non-interactive shell; no cached sudo credentials)\n' >&2
+        exit 0
+      fi
       desc="pre nix switch $(date +%FT%T)"
       printf 'snapshot: creating pre-switch btrfs snapshot (may prompt for sudo)...\n'
       if {{.ROOT_CMD}} snapper -c root create \
@@ -174,6 +198,10 @@ tasks:
   _chezmoi-ensure:
     internal: true
     desc: Initialize chezmoi if needed, then apply
+    # Ordered after the snapshot (see _record-nix-config-dir): this task's
+    # heartbeat output otherwise collides with the snapshot's sudo prompt, since
+    # go-task runs sibling deps concurrently.
+    deps: [_snapshot-pre]
     # chezmoi's git-repo externals pull from github.com, which is configured here
     # to use the `gh auth git-credential` helper. Without these guards a transient
     # 401/rate-limit (or a stalled helper) drops git into an interactive
@@ -392,8 +420,17 @@ tasks:
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
         _zsh="$HOME/.nix-profile/bin/zsh"
         if [ -x "$_zsh" ] && [ "$(grep -m1 "^$USER:" /etc/passwd | cut -d: -f7)" != "$_zsh" ]; then
-          grep -qxF "$_zsh" /etc/shells 2>/dev/null || printf '%s\n' "$_zsh" | sudo tee -a /etc/shells >/dev/null
-          sudo usermod -s "$_zsh" "$USER" || chsh -s "$_zsh" || printf 'Note: run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
+          # Changing the login shell needs root. Only attempt it when sudo can
+          # elevate without a prompt or there is a TTY to prompt on — otherwise a
+          # non-interactive switch (CI, agent shells) would abort here even though
+          # the home-manager activation above already succeeded. When it can't,
+          # print the manual command instead of failing.
+          if sudo -n true 2>/dev/null || [ -t 0 ]; then
+            grep -qxF "$_zsh" /etc/shells 2>/dev/null || printf '%s\n' "$_zsh" | sudo tee -a /etc/shells >/dev/null
+            sudo usermod -s "$_zsh" "$USER" || chsh -s "$_zsh" || printf 'Note: run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
+          else
+            printf 'Note: login shell left unchanged (non-interactive; no sudo). Run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
+          fi
         fi
       {{end}}
 
@@ -740,8 +777,17 @@ tasks:
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
         _zsh="$HOME/.nix-profile/bin/zsh"
         if [ -x "$_zsh" ] && [ "$(grep -m1 "^$USER:" /etc/passwd | cut -d: -f7)" != "$_zsh" ]; then
-          grep -qxF "$_zsh" /etc/shells 2>/dev/null || printf '%s\n' "$_zsh" | sudo tee -a /etc/shells >/dev/null
-          sudo usermod -s "$_zsh" "$USER" || chsh -s "$_zsh" || printf 'Note: run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
+          # Changing the login shell needs root. Only attempt it when sudo can
+          # elevate without a prompt or there is a TTY to prompt on — otherwise a
+          # non-interactive switch (CI, agent shells) would abort here even though
+          # the home-manager activation above already succeeded. When it can't,
+          # print the manual command instead of failing.
+          if sudo -n true 2>/dev/null || [ -t 0 ]; then
+            grep -qxF "$_zsh" /etc/shells 2>/dev/null || printf '%s\n' "$_zsh" | sudo tee -a /etc/shells >/dev/null
+            sudo usermod -s "$_zsh" "$USER" || chsh -s "$_zsh" || printf 'Note: run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
+          else
+            printf 'Note: login shell left unchanged (non-interactive; no sudo). Run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
+          fi
         fi
       {{end}}
       # Pull the off-nixpkgs agent CLIs (Claude Code, Copilot CLI) to latest too
