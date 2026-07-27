@@ -4,7 +4,12 @@
   lib,
   ...
 }: let
-  browserDesktopId = "vivaldi.desktop";
+  # Use Vivaldi's own shipped desktop file. Vivaldi's binary self-checks the
+  # default browser against a hardcoded "vivaldi-stable.desktop"; pointing the
+  # default at any other id (e.g. a custom vivaldi.desktop) makes Vivaldi think
+  # it isn't the default and prompt on every launch. The nixpkgs package ships
+  # vivaldi-stable.desktop with Exec wired to the Nix binary.
+  browserDesktopId = "vivaldi-stable.desktop";
   desktopPackages = with pkgs; [
     # Web browsers
     firefox
@@ -41,21 +46,10 @@ in {
   # Note: Removed duplicated discord entry
 
   xdg = {
-    desktopEntries.vivaldi = {
-      name = "Vivaldi";
-      genericName = "Web Browser";
-      exec = "${pkgs.vivaldi}/bin/vivaldi %U";
-      terminal = false;
-      categories = ["Network" "WebBrowser"];
-      mimeType = [
-        "application/xhtml+xml"
-        "text/html"
-        "x-scheme-handler/about"
-        "x-scheme-handler/http"
-        "x-scheme-handler/https"
-        "x-scheme-handler/unknown"
-      ];
-    };
+    # No custom desktopEntries.vivaldi: the nixpkgs vivaldi package already
+    # ships vivaldi-stable.desktop (Exec wired to the Nix binary), which is the
+    # id Vivaldi self-checks against. A second vivaldi.desktop only shadows it
+    # and re-triggers the "set as default" prompt.
 
     mimeApps = {
       enable = true;
