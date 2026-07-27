@@ -168,6 +168,47 @@ in {
         ElectricBorders.BottomLeft = "None";
         ElectricBorders.BottomRight = "None";
       };
+
+      # Default terminal (KDE's "open terminal here", Ctrl+Alt+T targets, etc.).
+      configFile.kdeglobals.General = {
+        TerminalApplication = "kitty";
+        TerminalService = "kitty.desktop";
+      };
+
+      # Input — sensible laptop defaults (live config was all-default). numlock
+      # on at boot; touchpad tap-to-click, natural scroll, disable-while-typing.
+      input = {
+        keyboard.numlockOnStartup = "on";
+        touchpads = [
+          {
+            name = "DELL0A69:00 0488:120A Touchpad";
+            vendorId = "0488";
+            productId = "120A";
+            enable = true;
+            tapToClick = true;
+            naturalScroll = true;
+            disableWhileTyping = true;
+          }
+        ];
+      };
+
+      # Power management (captured from the live powerdevilrc). On AC: blank the
+      # display after 30 min, auto-suspend after 2 h, do nothing on lid close
+      # (docked use). On battery: power button shuts down.
+      powerdevil = {
+        AC = {
+          turnOffDisplay.idleTimeout = 1800;
+          autoSuspend.idleTimeout = 7200;
+          whenLaptopLidClosed = "doNothing";
+        };
+        battery.powerButtonAction = "shutDown";
+      };
+
+      # Screen locker — auto-lock after 30 min (matches the live setting).
+      kscreenlocker = {
+        autoLock = true;
+        timeout = 30;
+      };
     };
 
     # Thunderbird configuration
