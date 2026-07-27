@@ -125,8 +125,30 @@ in {
     plasma = {
       enable = true;
       shortcuts = {
+        # Unbind flameshot's built-in "Capture" global shortcut; the capture
+        # modes are bound as explicit command hotkeys below (more reliable on
+        # Wayland and lets each mode get its own key).
         "flameshot" = {
-          "Capture" = "Meta+Shift+4";
+          "Capture" = [];
+        };
+      };
+
+      # Flameshot capture hotkeys, macOS-style: Alt+Shift+{3,4,5}.
+      hotkeys.commands = {
+        "flameshot-full" = {
+          name = "Flameshot: capture all screens";
+          key = "Alt+Shift+3";
+          command = "${pkgs.flameshot}/bin/flameshot full";
+        };
+        "flameshot-region" = {
+          name = "Flameshot: region capture";
+          key = "Alt+Shift+4";
+          command = "${pkgs.flameshot}/bin/flameshot gui";
+        };
+        "flameshot-launcher" = {
+          name = "Flameshot: capture launcher";
+          key = "Alt+Shift+5";
+          command = "${pkgs.flameshot}/bin/flameshot launcher";
         };
       };
 
