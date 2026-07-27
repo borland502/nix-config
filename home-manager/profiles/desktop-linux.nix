@@ -33,6 +33,7 @@
     inkscape
 
     # GUI tools
+    kitty # default terminal (stylix themes it; must be installed here)
     flameshot
     slack
     keepassxc

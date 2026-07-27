@@ -138,6 +138,7 @@
     mas
     vivaldiBrowserWrapper
     zoom-us # Zoom has a clean Nix path on darwin, so no Homebrew cask needed
+    kitty # default terminal; stylix themes it and kitty.conf is managed here
   ]);
 in {
   _module.args.isWsl = lib.mkDefault false;
