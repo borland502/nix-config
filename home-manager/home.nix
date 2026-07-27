@@ -74,6 +74,43 @@ in {
   # (darwin instead seeds a mutable copy — see home-darwin.nix.)
   xdg.configFile."flameshot/flameshot.ini".force = true;
 
+  # Kitty terminal configuration. chezmoi ignores .config/kitty/kitty.conf on
+  # every non-Windows platform (its source here is the base only) on the
+  # assumption that home-manager deploys the merged file — darwin already
+  # does this (home-darwin.nix); this is the Linux equivalent, so the file
+  # actually lands (previously it did not exist on disk at all here, leaving
+  # kitty on factory defaults — small window, no font, no theme).
+  xdg.configFile."kitty/kitty.conf".text = let
+    c = import ./lib/colors.nix;
+    baseCfg = builtins.readFile ../chezmoi/dot_config/kitty/kitty.conf;
+  in
+    baseCfg
+    + ''
+
+      # Theme: Monokai Spectrumish
+      # Source: chezmoi/dot_config/colors/monokai.toml
+      foreground ${c.base05}
+      background ${c.base00}
+      cursor     ${c.base05}
+
+      color0  ${c.base00}
+      color8  ${c.base03}
+      color1  ${c.base08}
+      color9  ${c.base12}
+      color2  ${c.base0B}
+      color10 ${c.base14}
+      color3  ${c.base0A}
+      color11 ${c.base13}
+      color4  ${c.base0D}
+      color12 ${c.base16}
+      color5  ${c.base0E}
+      color13 ${c.base0E}
+      color6  ${c.base0C}
+      color14 ${c.base15}
+      color7  ${c.base05}
+      color15 ${c.base07}
+    '';
+
   # GTK2 apps rewrite ~/.gtkrc-2.0 at runtime, replacing the Stylix-managed
   # symlink with a real file. Same failure mode as flameshot above: the next
   # switch's `-b backup` collides with an existing .gtkrc-2.0.backup. Force HM
@@ -130,6 +167,19 @@ in {
         # Wayland and lets each mode get its own key).
         "flameshot" = {
           "Capture" = [];
+        };
+
+        # Konsole's own .desktop file declares X-KDE-Shortcuts=Ctrl+Alt+T,
+        # which kglobalaccel auto-registers the first time it scans services
+        # — independent of (and not overridden by) the TerminalApplication/
+        # TerminalService default-terminal settings below. kitty's .desktop
+        # file declares no such key, so it never contests the binding.
+        # Reassign explicitly: clear Konsole's claim, give it to kitty.
+        "org.kde.konsole.desktop" = {
+          "_launch" = [];
+        };
+        "kitty.desktop" = {
+          "_launch" = "Ctrl+Alt+T";
         };
       };
 

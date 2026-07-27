@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# pkg-install <package> [package...] — install a package via the host's native
+# package manager (pacman/apt/dnf/zypper/brew), not Nix.
+#
+# For GUI/GPU apps that need to match the host's real driver stack (see the
+# kitty EGL/glibc-ABI crash this was written for: a Nix-built binary linked
+# against Nix's glibc cannot safely load the host's Mesa/NVIDIA driver .so
+# files), installing via the native package manager sidesteps the whole
+# Nix-vs-host-ABI problem — the resulting binary is built against the host's
+# own glibc and driver stack. home-manager can still own the app's config
+# file / theming; it just doesn't own the binary.
+#
+# Detects the package manager, confirms each package actually exists in the
+# repos (no blind install), then installs — prompting for a sudo password
+# interactively (never cached, never scripted around).
+set -euo pipefail
+
+usage() {
+	cat <<'EOF'
+Usage: pkg-install <package> [package...]
+
+Detects the host package manager (pacman, apt, dnf, zypper, or brew),
+verifies each package is resolvable in its repos, then installs it.
+Prompts for a sudo password interactively where the manager needs one
+(not brew). Refuses to install anything it could not confirm exists.
+EOF
+}
+
+if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
+	usage
+	exit "$([[ $# -eq 0 ]] && echo 1 || echo 0)"
+fi
+
+pkgs=("$@")
+
+if command -v pacman >/dev/null 2>&1; then
+	mgr=pacman
+elif command -v apt-get >/dev/null 2>&1; then
+	mgr=apt
+elif command -v dnf >/dev/null 2>&1; then
+	mgr=dnf
+elif command -v zypper >/dev/null 2>&1; then
+	mgr=zypper
+elif command -v brew >/dev/null 2>&1; then
+	mgr=brew
+else
+	echo "pkg-install: no supported package manager found (pacman/apt/dnf/zypper/brew)" >&2
+	exit 1
+fi
+echo "pkg-install: using $mgr"
+
+exists() {
+	local pkg="$1"
+	case "$mgr" in
+	pacman) pacman -Si -- "$pkg" >/dev/null 2>&1 || pacman -Qi -- "$pkg" >/dev/null 2>&1 ;;
+	apt) apt-cache show -- "$pkg" 2>/dev/null | grep -q '^Package:' ;;
+	dnf) dnf --quiet info -- "$pkg" >/dev/null 2>&1 ;;
+	zypper) zypper --quiet info -- "$pkg" 2>/dev/null | grep -q '^Name *: ' ;;
+	brew) brew info --formula -- "$pkg" >/dev/null 2>&1 || brew info --cask -- "$pkg" >/dev/null 2>&1 ;;
+	esac
+}
+
+missing=()
+for pkg in "${pkgs[@]}"; do
+	if exists "$pkg"; then
+		echo "pkg-install: found $pkg"
+	else
+		echo "pkg-install: NOT FOUND: $pkg" >&2
+		missing+=("$pkg")
+	fi
+done
+
+if ((${#missing[@]} > 0)); then
+	echo "pkg-install: aborting — could not confirm: ${missing[*]}" >&2
+	exit 1
+fi
+
+case "$mgr" in
+pacman) exec sudo pacman -S --needed -- "${pkgs[@]}" ;;
+apt) exec sudo apt-get install -- "${pkgs[@]}" ;;
+dnf) exec sudo dnf install -- "${pkgs[@]}" ;;
+zypper) exec sudo zypper install -- "${pkgs[@]}" ;;
+brew) exec brew install -- "${pkgs[@]}" ;;
+esac

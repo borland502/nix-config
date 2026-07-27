@@ -11,6 +11,7 @@
   # vivaldi-stable.desktop with Exec wired to the Nix binary.
   browserDesktopId = "vivaldi-stable.desktop";
   mailDesktopId = "thunderbird.desktop";
+
   desktopPackages = with pkgs; [
     # Web browsers
     firefox
@@ -33,7 +34,14 @@
     inkscape
 
     # GUI tools
-    kitty # default terminal (stylix themes it; must be installed here)
+    # kitty: intentionally NOT Nix-managed here (see chezmoi/dot_config/kitty
+    # for its config, still theming-managed via stylix.targets.kitty). A
+    # Nix-built kitty is linked against Nix's own glibc; on this hybrid
+    # Intel/NVIDIA CachyOS host it cannot safely load either GPU vendor's
+    # driver .so (loading them pulls in the host's glibc into the same
+    # process and hits a `GLIBC_PRIVATE` symbol clash), so it segfaults on
+    # every launch regardless of Wayland/EGL vs X11/GLX backend. Installed
+    # instead via the host package manager: `pkg-install kitty`.
     flameshot
     slack
     keepassxc
