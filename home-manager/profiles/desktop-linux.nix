@@ -10,6 +10,7 @@
   # it isn't the default and prompt on every launch. The nixpkgs package ships
   # vivaldi-stable.desktop with Exec wired to the Nix binary.
   browserDesktopId = "vivaldi-stable.desktop";
+  mailDesktopId = "thunderbird.desktop";
   desktopPackages = with pkgs; [
     # Web browsers
     firefox
@@ -60,6 +61,19 @@ in {
         "x-scheme-handler/http" = [browserDesktopId];
         "x-scheme-handler/https" = [browserDesktopId];
         "x-scheme-handler/unknown" = [browserDesktopId];
+
+        # Thunderbird: email
+        "x-scheme-handler/mailto" = [mailDesktopId];
+        "message/rfc822" = [mailDesktopId];
+        # Thunderbird: calendar (ics files + webcal subscription links)
+        "text/calendar" = [mailDesktopId];
+        "x-scheme-handler/webcal" = [mailDesktopId];
+        "x-scheme-handler/webcals" = [mailDesktopId];
+        # Thunderbird: protocol-scheme links (message-id, news/usenet)
+        "x-scheme-handler/mid" = [mailDesktopId];
+        "x-scheme-handler/news" = [mailDesktopId];
+        "x-scheme-handler/snews" = [mailDesktopId];
+        "x-scheme-handler/nntp" = [mailDesktopId];
       };
     };
   };
