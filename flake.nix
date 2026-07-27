@@ -89,7 +89,14 @@
       inherit (unstable) vscode slack discord obsidian;
       # Browsers under Nix control (see comment above). vivaldi is only used on
       # Linux; the inherit stays lazy on darwin where nothing references it.
-      inherit (unstable) google-chrome firefox vivaldi;
+      inherit (unstable) google-chrome firefox;
+      # vivaldi needs proprietaryCodecs=true so it ships a working libffmpeg.so
+      # (symlinked from vivaldi-ffmpeg-codecs). Without it, the bundled free
+      # codec triggers Vivaldi's "fix this for the next restart" auto-download,
+      # which then fails to load and crashes vivaldi on launch with
+      # "libffmpeg.so: cannot open shared object file" — so apps handing off a
+      # URL (e.g. Slack sign-in via the KDE OpenURI portal) open nothing.
+      vivaldi = unstable.vivaldi.override {proprietaryCodecs = true;};
     };
     nixpkgsOverlayModule = {nixpkgs.overlays = [unstableOverlay];};
     systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin"];
