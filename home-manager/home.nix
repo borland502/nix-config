@@ -285,18 +285,17 @@ in {
               # Desktop IDs must match the .desktop files actually installed on
               # this Nix host, or plasmashell prunes the unresolvable launcher
               # from the panel on next start (icontasks silently drops pins whose
-              # service KService can't resolve). The original capture used
-              # flatpak/KDE ids (com.slack.Slack, com.vivaldi.Vivaldi, kmail2)
-              # that don't exist here — the nixpkgs packages ship slack.desktop,
-              # vivaldi-stable.desktop, and mail is Thunderbird.
+              # service KService can't resolve). Re-synced from the live panel
+              # (plasma-org.kde.plasma.desktop-appletsrc) on 2026-07-27.
               iconTasks.launchers = [
+                "applications:systemsettings.desktop"
                 "preferred://filemanager"
-                "applications:kitty.desktop"
-                "applications:slack.desktop"
-                "applications:thunderbird.desktop"
-                "applications:vivaldi-stable.desktop"
-                "applications:org.keepassxc.KeePassXC.desktop"
                 "applications:code.desktop"
+                "preferred://browser"
+                "applications:kitty.desktop"
+                "applications:org.keepassxc.KeePassXC.desktop"
+                "applications:slack.desktop"
+                "applications:discord.desktop"
               ];
             }
             "org.kde.plasma.marginsseparator"
