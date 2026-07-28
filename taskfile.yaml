@@ -152,32 +152,12 @@ tasks:
     # use the `number` cleanup algorithm so snapper's NUMBER_CLEANUP rotates them
     # out like snap-pac's.
     cmd: |
-      if [ "${SKIP_SNAPSHOT:-}" = "1" ]; then
-        printf 'snapshot: skipped (SKIP_SNAPSHOT=1)\n'
+      _helper="$HOME/.local/bin/btrfs-safety-snapshot"
+      if [ ! -x "$_helper" ]; then
+        printf 'snapshot: btrfs-safety-snapshot not deployed yet (run `task home-switch` once to deploy); skipping.\n'
         exit 0
       fi
-      command -v snapper >/dev/null 2>&1 || exit 0
-      [ -f /etc/snapper/configs/root ] || exit 0
-      # Skip gracefully when we can't elevate non-interactively AND there is no
-      # TTY to prompt on (CI runners with snapper installed, agent shells,
-      # `!`-prefixed commands). Without this the sudo below aborts the whole
-      # switch on `sudo: a terminal is required`. `sudo -n true` succeeds when
-      # sudo is passwordless or credentials are cached — in that case proceed.
-      if ! {{.ROOT_CMD}} -n true 2>/dev/null && [ ! -t 0 ]; then
-        printf 'snapshot: skipped (non-interactive shell; no cached sudo credentials)\n' >&2
-        exit 0
-      fi
-      desc="pre nix switch $(date +%FT%T)"
-      printf 'snapshot: creating pre-switch btrfs snapshot (may prompt for sudo)...\n'
-      if {{.ROOT_CMD}} snapper -c root create \
-          --description "$desc" \
-          --cleanup-algorithm number \
-          --userdata "task=nix-switch"; then
-        printf 'snapshot: created root snapshot: %s\n' "$desc"
-      else
-        printf 'snapshot: ERROR snapper create failed; aborting switch (bypass with SKIP_SNAPSHOT=1)\n' >&2
-        exit 1
-      fi
+      "$_helper" "pre nix switch $(date +%FT%T)" nix-switch
 
   # chezmoi — dotfile management backed by this repo
   chezmoi-init:
@@ -227,30 +207,10 @@ tasks:
       GIT_CONFIG_VALUE_1: "20"
     cmd: |
       _src=$(printf '%s/chezmoi' "$PWD" | tr '\\' '/')
-      {{.CHEZMOI}} init --source "$_src"
-      # chezmoi apply is silent while it fetches externals, so print a dotted
-      # heartbeat to show it is alive — an impatient Ctrl-C mid-apply wedges the
-      # chezmoi state lock. The heartbeat is killed on any exit path.
-      echo "==> applying chezmoi dotfiles (refreshing any due externals — do not cancel)"
-      (while true; do sleep 8; printf '    …still applying dotfiles (do not cancel)\n'; done) &
-      _hb=$!
-      trap 'kill "$_hb" 2>/dev/null || true' EXIT
-      # --keep-going: a failing external (unreachable/private/rate-limited/deleted
-      # repo) is reported but does NOT abort — chezmoi applies every other
-      # external and all dotfiles. With the http.lowSpeed* guards above a stalled
-      # external now aborts in ~20s; the timeout stays as a last-resort backstop
-      # against a total network stall, and only on a genuine timeout do we
-      # re-apply without externals so the dotfiles still land.
-      timeout -k 10 300 {{.CHEZMOI}} apply --force --keep-going || {
-        rc=$?
-        echo "chezmoi apply reported errors (rc=$rc; one or more externals unavailable) — continuing with the switch."
-        if [ "$rc" -eq 124 ]; then
-          echo "chezmoi timed out; re-applying without externals so dotfiles still land."
-          {{.CHEZMOI}} apply --force --keep-going --exclude=externals || true
-        fi
-      }
-      kill "$_hb" 2>/dev/null || true
-
+      # With the http.lowSpeed* guards above a stalled external now aborts in
+      # ~20s; chezmoi-apply-tolerant.sh's timeout is a last-resort backstop
+      # against a total network stall.
+      bash scripts/chezmoi-apply-tolerant.sh "{{.CHEZMOI}}" "$_src"
 
   chezmoi-diff:
     desc: Show pending chezmoi changes without applying them
@@ -418,19 +378,11 @@ tasks:
         bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
-        _zsh="$HOME/.nix-profile/bin/zsh"
-        if [ -x "$_zsh" ] && [ "$(grep -m1 "^$USER:" /etc/passwd | cut -d: -f7)" != "$_zsh" ]; then
-          # Changing the login shell needs root. Only attempt it when sudo can
-          # elevate without a prompt or there is a TTY to prompt on — otherwise a
-          # non-interactive switch (CI, agent shells) would abort here even though
-          # the home-manager activation above already succeeded. When it can't,
-          # print the manual command instead of failing.
-          if sudo -n true 2>/dev/null || [ -t 0 ]; then
-            grep -qxF "$_zsh" /etc/shells 2>/dev/null || printf '%s\n' "$_zsh" | sudo tee -a /etc/shells >/dev/null
-            sudo usermod -s "$_zsh" "$USER" || chsh -s "$_zsh" || printf 'Note: run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
-          else
-            printf 'Note: login shell left unchanged (non-interactive; no sudo). Run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
-          fi
+        _helper="$HOME/.local/bin/ensure-nix-zsh-shell"
+        if [ -x "$_helper" ]; then
+          "$_helper"
+        else
+          printf 'Note: ensure-nix-zsh-shell not deployed yet; login shell left unchanged.\n'
         fi
       {{end}}
 
@@ -612,55 +564,21 @@ tasks:
   generate:agent-instructions:
     desc: Render agent-defaults.md into chezmoi-managed files for Windows deployment
     platforms: [linux, darwin]
-    cmd: |
-      src="chezmoi/dot_config/instructions/agent-defaults.md"
-
-      mkdir -p chezmoi/dot_claude
-      sed 's|@@AGENT@@|claude|g' "$src" > chezmoi/dot_config/claude/CLAUDE.md
-
-      mkdir -p chezmoi/dot_config/github-copilot/intellij
-      mkdir -p "chezmoi/dot_config/Code/User/prompts"
-      {
-        printf -- '---\n'
-        printf 'description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."\n'
-        printf 'name: "Persistent Terminal Logging Defaults"\n'
-        printf 'applyTo: "**"\n'
-        printf -- '---\n\n'
-        sed 's|@@AGENT@@|copilot|g' "$src"
-      } > chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md
-      cp chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md \
-         "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md"
-      cp chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md \
-         chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md
-
-      # Repo-root Copilot mirror (no frontmatter); kept in sync by
-      # check:copilot-instructions via scripts/check-copilot-instructions-sync.sh.
-      mkdir -p .github
-      sed 's|@@AGENT@@|copilot|g' "$src" > .github/copilot-instructions.md
+    cmd: bash scripts/render-agent-instructions.sh .
 
   check:agent-instructions:
     desc: Verify chezmoi agent instruction files match the rendered source
     platforms: [linux, darwin]
     cmd: |
-      src="chezmoi/dot_config/instructions/agent-defaults.md"
       tmp=$(mktemp -d)
       trap 'rm -rf "$tmp"' EXIT
-
-      sed 's|@@AGENT@@|claude|g' "$src" > "$tmp/CLAUDE.md"
-      {
-        printf -- '---\n'
-        printf 'description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."\n'
-        printf 'name: "Persistent Terminal Logging Defaults"\n'
-        printf 'applyTo: "**"\n'
-        printf -- '---\n\n'
-        sed 's|@@AGENT@@|copilot|g' "$src"
-      } > "$tmp/copilot.md"
+      bash scripts/render-agent-instructions.sh "$tmp"
 
       fail=0
-      diff -u "$tmp/CLAUDE.md" chezmoi/dot_config/claude/CLAUDE.md || fail=1
-      diff -u "$tmp/copilot.md" chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md || fail=1
-      diff -u "$tmp/copilot.md" "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" || fail=1
-      diff -u "$tmp/copilot.md" chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md || fail=1
+      diff -u "$tmp/chezmoi/dot_config/claude/CLAUDE.md" chezmoi/dot_config/claude/CLAUDE.md || fail=1
+      diff -u "$tmp/chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md" chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md || fail=1
+      diff -u "$tmp/chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" || fail=1
+      diff -u "$tmp/chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md" chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md || fail=1
 
       if [ "$fail" -ne 0 ]; then
         printf '%s\n' 'Stale chezmoi agent instructions. Run: task generate:agent-instructions' >&2
@@ -775,19 +693,11 @@ tasks:
         bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
-        _zsh="$HOME/.nix-profile/bin/zsh"
-        if [ -x "$_zsh" ] && [ "$(grep -m1 "^$USER:" /etc/passwd | cut -d: -f7)" != "$_zsh" ]; then
-          # Changing the login shell needs root. Only attempt it when sudo can
-          # elevate without a prompt or there is a TTY to prompt on — otherwise a
-          # non-interactive switch (CI, agent shells) would abort here even though
-          # the home-manager activation above already succeeded. When it can't,
-          # print the manual command instead of failing.
-          if sudo -n true 2>/dev/null || [ -t 0 ]; then
-            grep -qxF "$_zsh" /etc/shells 2>/dev/null || printf '%s\n' "$_zsh" | sudo tee -a /etc/shells >/dev/null
-            sudo usermod -s "$_zsh" "$USER" || chsh -s "$_zsh" || printf 'Note: run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
-          else
-            printf 'Note: login shell left unchanged (non-interactive; no sudo). Run: sudo usermod -s %s %s\n' "$_zsh" "$USER"
-          fi
+        _helper="$HOME/.local/bin/ensure-nix-zsh-shell"
+        if [ -x "$_helper" ]; then
+          "$_helper"
+        else
+          printf 'Note: ensure-nix-zsh-shell not deployed yet; login shell left unchanged.\n'
         fi
       {{end}}
       # Pull the off-nixpkgs agent CLIs (Claude Code, Copilot CLI) to latest too
