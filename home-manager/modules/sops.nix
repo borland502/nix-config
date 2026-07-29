@@ -39,6 +39,21 @@ in {
     };
   };
 
+  # rclone gdrive OAuth client credentials live encrypted at
+  # secrets/rclone-gdrive.json ({installed:{client_id, client_secret}}).
+  # Only the *static* app credentials are stored — the per-device OAuth token
+  # is intentionally NOT versioned, so it never needs re-encrypting as it
+  # refreshes, and this file never drifts. Nothing decrypts it automatically.
+  #
+  # Fresh machine (no ~/.config/rclone/rclone.conf yet): read the client creds
+  # from the encrypted file, recreate the remote, then authorize in a browser:
+  #   id=$(sops -d secrets/rclone-gdrive.json  | jq -r .installed.client_id)
+  #   sec=$(sops -d secrets/rclone-gdrive.json | jq -r .installed.client_secret)
+  #   rclone config create gdrive drive scope=drive \
+  #     client_id="$id" client_secret="$sec"   # opens browser to authorize
+  # If the remote already exists but its token is missing/expired, just:
+  #   rclone config reconnect gdrive:
+  #
   # Whole-file TOML secrets: sops-nix extracts individual keys, but these tools
   # expect a complete config.toml, so we decrypt the whole file via activation.
   home.activation = {
