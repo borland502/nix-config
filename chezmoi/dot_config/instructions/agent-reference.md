@@ -159,6 +159,19 @@ the nix-config repo.
   Run: `sync-to-gdrive` or `sync-to-gdrive --verbose`.
 - **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
   Safari (darwin only).
+- **`btrfs-safety-snapshot [description] [task-tag]`** — Best-effort pre-change
+  btrfs snapshot of the snapper `root` config: no-op if snapper/the `root`
+  config is absent, skips (doesn't fail) when non-interactive with no cached
+  sudo, fail-closed (non-zero exit) on a genuine snapshot error. Bypass with
+  `SKIP_SNAPSHOT=1`. Backs `_snapshot-pre` (deps of `switch`/`home-switch`/
+  `upgrade`); run standalone before any risky manual change outside `task` to
+  get the same grub-btrfs boot-into-snapshot safety net.
+- **`ensure-nix-zsh-shell [zsh-path]`** — Make the login shell match
+  home-manager's zsh (default `~/.nix-profile/bin/zsh`), tolerating
+  non-interactive shells with no cached sudo (prints the manual `usermod`
+  command instead of failing). Used by `task home-switch` / `task upgrade` on
+  plain (non-NixOS) Linux, where `users.defaultUserShell` doesn't apply; safe
+  to run standalone after any operation that reinstalls zsh into the profile.
 - **`update-agent-clis`** — Install/update the Claude Code (`claude`) and GitHub
   Copilot (`copilot`) CLIs off nixpkgs, each via its vendor's native
   self-updating installer into `~/.local` (binaries → `~/.local/bin`, which the

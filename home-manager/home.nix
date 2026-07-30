@@ -54,25 +54,22 @@ in {
     serif = lib.mkAfter ["DejaVu Serif"];
   };
 
-  # Linux-specific services
-  services.flameshot = {
-    enable = true;
-    settings = {
-      General = {
-        disabledTrayIcon = false;
-        showStartupLaunchMessage = false;
-        savePath = "${config.home.homeDirectory}/Pictures/Screenshots";
-        savePathFixed = true;
-      };
-    };
-  };
-
-  # Flameshot rewrites its own flameshot.ini at runtime (adding [Shortcuts]
-  # etc.), turning the HM-managed symlink into a real file. Without force, the
-  # next switch tries to back it up to flameshot.ini.backup and fails once that
-  # backup already exists. Let HM win outright: overwrite in place, no backup.
-  # (darwin instead seeds a mutable copy — see home-darwin.nix.)
-  xdg.configFile."flameshot/flameshot.ini".force = true;
+  # Screenshots on Linux go through Spectacle, not Flameshot. Flameshot cannot
+  # capture on a KWin/Wayland session at all: the nixpkgs wrapper delegates
+  # Wayland capture to grim, which speaks the wlroots-only wlr-screencopy
+  # protocol that KWin does not implement (`grim` exits with "compositor
+  # doesn't support the screen capture protocol"), and flameshot's non-grim
+  # DBus path never reaches xdg-desktop-portal either. Both modes fail with
+  # "Unable to capture screen". Darwin keeps Flameshot — see home-darwin.nix.
+  #
+  # Spectacle is intentionally NOT installed via nix here. KWin's
+  # org.kde.KWin.ScreenShot2 authorizes callers by executable path, and it
+  # trusts the spectacle shipped alongside the running KWin. A nix-store
+  # spectacle is rejected outright ("The process is not authorized to take a
+  # screenshot"), so the hotkeys below invoke a bare `spectacle` resolved from
+  # PATH: the distro binary on this Plasma host, the nix one on NixOS. Adding
+  # kdePackages.spectacle to home.packages would shadow /usr/bin/spectacle and
+  # break capture on non-NixOS hosts.
 
   # Kitty terminal configuration. chezmoi ignores .config/kitty/kitty.conf on
   # every non-Windows platform (its source here is the base only) on the
@@ -112,15 +109,17 @@ in {
     '';
 
   # GTK2 apps rewrite ~/.gtkrc-2.0 at runtime, replacing the Stylix-managed
-  # symlink with a real file. Same failure mode as flameshot above: the next
-  # switch's `-b backup` collides with an existing .gtkrc-2.0.backup. Force HM
-  # (Stylix) to overwrite in place without a backup. Key by the gtk module's
-  # own configLocation so this merges with its entry instead of colliding.
+  # symlink with a real file. The next switch's `-b backup` then collides with
+  # an existing .gtkrc-2.0.backup. Force HM (Stylix) to overwrite in place
+  # without a backup. Key by the gtk module's own configLocation so this merges
+  # with its entry instead of colliding.
   home.file.${config.gtk.gtk2.configLocation}.force = lib.mkForce true;
 
-  # flameshot uses savePathFixed=true, so it errors if the configured savePath
-  # does not already exist. Ensure the screenshot directory is present.
-  home.activation.ensureFlameshotSavePath = lib.hm.dag.entryAfter ["writeBoundary"] ''
+  # Spectacle saves to <Pictures>/Screenshots by default (its spectaclerc
+  # `translatedScreenshotsFolder`). spectaclerc itself is deliberately left
+  # unmanaged — Spectacle rewrites it at runtime, which is the same
+  # symlink-clobber trap as .gtkrc-2.0 above. Just guarantee the directory.
+  home.activation.ensureScreenshotSavePath = lib.hm.dag.entryAfter ["writeBoundary"] ''
     ${pkgs.coreutils}/bin/mkdir -p "${config.home.homeDirectory}/Pictures/Screenshots"
   '';
 
@@ -162,12 +161,9 @@ in {
     plasma = {
       enable = true;
       shortcuts = {
-        # Unbind flameshot's built-in "Capture" global shortcut; the capture
-        # modes are bound as explicit command hotkeys below (more reliable on
-        # Wayland and lets each mode get its own key).
-        "flameshot" = {
-          "Capture" = [];
-        };
+        # Spectacle's .desktop file claims Print (and Meta+Shift+Print etc.)
+        # by default. Leave those alone; the macOS-style keys below are added
+        # alongside them as explicit command hotkeys, one per capture mode.
 
         # Konsole's own .desktop file declares X-KDE-Shortcuts=Ctrl+Alt+T,
         # which kglobalaccel auto-registers the first time it scans services
@@ -183,22 +179,24 @@ in {
         };
       };
 
-      # Flameshot capture hotkeys, macOS-style: Alt+Shift+{3,4,5}.
+      # Spectacle capture hotkeys, macOS-style: Alt+Shift+{3,4,5}.
+      # Bare `spectacle` on purpose — see the ScreenShot2 authorization note
+      # above; an absolute nix-store path is rejected by KWin.
       hotkeys.commands = {
-        "flameshot-full" = {
-          name = "Flameshot: capture all screens";
+        "spectacle-full" = {
+          name = "Spectacle: capture all screens";
           key = "Alt+Shift+3";
-          command = "${pkgs.flameshot}/bin/flameshot full";
+          command = "spectacle -f -b";
         };
-        "flameshot-region" = {
-          name = "Flameshot: region capture";
+        "spectacle-region" = {
+          name = "Spectacle: region capture";
           key = "Alt+Shift+4";
-          command = "${pkgs.flameshot}/bin/flameshot gui";
+          command = "spectacle -r -b";
         };
-        "flameshot-launcher" = {
-          name = "Flameshot: capture launcher";
+        "spectacle-launcher" = {
+          name = "Spectacle: capture launcher";
           key = "Alt+Shift+5";
-          command = "${pkgs.flameshot}/bin/flameshot launcher";
+          command = "spectacle -l";
         };
       };
 

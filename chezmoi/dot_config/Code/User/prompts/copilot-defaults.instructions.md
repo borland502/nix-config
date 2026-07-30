@@ -1,7 +1,10 @@
---description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."
+---
+description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/copilot."
 name: "Persistent Terminal Logging Defaults"
 applyTo: "**"
---# Persistent Terminal Defaults
+---
+
+# Persistent Terminal Defaults
 
 This file is the always-on prefix for every agent session. It carries behavioral
 rules only; reference detail (credential catalog, helper-script usage, package
