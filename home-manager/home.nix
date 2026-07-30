@@ -27,6 +27,7 @@ in {
     ./common.nix # Import common configuration
     ./profiles/development-linux.nix
     ./profiles/desktop-linux.nix
+    ./modules/gdrive-sync.nix # daily systemd timer for sync-to-gdrive
   ];
 
   home = {
