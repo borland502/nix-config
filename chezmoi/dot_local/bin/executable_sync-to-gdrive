@@ -40,11 +40,26 @@
 #   * Local deletion is an explicit, gated, UNSAFE action — see
 #     --allow-local-delete. Without that flag nothing local is ever deleted.
 #
+# Scheduling: the backup direction runs daily and catches up after downtime —
+# see home-manager/modules/gdrive-sync.nix (systemd timer on Linux, launchd
+# agent on darwin).
+#   Linux:  systemctl --user list-timers gdrive-sync.timer
+#           journalctl --user -u gdrive-sync.service
+#   darwin: launchctl list org.nix-community.home.gdrive-sync
+#           ~/.cache/gdrive-sync.launchd.log
+#
 # Usage:
-#   sync-to-gdrive [--dry-run] [--verbose] [--allow-local-delete]
+#   sync-to-gdrive [--dry-run] [--verbose] [--if-stale HOURS] [--allow-local-delete]
 #
 #   --dry-run             Show what would transfer/delete; change nothing.
 #   --verbose             Add per-file rclone logging (-v) on top of --progress.
+#   --if-stale HOURS      Backup direction only: exit 0 without doing anything
+#                         unless the last successful backup is older than HOURS.
+#                         Lets a scheduler fire opportunistically (e.g. launchd
+#                         RunAtLoad, which is how darwin catches up on a run
+#                         missed while the Mac was off) without re-syncing on
+#                         every login. A successful, non-dry-run backup records
+#                         its finish time in $stamp_file.
 #   --allow-local-delete  UNSAFE. Switch to RESTORE (gdrive -> local): mirror
 #                         the remote onto the LOCAL tree with rclone sync, which
 #                         can DELETE local files absent from the remote. Requires
@@ -61,36 +76,77 @@ src_root="$HOME"
 max_size="1G"                        # rclone units: 1G == 1 GiB
 log_dir="$HOME/.cache/claude"
 log_file="$log_dir/rclone-gdrive.log"
+# Last-successful-backup marker for --if-stale. Deliberately NOT under
+# ~/.cache/claude: compress-old-cache zstd-compresses (with --rm) every
+# top-level file there older than a day, which would rename the stamp out from
+# under us. Host-local by design — excluded from the sync below.
+stamp_file="$HOME/.local/state/gdrive-sync/last-success"
 
 usage() {
-	print -r -- "Usage: sync-to-gdrive [--dry-run] [--verbose] [--allow-local-delete]"
+	print -r -- "Usage: sync-to-gdrive [--dry-run] [--verbose] [--if-stale HOURS] [--allow-local-delete]"
 }
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 dry_run=0
 verbose=0
 allow_local_delete=0
-for arg in "$@"; do
-	case "$arg" in
+if_stale=0
+while (( $# )); do
+	case "$1" in
 	--dry-run) dry_run=1 ;;
 	--verbose) verbose=1 ;;
 	--allow-local-delete) allow_local_delete=1 ;;
+	--if-stale)
+		if [[ -z "${2:-}" || "$2" != <-> ]]; then
+			print -u2 "sync-to-gdrive: --if-stale requires a whole number of hours"
+			usage
+			exit 2
+		fi
+		if_stale="$2"
+		shift
+		;;
+	--if-stale=*)
+		if_stale="${1#*=}"
+		if [[ "$if_stale" != <-> ]]; then
+			print -u2 "sync-to-gdrive: --if-stale requires a whole number of hours"
+			usage
+			exit 2
+		fi
+		;;
 	-h | --help)
 		usage
 		exit 0
 		;;
 	*)
-		print -u2 "sync-to-gdrive: unknown argument: $arg"
+		print -u2 "sync-to-gdrive: unknown argument: $1"
 		usage
 		exit 2
 		;;
 	esac
+	shift
 done
+
+# ── Staleness gate ────────────────────────────────────────────────────────────
+# Checked before anything else: a scheduler-driven no-op should cost one stat,
+# not the 20s remote-reachability probe below. Backup direction only — a restore
+# is always an explicit, deliberate act and never consults the stamp.
+if (( if_stale > 0 && ! allow_local_delete )); then
+	if [[ -r "$stamp_file" ]]; then
+		last_success="$(<"$stamp_file")"
+		now="$(date +%s)"
+		if [[ "$last_success" == <-> ]] && (( now - last_success < if_stale * 3600 )); then
+			print "sync-to-gdrive: last successful backup $(( (now - last_success) / 60 ))m ago" \
+				"(< ${if_stale}h) — nothing to do."
+			exit 0
+		fi
+	fi
+fi
 
 # ── Dependency / artifact checks (warn or fail clearly, never silently) ───────
 if ! command -v rclone >/dev/null 2>&1; then
 	print -u2 "sync-to-gdrive: rclone not found."
-	print -u2 "  Install with: nix profile install nixpkgs#rclone"
+	print -u2 "  It ships in the shared package set (home-manager/common.nix):"
+	print -u2 "  run 'task switch' (or 'task home-switch') to install it."
 	exit 1
 fi
 
@@ -159,6 +215,7 @@ junk_patterns=(
 	'/.local/pipx/**'
 	'/.local/state/nix/**'            # nix profiles: symlinks into /nix/store
 	'/.local/state/home-manager/**'   # HM generations: symlinks into /nix/store
+	'/.local/state/gdrive-sync/**'    # this script's own --if-stale stamp (host-local)
 	'/.cache/**'
 	# Duplicate config trees (bootstrap cruft mirroring ~/.config).
 	'/.config/.config/**'
@@ -263,8 +320,16 @@ done
 print -r -- "- *" >>"$purge_filter"
 
 # ── Shared rclone args ────────────────────────────────────────────────────────
-# --progress gives the live per-file progress display for the whole run.
-base_args=(--fast-list --progress --log-file "$log_file" --log-level INFO)
+# --progress gives the live per-file progress display, but only makes sense on a
+# terminal: it repaints continuously, so under the systemd timer (see
+# home-manager/modules/gdrive-sync.nix) it would flood the journal. Non-tty runs
+# get one summary line every 5 minutes instead.
+base_args=(--fast-list --log-file "$log_file" --log-level INFO)
+if [[ -t 1 ]]; then
+	base_args+=(--progress)
+else
+	base_args+=(--stats 5m --stats-one-line)
+fi
 (( verbose )) && base_args+=(--verbose)
 (( dry_run )) && base_args+=(--dry-run)
 
@@ -319,6 +384,15 @@ else
 	# the only place a backup run deletes anything, and only ever on gdrive.
 	print "sync-to-gdrive: purging junk patterns from remote"
 	rclone delete "$remote_base" --filter-from "$purge_filter" "${base_args[@]}"
+
+	# Record success for --if-stale. Only here: `set -e` means we never reach
+	# this line if either pass failed, so a failed run stays "stale" and the
+	# next opportunistic trigger retries it. A dry-run transferred nothing and
+	# must not suppress the real one.
+	if (( ! dry_run )); then
+		mkdir -p "${stamp_file:h}"
+		print -r -- "$(date +%s)" >"$stamp_file"
+	fi
 fi
 
 print "sync-to-gdrive: done at $(date -Iseconds)"

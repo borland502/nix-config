@@ -215,6 +215,11 @@
     # Dotfiles & file sync
     chezmoi
     unison
+    # Backing store for sync-to-gdrive and its scheduled timer/agent
+    # (home-manager/modules/gdrive-sync.nix). Previously left to the distro
+    # package on Linux and Homebrew on darwin, which made the scheduled job's
+    # dependency implicit and unversioned.
+    rclone
 
     # Productivity & content
     glow
