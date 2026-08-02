@@ -22,31 +22,31 @@ desc="${1:-pre change $(date +%FT%T)}"
 task_tag="${2:-manual}"
 
 if [[ "${SKIP_SNAPSHOT:-}" == "1" ]]; then
-  echo "snapshot: skipped (SKIP_SNAPSHOT=1)"
-  exit 0
+	echo "snapshot: skipped (SKIP_SNAPSHOT=1)"
+	exit 0
 fi
 
 command -v snapper >/dev/null 2>&1 || exit 0
 [[ -f /etc/snapper/configs/root ]] || exit 0
 
 if [[ "$(uname)" == "Linux" && -x /run/wrappers/bin/sudo ]]; then
-  root_cmd=/run/wrappers/bin/sudo
+	root_cmd=/run/wrappers/bin/sudo
 else
-  root_cmd=sudo
+	root_cmd=sudo
 fi
 
 if ! "$root_cmd" -n true 2>/dev/null && [[ ! -t 0 ]]; then
-  echo "snapshot: skipped (non-interactive shell; no cached sudo credentials)" >&2
-  exit 0
+	echo "snapshot: skipped (non-interactive shell; no cached sudo credentials)" >&2
+	exit 0
 fi
 
 echo "snapshot: creating pre-change btrfs snapshot (may prompt for sudo)..."
 if "$root_cmd" snapper -c root create \
-  --description "$desc" \
-  --cleanup-algorithm number \
-  --userdata "task=$task_tag"; then
-  echo "snapshot: created root snapshot: $desc"
+	--description "$desc" \
+	--cleanup-algorithm number \
+	--userdata "task=$task_tag"; then
+	echo "snapshot: created root snapshot: $desc"
 else
-  echo "snapshot: ERROR snapper create failed; aborting (bypass with SKIP_SNAPSHOT=1)" >&2
-  exit 1
+	echo "snapshot: ERROR snapper create failed; aborting (bypass with SKIP_SNAPSHOT=1)" >&2
+	exit 1
 fi

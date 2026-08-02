@@ -12,13 +12,13 @@ set -euo pipefail
 zsh_path="${1:-$HOME/.nix-profile/bin/zsh}"
 
 if [[ ! -x "$zsh_path" ]]; then
-  echo "ensure-nix-zsh-shell: no executable zsh at $zsh_path; nothing to do" >&2
-  exit 0
+	echo "ensure-nix-zsh-shell: no executable zsh at $zsh_path; nothing to do" >&2
+	exit 0
 fi
 
 current_shell="$(grep -m1 "^$USER:" /etc/passwd | cut -d: -f7)"
 if [[ "$current_shell" == "$zsh_path" ]]; then
-  exit 0
+	exit 0
 fi
 
 # Changing the login shell needs root. Only attempt it when sudo can elevate
@@ -26,8 +26,8 @@ fi
 # run (CI, agent shells) would abort here even though the caller's real work
 # already succeeded.
 if sudo -n true 2>/dev/null || [[ -t 0 ]]; then
-  grep -qxF "$zsh_path" /etc/shells 2>/dev/null || printf '%s\n' "$zsh_path" | sudo tee -a /etc/shells >/dev/null
-  sudo usermod -s "$zsh_path" "$USER" || chsh -s "$zsh_path" || printf 'Note: run: sudo usermod -s %s %s\n' "$zsh_path" "$USER"
+	grep -qxF "$zsh_path" /etc/shells 2>/dev/null || printf '%s\n' "$zsh_path" | sudo tee -a /etc/shells >/dev/null
+	sudo usermod -s "$zsh_path" "$USER" || chsh -s "$zsh_path" || printf 'Note: run: sudo usermod -s %s %s\n' "$zsh_path" "$USER"
 else
-  printf 'Note: login shell left unchanged (non-interactive; no sudo). Run: sudo usermod -s %s %s\n' "$zsh_path" "$USER"
+	printf 'Note: login shell left unchanged (non-interactive; no sudo). Run: sudo usermod -s %s %s\n' "$zsh_path" "$USER"
 fi

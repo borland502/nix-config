@@ -29,14 +29,14 @@ set -euo pipefail
 case "$(uname -s)" in
 Darwin | Linux) ;;
 *)
-  printf 'update-agent-clis: unsupported OS %s — skipping\n' "$(uname -s)" >&2
-  exit 0
-  ;;
+	printf 'update-agent-clis: unsupported OS %s — skipping\n' "$(uname -s)" >&2
+	exit 0
+	;;
 esac
 
 if ! command -v curl >/dev/null 2>&1; then
-  printf 'update-agent-clis: curl not found — skipping\n' >&2
-  exit 0
+	printf 'update-agent-clis: curl not found — skipping\n' >&2
+	exit 0
 fi
 
 prefix="$HOME/.local"
@@ -52,23 +52,23 @@ printf '==> updating agent CLIs (Claude Code, GitHub Copilot) — contacts GitHu
 
 # --- Claude Code -----------------------------------------------------------
 if [ -x "$prefix/bin/claude" ]; then
-  printf '==> updating Claude Code (claude update)\n'
-  "$prefix/bin/claude" update || printf 'update-agent-clis: claude update failed (continuing)\n' >&2
+	printf '==> updating Claude Code (claude update)\n'
+	"$prefix/bin/claude" update || printf 'update-agent-clis: claude update failed (continuing)\n' >&2
 else
-  printf '==> installing Claude Code native build\n'
-  curl -fsSL https://claude.ai/install.sh | bash ||
-    printf 'update-agent-clis: Claude Code install failed (continuing)\n' >&2
+	printf '==> installing Claude Code native build\n'
+	curl -fsSL https://claude.ai/install.sh | bash ||
+		printf 'update-agent-clis: Claude Code install failed (continuing)\n' >&2
 fi
 
 # --- GitHub Copilot CLI ----------------------------------------------------
 if [ -x "$prefix/bin/copilot" ]; then
-  printf '==> updating GitHub Copilot CLI (copilot update)\n'
-  "$prefix/bin/copilot" update || printf 'update-agent-clis: copilot update failed (continuing)\n' >&2
+	printf '==> updating GitHub Copilot CLI (copilot update)\n'
+	"$prefix/bin/copilot" update || printf 'update-agent-clis: copilot update failed (continuing)\n' >&2
 else
-  printf '==> installing GitHub Copilot CLI native build into %s\n' "$prefix"
-  # Installer defaults PREFIX to $HOME/.local for non-root (binary → ~/.local/bin).
-  curl -fsSL https://gh.io/copilot-install | PREFIX="$prefix" bash ||
-    printf 'update-agent-clis: Copilot CLI install failed (continuing)\n' >&2
+	printf '==> installing GitHub Copilot CLI native build into %s\n' "$prefix"
+	# Installer defaults PREFIX to $HOME/.local for non-root (binary → ~/.local/bin).
+	curl -fsSL https://gh.io/copilot-install | PREFIX="$prefix" bash ||
+		printf 'update-agent-clis: Copilot CLI install failed (continuing)\n' >&2
 fi
 
 # --- Report ----------------------------------------------------------------
