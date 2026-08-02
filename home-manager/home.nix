@@ -23,6 +23,12 @@
 in {
   _module.args.isWsl = lib.mkDefault false;
 
+  # False here so standalone home-manager on a generic Linux distro (CachyOS on
+  # Tifa) never installs the GPU-dependent packages guarded in
+  # profiles/desktop-linux.nix. The NixOS host overrides this to true in
+  # flake.nix, where /run/opengl-driver exists and those packages work.
+  _module.args.isNixos = lib.mkDefault false;
+
   imports = [
     ./common.nix # Import common configuration
     ./profiles/development-linux.nix
