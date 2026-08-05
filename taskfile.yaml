@@ -432,11 +432,16 @@ tasks:
     cmd: markdownlint-cli2 --fix "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
 
   fmt:sh:
-    desc: Format shell scripts in place (shfmt -w, skips ai-tools/)
+    desc: Format shell scripts in place (shfmt -w -i 0, skips ai-tools/)
     platforms: [linux, darwin]
+    # -i 0 (tab indent, shfmt's default) is passed explicitly to match CI. shfmt
+    # otherwise walks parent directories for an .editorconfig; this repo has
+    # none, so a local run picks up ~/.editorconfig and reformats to 2 spaces
+    # while CI — a container with no home config — keeps tabs. Passing any
+    # formatting flag disables editorconfig lookup, making both identical.
     cmd: |
       shfmt -f . | awk '!/^ai-tools\//' | while IFS= read -r f; do
-        shfmt -w "$f"
+        shfmt -w -i 0 "$f"
       done
 
   fmt:py:
@@ -447,9 +452,13 @@ tasks:
       ruff check --fix --exclude ai-tools .
 
   fmt:toml:
-    desc: Format TOML files (taplo fmt, skips ai-tools/)
+    desc: Format TOML files (taplo fmt, skips ai-tools/ and secrets/)
     platforms: [linux, darwin]
-    cmd: taplo fmt $(fd -e toml . --exclude ai-tools)
+    # secrets/ is excluded deliberately: those .toml files are SOPS output, and
+    # some are emitted as JSON regardless of extension. Reformatting encrypted
+    # material rewrites the file and invalidates its MAC, so taplo must not see
+    # it. See lint:toml for the matching exclusion.
+    cmd: taplo fmt $(fd -e toml . --exclude ai-tools --exclude secrets)
 
   fmt:all:
     desc: Run every formatter (nix, markdown, shell, python, toml)
@@ -510,7 +519,7 @@ tasks:
     cmd: |
       shellcheck $(fd -e sh . --exclude node_modules --exclude ai-tools)
       shfmt -f . | awk '!/^ai-tools\//' | while IFS= read -r f; do
-        shfmt -d "$f"
+        shfmt -d -i 0 "$f"
       done
 
   lint:py:
@@ -524,9 +533,12 @@ tasks:
     cmd: yamllint .
 
   lint:toml:
-    desc: Lint TOML files (skips ai-tools/)
+    desc: Lint TOML files (skips ai-tools/ and secrets/)
     platforms: [linux, darwin]
-    cmd: taplo lint $(fd -e toml . --exclude ai-tools)
+    # secrets/*.toml are SOPS-encrypted and not valid TOML — sops writes some of
+    # them as JSON whatever the extension — so taplo reports syntax errors on
+    # ciphertext. Nothing lintable lives there. Mirrors the fmt:toml exclusion.
+    cmd: taplo lint $(fd -e toml . --exclude ai-tools --exclude secrets)
 
   lint:secrets:
     desc: Scan repo history for committed secrets with gitleaks

@@ -239,7 +239,14 @@
                 sops-nix.homeManagerModules.sops
               ];
 
-              users.jhettenh = import ./home-manager/home.nix;
+              # isNixos = true unlocks the GPU-dependent packages guarded in
+              # profiles/desktop-linux.nix (kitty, zoom-us). They resolve
+              # drivers via /run/opengl-driver, which exists here but not on a
+              # generic Linux host running standalone home-manager.
+              users.jhettenh = {
+                imports = [./home-manager/home.nix];
+                _module.args.isNixos = true;
+              };
 
               # Optionally, use home-manager.extraSpecialArgs to pass arguments to home.nix
             };
