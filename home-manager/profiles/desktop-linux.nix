@@ -2,6 +2,7 @@
 {
   pkgs,
   lib,
+  isNixos ? false,
   ...
 }: let
   # Use Vivaldi's own shipped desktop file. Vivaldi's binary self-checks the
@@ -11,6 +12,17 @@
   # vivaldi-stable.desktop with Exec wired to the Nix binary.
   browserDesktopId = "vivaldi-stable.desktop";
   mailDesktopId = "thunderbird.desktop";
+
+  # Zoom's meeting links must open whichever Zoom actually exists on the host.
+  # nixpkgs zoom-us ships "Zoom.desktop"; the Flathub build used on generic
+  # Linux (see nixosOnlyPackages) ships "us.zoom.Zoom.desktop". Declaring this
+  # explicitly matters because mimeapps.list is a read-only symlink into the
+  # store here, so `xdg-mime default` cannot repair a wrong association after
+  # the fact.
+  zoomDesktopId =
+    if isNixos
+    then "Zoom.desktop"
+    else "us.zoom.Zoom.desktop";
 
   desktopPackages = with pkgs; [
     # Web browsers
@@ -23,7 +35,6 @@
 
     # Communication
     discord
-    zoom-us
 
     # Productivity
     libreoffice
@@ -34,20 +45,41 @@
     inkscape
 
     # GUI tools
-    # kitty: intentionally NOT Nix-managed here (see chezmoi/dot_config/kitty
-    # for its config, still theming-managed via stylix.targets.kitty). A
-    # Nix-built kitty is linked against Nix's own glibc; on this hybrid
-    # Intel/NVIDIA CachyOS host it cannot safely load either GPU vendor's
-    # driver .so (loading them pulls in the host's glibc into the same
-    # process and hits a `GLIBC_PRIVATE` symbol clash), so it segfaults on
-    # every launch regardless of Wayland/EGL vs X11/GLX backend. Installed
-    # instead via the host package manager: `pkg-install kitty`.
+    # kitty and zoom-us are GPU-dependent and live in nixosOnlyPackages below.
     flameshot
     slack
     keepassxc
   ];
 
-  availablePackages = lib.filter (pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg) desktopPackages;
+  # GPU-dependent apps that only work when Nix also owns the graphics stack.
+  #
+  # A Nix-built GL application resolves drivers through /run/opengl-driver,
+  # which only exists on NixOS (populated by hardware.graphics). On a generic
+  # Linux host that path is absent and there is no nixGL here, so:
+  #
+  #   * zoom-us fails GLX/EGL init and Qt aborts the process. Observed on Tifa
+  #     (CachyOS) as SIGABRT in libQt6Core on every launch, with
+  #     "MESA-LOADER: failed to open dri: /run/opengl-driver/lib/gbm/dri_gbm.so"
+  #     in ~/.zoom/logs/zoom_stdout_stderr.log.
+  #   * kitty is linked against Nix's own glibc and cannot safely load either
+  #     vendor's driver .so on this hybrid Intel/NVIDIA host — doing so pulls
+  #     the host glibc into the same process and hits a GLIBC_PRIVATE symbol
+  #     clash, segfaulting regardless of Wayland/EGL vs X11/GLX.
+  #
+  # On NixOS both work normally, so they are installed from nixpkgs there.
+  # On generic Linux install them from the host instead:
+  #   kitty -> `pkg-install kitty`
+  #   zoom  -> `flatpak install --user flathub us.zoom.Zoom`
+  # kitty keeps its chezmoi config (chezmoi/dot_config/kitty) and stylix
+  # theming via stylix.targets.kitty either way — this guards only the package.
+  nixosOnlyPackages = with pkgs; [
+    kitty
+    zoom-us
+  ];
+
+  availablePackages =
+    lib.filter (pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg)
+    (desktopPackages ++ lib.optionals isNixos nixosOnlyPackages);
 in {
   # Desktop applications
   home.packages = availablePackages;
@@ -99,6 +131,16 @@ in {
         "x-scheme-handler/news" = [mailDesktopId];
         "x-scheme-handler/snews" = [mailDesktopId];
         "x-scheme-handler/nntp" = [mailDesktopId];
+
+        # Zoom: meeting/phone links clicked in the browser. "tel" is
+        # deliberately absent — kdeconnect owns it on this host.
+        "x-scheme-handler/zoommtg" = [zoomDesktopId];
+        "x-scheme-handler/zoomus" = [zoomDesktopId];
+        "x-scheme-handler/zoomphonecall" = [zoomDesktopId];
+        "x-scheme-handler/zoomphonesms" = [zoomDesktopId];
+        "x-scheme-handler/zoomcontactcentercall" = [zoomDesktopId];
+        "x-scheme-handler/callto" = [zoomDesktopId];
+        "application/x-zoom" = [zoomDesktopId];
       };
     };
   };

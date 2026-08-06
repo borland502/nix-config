@@ -145,6 +145,7 @@ in {
 
   imports = [
     ./common.nix # Import common configuration
+    ./modules/gdrive-sync.nix # daily launchd agent for sync-to-gdrive
     # Homebrew is reserved for macOS-only GUI apps and formulae without a clean Nix path.
   ];
 

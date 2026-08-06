@@ -17,23 +17,23 @@ eval $chezmoi_cmd init --source "$src"
 
 echo "==> applying chezmoi dotfiles (refreshing any due externals — do not cancel)"
 (
-  while true; do
-    sleep 8
-    printf '    …still applying dotfiles (do not cancel)\n'
-  done
+	while true; do
+		sleep 8
+		printf '    …still applying dotfiles (do not cancel)\n'
+	done
 ) &
 hb=$!
 trap 'kill "$hb" 2>/dev/null || true' EXIT
 
 # shellcheck disable=SC2086
 if ! timeout -k 10 300 bash -c "$chezmoi_cmd apply --force --keep-going"; then
-  rc=$?
-  echo "chezmoi apply reported errors (rc=$rc; one or more externals unavailable) — continuing with the switch."
-  if [[ "$rc" -eq 124 ]]; then
-    echo "chezmoi timed out; re-applying without externals so dotfiles still land."
-    # shellcheck disable=SC2086
-    eval $chezmoi_cmd apply --force --keep-going --exclude=externals || true
-  fi
+	rc=$?
+	echo "chezmoi apply reported errors (rc=$rc; one or more externals unavailable) — continuing with the switch."
+	if [[ "$rc" -eq 124 ]]; then
+		echo "chezmoi timed out; re-applying without externals so dotfiles still land."
+		# shellcheck disable=SC2086
+		eval $chezmoi_cmd apply --force --keep-going --exclude=externals || true
+	fi
 fi
 
 kill "$hb" 2>/dev/null || true

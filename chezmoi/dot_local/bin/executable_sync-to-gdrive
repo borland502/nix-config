@@ -14,10 +14,17 @@
 #     .local/pipx, .config/nix, and every cache are filtered out.
 #
 # What is skipped (omitted from upload):
-#   * Secrets (sops/ops-agent/confluence/gkion/technitiumdns-cli/gh).
-#   * Large regenerable dirs (nix, nvm, agent caches, .local/{bin,share,src,pipx}).
+#   * Secrets (sops/ops-agent/confluence/gkion/technitiumdns-cli/gh/rclone),
+#     browser password + sync-crypto stores, and agent session transcripts.
+#   * Large regenerable dirs (nix, nvm, agent caches, colima VM disks, Discord
+#     native modules, .local/{bin,share,lib,src,pipx}).
 #   * Steam and docker config/data (.config/{steam,Steam,docker}; Steam & docker
 #     rootless data already fall under .local/share).
+#   * Browser/Electron churn: Chromium component-updater payloads, per-session
+#     runtime state, LevelDB bookkeeping, SQLite -wal/-shm sidecars, and
+#     .org.chromium.Chromium.* atomic-write leftovers. This is ~90% of what the
+#     remote used to hold; see the Chromium component-updater note below for why
+#     it grew without bound under an additive copy.
 #   * Transient artifacts (.cache, __pycache__, *.pyc, *.class, node_modules,
 #     .git, thinking logs, OS cruft).
 #   * Any single file larger than 1 GiB (--max-size, upload-skip only).
@@ -40,11 +47,26 @@
 #   * Local deletion is an explicit, gated, UNSAFE action — see
 #     --allow-local-delete. Without that flag nothing local is ever deleted.
 #
+# Scheduling: the backup direction runs daily and catches up after downtime —
+# see home-manager/modules/gdrive-sync.nix (systemd timer on Linux, launchd
+# agent on darwin).
+#   Linux:  systemctl --user list-timers gdrive-sync.timer
+#           journalctl --user -u gdrive-sync.service
+#   darwin: launchctl list org.nix-community.home.gdrive-sync
+#           ~/.cache/gdrive-sync.launchd.log
+#
 # Usage:
-#   sync-to-gdrive [--dry-run] [--verbose] [--allow-local-delete]
+#   sync-to-gdrive [--dry-run] [--verbose] [--if-stale HOURS] [--allow-local-delete]
 #
 #   --dry-run             Show what would transfer/delete; change nothing.
 #   --verbose             Add per-file rclone logging (-v) on top of --progress.
+#   --if-stale HOURS      Backup direction only: exit 0 without doing anything
+#                         unless the last successful backup is older than HOURS.
+#                         Lets a scheduler fire opportunistically (e.g. launchd
+#                         RunAtLoad, which is how darwin catches up on a run
+#                         missed while the Mac was off) without re-syncing on
+#                         every login. A successful, non-dry-run backup records
+#                         its finish time in $stamp_file.
 #   --allow-local-delete  UNSAFE. Switch to RESTORE (gdrive -> local): mirror
 #                         the remote onto the LOCAL tree with rclone sync, which
 #                         can DELETE local files absent from the remote. Requires
@@ -55,42 +77,83 @@
 set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-remote_name="gdrive"                 # rclone remote (see: rclone listremotes)
+remote_name="gdrive" # rclone remote (see: rclone listremotes)
 remote_base="${remote_name}:42245/dotfiles"
 src_root="$HOME"
-max_size="1G"                        # rclone units: 1G == 1 GiB
+max_size="1G" # rclone units: 1G == 1 GiB
 log_dir="$HOME/.cache/claude"
 log_file="$log_dir/rclone-gdrive.log"
+# Last-successful-backup marker for --if-stale. Deliberately NOT under
+# ~/.cache/claude: compress-old-cache zstd-compresses (with --rm) every
+# top-level file there older than a day, which would rename the stamp out from
+# under us. Host-local by design — excluded from the sync below.
+stamp_file="$HOME/.local/state/gdrive-sync/last-success"
 
 usage() {
-	print -r -- "Usage: sync-to-gdrive [--dry-run] [--verbose] [--allow-local-delete]"
+	print -r -- "Usage: sync-to-gdrive [--dry-run] [--verbose] [--if-stale HOURS] [--allow-local-delete]"
 }
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 dry_run=0
 verbose=0
 allow_local_delete=0
-for arg in "$@"; do
-	case "$arg" in
+if_stale=0
+while (($#)); do
+	case "$1" in
 	--dry-run) dry_run=1 ;;
 	--verbose) verbose=1 ;;
 	--allow-local-delete) allow_local_delete=1 ;;
+	--if-stale)
+		if [[ -z "${2:-}" || "$2" != <-> ]]; then
+			print -u2 "sync-to-gdrive: --if-stale requires a whole number of hours"
+			usage
+			exit 2
+		fi
+		if_stale="$2"
+		shift
+		;;
+	--if-stale=*)
+		if_stale="${1#*=}"
+		if [[ "$if_stale" != <-> ]]; then
+			print -u2 "sync-to-gdrive: --if-stale requires a whole number of hours"
+			usage
+			exit 2
+		fi
+		;;
 	-h | --help)
 		usage
 		exit 0
 		;;
 	*)
-		print -u2 "sync-to-gdrive: unknown argument: $arg"
+		print -u2 "sync-to-gdrive: unknown argument: $1"
 		usage
 		exit 2
 		;;
 	esac
+	shift
 done
+
+# ── Staleness gate ────────────────────────────────────────────────────────────
+# Checked before anything else: a scheduler-driven no-op should cost one stat,
+# not the 20s remote-reachability probe below. Backup direction only — a restore
+# is always an explicit, deliberate act and never consults the stamp.
+if ((if_stale > 0 && !allow_local_delete)); then
+	if [[ -r "$stamp_file" ]]; then
+		last_success="$(<"$stamp_file")"
+		now="$(date +%s)"
+		if [[ "$last_success" == <-> ]] && ((now - last_success < if_stale * 3600)); then
+			print "sync-to-gdrive: last successful backup $(((now - last_success) / 60))m ago" \
+				"(< ${if_stale}h) — nothing to do."
+			exit 0
+		fi
+	fi
+fi
 
 # ── Dependency / artifact checks (warn or fail clearly, never silently) ───────
 if ! command -v rclone >/dev/null 2>&1; then
 	print -u2 "sync-to-gdrive: rclone not found."
-	print -u2 "  Install with: nix profile install nixpkgs#rclone"
+	print -u2 "  It ships in the shared package set (home-manager/common.nix):"
+	print -u2 "  run 'task switch' (or 'task home-switch') to install it."
 	exit 1
 fi
 
@@ -108,7 +171,7 @@ missing_src=()
 for d in .config .local; do
 	[[ -d "$src_root/$d" ]] || missing_src+=("$src_root/$d")
 done
-if (( ${#missing_src[@]} )); then
+if ((${#missing_src[@]})); then
 	print -u2 "sync-to-gdrive: WARNING missing source dir(s): ${missing_src[*]}"
 fi
 
@@ -136,16 +199,39 @@ junk_patterns=(
 	# gdrive is breached the DB needs the yubikey (challenge-response) AND the
 	# master password to open — neither is on the remote.
 	'**/yubikey.serial'
-	'/.config/keepassxc/**'        # secret_token, browser-integration secret
-	'/.config/gcloud/**'           # credentials.db / access_tokens.db
-	'/.config/1Password/**'        # 1password.sqlite + local vault cache
-	'/.config/aws/**'              # aws credentials / config
+	'/.config/keepassxc/**' # secret_token, browser-integration secret
+	'/.config/gcloud/**'    # credentials.db / access_tokens.db
+	'/.config/1Password/**' # 1password.sqlite + local vault cache
+	'/.config/aws/**'       # aws credentials / config
+	# rclone's own config holds the gdrive OAuth refresh token — the very
+	# credential this backup authenticates with. Uploading it puts the key to
+	# the remote *on* the remote. Recover it from secrets/rclone-gdrive.json
+	# (sops) instead; see home-manager/modules/sops.nix.
+	'/.config/rclone/**'
+	# Agent session transcripts: replayed tool output routinely contains token
+	# values. Same reasoning as the *.thinking.log rule further down.
+	'/.config/copilot/session-state/**'
+	'/.local/state/.copilot/**'
 	# Browser/Electron session token stores (cookies, tokens, IndexedDB).
 	'**/Cookies'
 	'**/Cookies-journal'
 	'**/Local Storage/**'
 	'**/Session Storage/**'
 	'**/IndexedDB/**'
+	# Chromium password + sync-crypto stores. Encrypted at rest against the OS
+	# keyring, but the keyring is not what protects them once the blob is on a
+	# cloud remote.
+	'**/Login Data'
+	'**/Login Data For Account'
+	'**/Sync Data/**' # Nigori.bin: sync encryption keystore
+	'**/trusted_vault.pb'
+	# Firefox equivalents. The **/Cookies rules above only match Chromium's
+	# naming — Firefox keeps the same data in sqlite under the profile dir.
+	'/.config/mozilla/firefox/*/key4.db'
+	'/.config/mozilla/firefox/*/cert9.db'
+	'/.config/mozilla/firefox/*/logins.json'
+	'/.config/mozilla/firefox/*/cookies.sqlite'
+	'/.config/mozilla/firefox/*/cookies.sqlite-*'
 	# ── Large / regenerable state (nix-managed, git, or reinstallable) ──
 	'/.config/nix/**'
 	'/.config/nix.worktrees/**'
@@ -155,11 +241,30 @@ junk_patterns=(
 	'/.config/nvm/**'
 	'/.local/bin/**'
 	'/.local/share/**'
+	'/.local/lib/**' # py site-packages, vivaldi media codecs
 	'/.local/src/**'
 	'/.local/pipx/**'
-	'/.local/state/nix/**'            # nix profiles: symlinks into /nix/store
-	'/.local/state/home-manager/**'   # HM generations: symlinks into /nix/store
+	'/.local/state/nix/**'          # nix profiles: symlinks into /nix/store
+	'/.local/state/home-manager/**' # HM generations: symlinks into /nix/store
+	'/.local/state/gdrive-sync/**'  # this script's own --if-stale stamp (host-local)
+	'/.local/state/watchyourlan/**' # service DB, rebuilt by rescanning the LAN
 	'/.cache/**'
+	# Multi-hundred-MiB blobs that a reinstall or first launch re-fetches:
+	# the colima VM base disk, and Discord's per-version native modules.
+	'/.config/colima/**'
+	'/.config/discord/[0-9]*/**'
+	# VS Code extension caches / per-workspace UI state — large, host-specific,
+	# and rebuilt on launch. User/settings.json, keybindings.json and the
+	# profiles/ tree are NOT matched here and keep syncing.
+	'/.config/Code/User/globalStorage/**'
+	'/.config/Code/User/History/**'
+	'/.config/Code/User/workspaceStorage/**'
+	'/.config/Code - OSS/User/globalStorage/**'
+	# Firefox IndexedDB / telemetry / session backups under the profile.
+	'/.config/mozilla/firefox/*/storage/**'
+	'/.config/mozilla/firefox/*/datareporting/**'
+	'/.config/mozilla/firefox/*/sessionstore-backups/**'
+	'/.config/mozilla/firefox/Profile Groups/**'
 	# Duplicate config trees (bootstrap cruft mirroring ~/.config).
 	'/.config/.config/**'
 	'/.local/.config/**'
@@ -190,12 +295,12 @@ junk_patterns=(
 	'/.config/kdedefaults/**'
 	'/.config/autostart/**'
 	'/.local/state/UserFeedback.org.kde.*'
-	'**/*staterc'   # KDE UI *staterc files (dolphin, kate, konsole, plasma, …)
+	'**/*staterc' # KDE UI *staterc files (dolphin, kate, konsole, plasma, …)
 	# ── Browser/Electron caches (transient, large, regenerable) ──
-	'**/[Cc]ache/**'         # Cache, cache (Chromium, Firefox, Shared Dictionary)
-	'**/[Cc]ache2/**'        # Firefox disk cache
-	'**/Cached*/**'          # VS Code CachedData/Extensions/Configurations/…
-	'**/CacheStorage/**'     # Service Worker + WebStorage CacheStorage
+	'**/[Cc]ache/**'     # Cache, cache (Chromium, Firefox, Shared Dictionary)
+	'**/[Cc]ache2/**'    # Firefox disk cache
+	'**/Cached*/**'      # VS Code CachedData/Extensions/Configurations/…
+	'**/CacheStorage/**' # Service Worker + WebStorage CacheStorage
 	'**/Code Cache/**'
 	'**/GPUCache/**'
 	'**/ShaderCache/**'
@@ -208,6 +313,103 @@ junk_patterns=(
 	'**/Crashpad/**'
 	'**/Crash Reports/**'
 	'**/component_crx_cache/**'
+	'**/extensions_crx_cache/**'
+	'**/discord_asset_cache/**'
+	# ── Chromium component-updater payloads ──
+	# Each update lands in a NEW version-numbered directory and the old one is
+	# never referenced again. Because the backup pass is `rclone copy` (additive,
+	# by design), nothing on the remote would ever remove the superseded copies:
+	# they accreted ~20 MiB/day. Same story for the `.store.<n>_<timestamp>`
+	# blobs under Safe Browsing — three 18 MiB UrlSoceng generations had already
+	# piled up. All of it re-downloads on demand.
+	'**/Safe Browsing/**'
+	'**/Safe Browsing Cookies*'
+	'**/CertificateRevocation/**'
+	'**/Crowd Deny/**'
+	'**/ActorSafetyLists/**'
+	'**/AmountExtractionHeuristicRegexes/**'
+	'**/CaptchaProviders/**'
+	'**/FileTypePolicies/**'
+	'**/SafetyTips/**'
+	'**/SSLErrorAssistant/**'
+	'**/Subresource Filter/**'
+	'**/TpcdMetadata/**'
+	'**/OptimizationHints/**'
+	'**/OriginTrials/**'
+	'**/PKIMetadata/**'
+	'**/PrivacySandboxAttestationsPreloaded/**'
+	'**/FirstPartySetsPreloaded/**'
+	'**/ProbabilisticRevealTokenRegistry/**'
+	'**/TrustTokenKeyCommitments/**'
+	'**/MEIPreload/**'
+	'**/hyphen-data/**'
+	'**/WidevineCdm/**'
+	'**/WasmTtsEngine/**'
+	'**/OnDeviceHeadSuggestModel/**'
+	'**/ZxcvbnData/**'
+	'**/Dictionaries/**'
+	'**/AdBlockRules/**'
+	'**/AdBlockState*'
+	'**/AdverseAdSiteList.json'
+	'**/Extensions/**' # unpacked CRXs; re-installed from the web store
+	# ── Chromium/Electron runtime state, rewritten on every browser session ──
+	'**/Sessions/**' # Session_<n> / Tabs_<n>: open-tab state
+	'**/Service Worker/**'
+	'**/shared_proto_db/**'
+	'**/WebStorage/**'
+	'**/Shared Dictionary/**'
+	'**/File System/**'
+	'**/GCM Store/**'
+	'**/Extension State/**'
+	'**/Extension Rules/**'
+	'**/Extension Scripts/**'
+	'**/Local Extension Settings/**'
+	'**/Managed Extension Settings/**'
+	'**/Sync Extension Settings/**'
+	'**/Local App Settings/**'
+	'**/Site Characteristics Database/**'
+	'**/Segmentation Platform/**'
+	'**/Feature Engagement Tracker/**'
+	'**/PersistentOriginTrials/**'
+	'**/BudgetDatabase/**'
+	'**/VideoDecodeStats/**'
+	'**/VivaldiThumbnails/**'
+	'**/DIPS'
+	'**/DIPS-wal'
+	'**/History'
+	'**/Favicons'
+	'**/Top Sites'
+	'**/Shortcuts'
+	'**/Web Data'
+	'**/Account Web Data*'
+	'**/Network Persistent State'
+	'**/Network Action Predictor'
+	'**/TransportSecurity'
+	'**/Trust Tokens'
+	'**/MediaDeviceSalts'
+	'**/Visited Links'
+	'**/Variations'
+	'**/Local State'
+	'**/SharedStorage*'
+	'**/QuotaManager*'
+	'**/Affiliation Database'
+	'**/BrowsingTopicsSiteData'
+	'**/SCT Auditing Pending Reports'
+	'**/Reporting and NEL'
+	'**/heavy_ad_intervention_opt_out.db'
+	'**/sentry/**' # crash/telemetry queues (Slack, Discord)
+	'**/logs/**'
+	# LevelDB bookkeeping, present in every Electron app's state dirs.
+	'**/LOG'
+	'**/LOG.old'
+	'**/LOCK'
+	'**/CURRENT'
+	'**/MANIFEST-*'
+	'**/*.ldb'
+	# SQLite sidecars: meaningless without (and often newer than) their .db.
+	'*-journal'
+	'*-wal'
+	'*-shm'
 	# ── Transient artifacts by name, at any depth ──
 	'**/__pycache__/**'
 	'*.pyc'
@@ -223,10 +425,22 @@ junk_patterns=(
 	'SingletonLock'
 	'SingletonCookie'
 	'SingletonSocket'
+	# Atomic-write leftovers: Chromium writes <dir>/.org.chromium.Chromium.XXXXXX
+	# then renames into place, so anything still bearing that name is an orphaned
+	# mid-write temp. 74 had accumulated across Slack/Discord/Code/Vivaldi.
+	'**/.org.chromium.Chromium.*'
+	'**/..com.vivaldi.Vivaldi.*'
+	'**/.com.google.Chrome.*'
+	'**/*.crdownload' # in-progress browser downloads
+	'**/*.part'
+	'**/*.update' # vivaldi search_engines.json.update &c.
+	'**/*.lock'
+	'**/*~'
 	'.DS_Store'
 	'.localized'
 	'Thumbs.db'
-	'.tmp.driveupload'
+	'.tmp.driveupload'       # the marker file …
+	'**/.tmp.driveupload/**' # … and the Drive-client staging dir of the same name
 	'*.log'
 )
 
@@ -263,12 +477,20 @@ done
 print -r -- "- *" >>"$purge_filter"
 
 # ── Shared rclone args ────────────────────────────────────────────────────────
-# --progress gives the live per-file progress display for the whole run.
-base_args=(--fast-list --progress --log-file "$log_file" --log-level INFO)
-(( verbose )) && base_args+=(--verbose)
-(( dry_run )) && base_args+=(--dry-run)
+# --progress gives the live per-file progress display, but only makes sense on a
+# terminal: it repaints continuously, so under the systemd timer (see
+# home-manager/modules/gdrive-sync.nix) it would flood the journal. Non-tty runs
+# get one summary line every 5 minutes instead.
+base_args=(--fast-list --log-file "$log_file" --log-level INFO)
+if [[ -t 1 ]]; then
+	base_args+=(--progress)
+else
+	base_args+=(--stats 5m --stats-one-line)
+fi
+((verbose)) && base_args+=(--verbose)
+((dry_run)) && base_args+=(--dry-run)
 
-if (( allow_local_delete )); then
+if ((allow_local_delete)); then
 	mode="RESTORE (gdrive -> local)"
 	sync_src="$remote_base"
 	sync_dst="$src_root"
@@ -278,17 +500,17 @@ else
 	sync_dst="$remote_base"
 fi
 
-print "sync-to-gdrive: ${mode}$( (( dry_run )) && print -n '  [dry-run]' )"
+print "sync-to-gdrive: ${mode}$( ((dry_run)) && print -n '  [dry-run]')"
 print "  from: $sync_src"
 print "  to:   $sync_dst"
 print "  log:  $log_file"
 
 # ── Confirmation gate for the unsafe direction ────────────────────────────────
-if (( allow_local_delete && ! dry_run )); then
+if ((allow_local_delete && !dry_run)); then
 	print -u2 ""
 	print -u2 "  !!! RESTORE can DELETE local files under ~/.config and ~/.local that are"
 	print -u2 "      not present on the remote. Re-run with --dry-run first to preview."
-	print -n  "  Type 'yes' to proceed: "
+	print -n "  Type 'yes' to proceed: "
 	read -r reply
 	if [[ "$reply" != "yes" ]]; then
 		print "sync-to-gdrive: aborted."
@@ -304,7 +526,7 @@ print "sync-to-gdrive: starting at $(date -Iseconds)"
 # is never removed from the backup.
 xfer_args=(-L --filter-from "$sync_filter" --max-size "$max_size" "${base_args[@]}")
 
-if (( allow_local_delete )); then
+if ((allow_local_delete)); then
 	# RESTORE (unsafe): mirror the remote down onto local; rclone sync may DELETE
 	# local files that are absent from the remote. No purge pass — never delete
 	# on the local side beyond this gated mirror.
@@ -319,6 +541,15 @@ else
 	# the only place a backup run deletes anything, and only ever on gdrive.
 	print "sync-to-gdrive: purging junk patterns from remote"
 	rclone delete "$remote_base" --filter-from "$purge_filter" "${base_args[@]}"
+
+	# Record success for --if-stale. Only here: `set -e` means we never reach
+	# this line if either pass failed, so a failed run stays "stale" and the
+	# next opportunistic trigger retries it. A dry-run transferred nothing and
+	# must not suppress the real one.
+	if ((!dry_run)); then
+		mkdir -p "${stamp_file:h}"
+		print -r -- "$(date +%s)" >"$stamp_file"
+	fi
 fi
 
 print "sync-to-gdrive: done at $(date -Iseconds)"
