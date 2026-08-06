@@ -1,4 +1,5 @@
 import contextlib
+import fcntl
 import importlib.machinery
 import importlib.util
 import io
@@ -114,6 +115,10 @@ class KionAwsRefreshTests(unittest.TestCase):
             cache_dir.parent / f".{cache_dir.name}.legacy",
             cache_dir.parent / f".{cache_dir.name}.pending",
         )
+
+    def cache_lock_path(self, cache_dir=None):
+        cache_dir = cache_dir or self.cache_dir
+        return cache_dir.parent / f".{cache_dir.name}.lock"
 
     def create_physical_cache(self, path, credentials):
         path.mkdir(parents=True)
@@ -393,6 +398,99 @@ class KionAwsRefreshTests(unittest.TestCase):
             self.cache_dir.parent / os.readlink(self.cache_dir), original_generation
         )
         self.assertFalse(pending_path.is_symlink())
+
+    def test_main_held_cache_lock_returns_nonzero_without_mutation(self):
+        self.settings(
+            "cloudtamer.example.test",
+            "fixture-app-key",
+            "123456789012",
+            "fixture-alias",
+            "fixture-car",
+            load=False,
+        )
+        original_generation = self.create_generation(
+            "original", ORIGINAL_CREDENTIALS, publish=True
+        )
+        stale_generation = self.create_generation("stale", NEWER_CREDENTIALS)
+        lock_path = self.cache_lock_path()
+        descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        output = io.StringIO()
+
+        try:
+            with (
+                patch.object(
+                    self.module.pathlib.Path,
+                    "home",
+                    return_value=self.home_dir,
+                ),
+                patch.object(
+                    self.module,
+                    "request_credentials",
+                    return_value=NEW_CREDENTIALS,
+                ),
+                contextlib.redirect_stdout(output),
+                contextlib.redirect_stderr(output),
+            ):
+                status = self.module.main()
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
+        self.assertNotEqual(status, 0)
+        self.assertIn("failed", output.getvalue().lower())
+        for fixture_value in (
+            *ORIGINAL_CREDENTIALS.values(),
+            *NEW_CREDENTIALS.values(),
+            *NEWER_CREDENTIALS.values(),
+            "fixture-app-key",
+        ):
+            self.assertNotIn(fixture_value, output.getvalue())
+        self.assertEqual(
+            self.cache_dir.parent / os.readlink(self.cache_dir), original_generation
+        )
+        self.assert_usable_cache(ORIGINAL_CREDENTIALS)
+        self.assertTrue(stale_generation.is_dir())
+        legacy_path, pending_path = self.cache_state_paths()
+        self.assertFalse(legacy_path.exists())
+        self.assertFalse(pending_path.is_symlink())
+
+    def test_write_cache_cleanup_reads_canonical_target_under_lock(self):
+        self.create_generation("original", ORIGINAL_CREDENTIALS, publish=True)
+        self.create_generation("stale", NEWER_CREDENTIALS)
+        real_cleanup = self.module._cleanup_stale_state
+        real_readlink = self.module.os.readlink
+        cleanup_lock_states = []
+
+        def observe_readlink(path):
+            if pathlib.Path(path) == self.cache_dir:
+                descriptor = os.open(
+                    self.cache_lock_path(), os.O_RDWR | os.O_CREAT, 0o600
+                )
+                try:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        cleanup_lock_states.append(True)
+                    else:
+                        cleanup_lock_states.append(False)
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+                finally:
+                    os.close(descriptor)
+            return real_readlink(path)
+
+        def observe_cleanup(cache_dir):
+            with patch.object(self.module.os, "readlink", side_effect=observe_readlink):
+                return real_cleanup(cache_dir)
+
+        with patch.object(
+            self.module, "_cleanup_stale_state", side_effect=observe_cleanup
+        ):
+            self.module.write_cache(self.cache_dir, NEW_CREDENTIALS)
+
+        self.assertGreaterEqual(len(cleanup_lock_states), 2)
+        self.assertTrue(all(cleanup_lock_states))
+        self.assert_private_generation(NEW_CREDENTIALS)
 
     def test_write_cache_recovers_failed_legacy_migration(self):
         self.create_physical_cache(self.cache_dir, ORIGINAL_CREDENTIALS)
