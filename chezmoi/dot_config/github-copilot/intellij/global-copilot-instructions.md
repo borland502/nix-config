@@ -28,6 +28,12 @@ read that file on demand instead of asking the user.
   payloads, and logs to `~/.cache/copilot` or an existing ignored operational
   directory. Never add ignore rules or force-add ignored files for agent artifacts;
   keep product docs tracked and unrelated changes intact.
+- `~/.config/copilot/` is harness state, not an artifact directory: never write
+  scripts, payloads, diagrams, or fetched files there (Copilot's
+  `session-state/<id>/files/` included — it is session-scoped, and the retention
+  and `cache-scan` lifecycle only covers `~/.cache/copilot`). Put them in
+  `~/.cache/copilot` under a `<date>-<topic>` name, and reference them by that
+  path from plans and handoffs so a later session can still find them.
 - Download attachments and fetched files to named files under
   `~/.cache/copilot/`; do not stream bytes through shell logs.
 - When investigating tool or command failures, inspect recent logs under

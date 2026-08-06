@@ -72,6 +72,27 @@ it today.
       provenance + rebuild steps in agent-reference next to `kac`.
 - [x] Add a gkion line to agent-reference's kac section either way.
 
+## Kion App API key rotation and AWS credential refresh (2026-08-06)
+
+- [x] Local-only App API key rotation: implemented, unit-tested, and registered
+      as the five-day `gov.cms.kion-api-key-rotate` LaunchAgent.
+      `~/.local/bin/kion-api-key-rotate` reads and atomically updates the sole
+      App key in `~/.kion.yml` through Kion's `/api/v3/app-api-key/rotate`
+      endpoint, leaves the old configuration intact on failure, and never logs
+      keys. This tool is intentionally outside the Nix store because its sole
+      credential source is user-local.
+- [ ] Replace `gkion` behind `kac ensure` with a Nix-managed
+      `kion-aws-refresh` direct-API helper. Read the App key from
+      `~/.kion.yml` and account/CAR selection from the existing protected
+      `~/.config/gkion/config.toml`; request temporary credentials from
+      `/api/v3/temporary-credentials/cloud-access-role`; atomically replace
+      only `~/.cache/kion-aws-cache/` with restrictive permissions. Do not
+      copy credentials or the App key into Nix, SOPS, source control, or logs.
+- [ ] Add the shared four-hour proactive refresh schedule through Home Manager:
+      LaunchAgent on Darwin and systemd user timer on NixOS/Linux. Keep
+      on-demand refresh in `kac ensure` for expiry, and cover both paths with
+      mocked HTTP/STS, atomic-write, permission, and scheduler tests.
+
 ## Tier 4 — decisions to record
 
 - [x] nvm/node: keep nvm; add one agent-reference tool-catalog line stating
