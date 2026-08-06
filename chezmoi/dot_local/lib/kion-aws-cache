@@ -9,6 +9,9 @@ _kion_aws_cache_main() {
 	fi
 
 	local cache_root="$HOME/.cache/kion-aws-cache"
+	local cache_parent="${cache_root%/*}"
+	local cache_name="${cache_root##*/}"
+	local generation_prefix=".$cache_name.generation-"
 	local -a vars=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN)
 	local command="${1:-help}"
 
@@ -139,13 +142,51 @@ EOF
 		export AWS_SESSION_TOKEN="$session_token"
 	}
 
+	_kion_aws_cache_generation_target() {
+		local link_path="$1"
+		local target
+
+		[[ -L "$link_path" ]] || return 1
+		target="$(readlink "$link_path")" || return 1
+		[[ "$target" != */* && "$target" == "$generation_prefix"* ]] || return 1
+		printf '%s/%s' "$cache_parent" "$target"
+	}
+
 	_kion_aws_cache_clear() {
-		local name file
+		local name state path target
+		local clear_failed=0
+		local -a generation_targets=()
+
 		for name in "${vars[@]}"; do
 			unset "$name"
-			file="$cache_root/$name"
-			[[ -e "$file" ]] && rm -f "$file"
 		done
+
+		for state in cache pending legacy; do
+			case "$state" in
+			cache) path="$cache_root" ;;
+			pending) path="$cache_parent/.$cache_name.pending" ;;
+			legacy) path="$cache_parent/.$cache_name.legacy" ;;
+			esac
+
+			target="$(_kion_aws_cache_generation_target "$path" 2>/dev/null || true)"
+			if [[ -e "$path" || -L "$path" ]]; then
+				if rm -rf -- "$path"; then
+					[[ -n "$target" ]] && generation_targets+=("$target")
+				else
+					clear_failed=1
+				fi
+			fi
+		done
+
+		for target in "${generation_targets[@]}"; do
+			if ! rm -rf -- "$target"; then
+				clear_failed=1
+			fi
+		done
+		if ((clear_failed)); then
+			echo "Cached AWS credentials could not be cleared." >&2
+			return 1
+		fi
 	}
 
 	_kion_aws_cache_ensure() {

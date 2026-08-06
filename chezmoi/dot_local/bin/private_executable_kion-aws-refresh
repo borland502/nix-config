@@ -83,9 +83,12 @@ def load_settings(
 
     url = kion_settings.get("url")
     api_key = kion_settings.get("api_key")
-    account = gkion_settings.get("account")
-    alias = gkion_settings.get("alias")
-    car = gkion_settings.get("cloud_access_role")
+    target_settings = gkion_settings.get("target")
+    if not isinstance(target_settings, dict):
+        target_settings = {}
+    account = target_settings.get("account")
+    alias = target_settings.get("alias")
+    car = target_settings.get("cloud_access_role")
 
     if (
         not isinstance(url, str)

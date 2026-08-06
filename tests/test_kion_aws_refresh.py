@@ -96,6 +96,7 @@ class KionAwsRefreshTests(unittest.TestCase):
         self.gkion_path.write_text(
             "\n".join(
                 (
+                    "[target]",
                     f'account = "{account}"',
                     f'alias = "{alias}"',
                     f'cloud_access_role = "{car}"',
@@ -219,6 +220,39 @@ class KionAwsRefreshTests(unittest.TestCase):
 
         self.assertEqual(
             settings,
+            (
+                "https://cloudtamer.example.test",
+                "fixture-app-key",
+                "123456789012",
+                "fixture-alias",
+                "fixture-car",
+            ),
+        )
+
+    def test_load_settings_uses_target_table(self):
+        self.kion_path.write_text(
+            "kion:\n  url: cloudtamer.example.test\n  api_key: fixture-app-key\n",
+            encoding="utf-8",
+        )
+        self.gkion_path.write_text(
+            "\n".join(
+                (
+                    'account = "wrong-top-level-account"',
+                    'alias = "wrong-top-level-alias"',
+                    'cloud_access_role = "wrong-top-level-car"',
+                    "",
+                    "[target]",
+                    'account = "123456789012"',
+                    'alias = "fixture-alias"',
+                    'cloud_access_role = "fixture-car"',
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            self.module.load_settings(self.kion_path, self.gkion_path),
             (
                 "https://cloudtamer.example.test",
                 "fixture-app-key",

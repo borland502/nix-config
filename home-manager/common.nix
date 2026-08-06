@@ -848,7 +848,10 @@ in {
   launchd.agents.kion-aws-refresh = lib.mkIf pkgs.stdenv.isDarwin {
     enable = true;
     config = {
-      ProgramArguments = ["${xdgBinHome}/kion-aws-refresh"];
+      ProgramArguments = [
+        "${pkgs.python3}/bin/python3"
+        "${xdgBinHome}/kion-aws-refresh"
+      ];
       StartInterval = 14400;
       StandardOutPath = "${xdgCacheHome}/kion-aws-refresh.log";
       StandardErrorPath = "${xdgCacheHome}/kion-aws-refresh.log";
@@ -876,7 +879,7 @@ in {
       Unit.Description = "Refresh Kion AWS temporary credentials";
       Service = {
         Type = "oneshot";
-        ExecStart = "${xdgBinHome}/kion-aws-refresh";
+        ExecStart = "${pkgs.python3}/bin/python3 ${xdgBinHome}/kion-aws-refresh";
       };
     };
     timers.kion-aws-refresh = {
