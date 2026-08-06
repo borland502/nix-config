@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+import json
+import os
+import pathlib
+import re
+import shutil
+import sys
+import tempfile
+import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+
+
+CACHE_FILES = {
+    "access_key": "AWS_ACCESS_KEY_ID",
+    "secret_access_key": "AWS_SECRET_ACCESS_KEY",
+    "session_token": "AWS_SESSION_TOKEN",
+}
+ENDPOINT = "/api/v3/temporary-credentials/cloud-access-role"
+
+
+class RefreshError(Exception):
+    pass
+
+
+def _read_kion_settings(kion_path: pathlib.Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    in_kion_section = False
+    scalar_line = re.compile(
+        r'^\s+(url|api_key)\s*:\s*("[^"\n]*"|\'[^\'\n]*\'|[^#\s][^#\s]*)\s*(?:#.*)?$'
+    )
+
+    try:
+        lines = kion_path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise RefreshError("Kion settings could not be loaded") from error
+
+    for line in lines:
+        if re.match(r"^kion:\s*(?:#.*)?$", line):
+            in_kion_section = True
+            continue
+        if in_kion_section and line and not line[0].isspace():
+            in_kion_section = False
+        if not in_kion_section:
+            continue
+        match = scalar_line.match(line)
+        if match:
+            value = match.group(2)
+            if value[:1] in ("'", '"'):
+                value = value[1:-1]
+            values[match.group(1)] = value
+
+    return values
+
+
+def _normalise_url(url: str) -> str:
+    candidate = url if "://" in url else f"https://{url}"
+    parsed = urllib.parse.urlsplit(candidate)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RefreshError("Kion URL must use HTTPS")
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", "")
+    )
+
+
+def load_settings(
+    kion_path: pathlib.Path, gkion_path: pathlib.Path
+) -> tuple[str, str, str, str, str]:
+    kion_settings = _read_kion_settings(kion_path)
+    try:
+        with gkion_path.open("rb") as config_file:
+            gkion_settings = tomllib.load(config_file)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise RefreshError("Kion settings could not be loaded") from error
+
+    url = kion_settings.get("url")
+    api_key = kion_settings.get("api_key")
+    account = gkion_settings.get("account")
+    alias = gkion_settings.get("alias")
+    car = gkion_settings.get("cloud_access_role")
+
+    if (
+        not isinstance(url, str)
+        or not url
+        or not isinstance(api_key, str)
+        or not api_key
+        or not isinstance(account, str)
+        or not account
+        or not isinstance(alias, str)
+        or not isinstance(car, str)
+        or not car
+    ):
+        raise RefreshError("Kion settings are incomplete")
+
+    return _normalise_url(url), api_key, account, alias, car
+
+
+def request_credentials(
+    url: str,
+    api_key: str,
+    account: str,
+    alias: str,
+    car: str,
+    opener=urllib.request.urlopen,
+) -> dict[str, str]:
+    request = urllib.request.Request(
+        url.rstrip("/") + ENDPOINT,
+        data=json.dumps(
+            {
+                "account_number": account,
+                "account_alias": alias,
+                "cloud_access_role_name": car,
+            }
+        ).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "kion-source": "kion-aws-refresh",
+        },
+        method="POST",
+    )
+    try:
+        with opener(request, timeout=30) as response:
+            status = response.status
+            body = json.loads(response.read())
+    except (
+        OSError,
+        TimeoutError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        TypeError,
+    ) as error:
+        raise RefreshError("Kion temporary-credential request failed") from error
+
+    data = body.get("data") if isinstance(body, dict) else None
+    if (
+        not isinstance(body, dict)
+        or status not in (200, 201)
+        or body.get("status") not in (200, 201)
+        or not isinstance(data, dict)
+        or any(not isinstance(data.get(key), str) or not data[key] for key in CACHE_FILES)
+    ):
+        raise RefreshError("Kion response did not contain temporary credentials")
+    return {key: data[key] for key in CACHE_FILES}
+
+
+def _remove_directory(directory: pathlib.Path) -> None:
+    if directory.exists() and not directory.is_symlink():
+        shutil.rmtree(directory)
+
+
+def write_cache(cache_dir: pathlib.Path, credentials: dict[str, str]) -> None:
+    cache_dir = pathlib.Path(cache_dir)
+    if any(
+        not isinstance(credentials.get(key), str) or not credentials[key]
+        for key in CACHE_FILES
+    ):
+        raise RefreshError("Temporary credentials are incomplete")
+
+    temporary_dir: pathlib.Path | None = None
+    previous_dir: pathlib.Path | None = None
+    try:
+        cache_dir.parent.mkdir(parents=True, exist_ok=True)
+        temporary_dir = pathlib.Path(
+            tempfile.mkdtemp(prefix=f".{cache_dir.name}.new-", dir=cache_dir.parent)
+        )
+        os.chmod(temporary_dir, 0o700)
+        for credential_key, filename in CACHE_FILES.items():
+            credential_path = temporary_dir / filename
+            descriptor = os.open(
+                credential_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            with os.fdopen(descriptor, "w", encoding="utf-8") as credential_file:
+                credential_file.write(credentials[credential_key])
+            os.chmod(credential_path, 0o600)
+
+        if cache_dir.is_symlink() or (cache_dir.exists() and not cache_dir.is_dir()):
+            raise OSError("Kion cache path is not a directory")
+        if cache_dir.exists():
+            previous_dir = cache_dir.parent / (
+                f".{cache_dir.name}.previous-{uuid.uuid4().hex}"
+            )
+            os.replace(cache_dir, previous_dir)
+
+        os.replace(temporary_dir, cache_dir)
+        temporary_dir = None
+    except OSError as error:
+        if previous_dir is not None and previous_dir.exists() and not cache_dir.exists():
+            try:
+                os.replace(previous_dir, cache_dir)
+            except OSError:
+                pass
+        if temporary_dir is not None:
+            _remove_directory(temporary_dir)
+        raise RefreshError("Kion credential cache could not be replaced") from error
+
+    if previous_dir is not None:
+        try:
+            _remove_directory(previous_dir)
+        except OSError as error:
+            raise RefreshError("Kion credential cache cleanup failed") from error
+
+
+def main() -> int:
+    home_dir = pathlib.Path.home()
+    try:
+        settings = load_settings(
+            home_dir / ".kion.yml", home_dir / ".config" / "gkion" / "config.toml"
+        )
+        credentials = request_credentials(*settings)
+        write_cache(home_dir / ".cache" / "kion-aws-cache", credentials)
+    except RefreshError:
+        print("Kion AWS credential refresh failed.", file=sys.stderr)
+        return 1
+
+    print("Kion AWS credential refresh completed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
