@@ -13,7 +13,7 @@ _kion_aws_cache_main() {
 	local command="${1:-help}"
 
 	# Harden against PATH-stripped subshells (bare `zsh -c`, `env -i`, sudo):
-	# prepend the dirs that hold gkion/aws so validate/refresh still resolve.
+	# prepend the dirs that hold kion-aws-refresh/aws so validate/refresh still resolve.
 	# `local` keeps the caller's PATH untouched; exported AWS_* still persist.
 	local PATH="$PATH" tool_dir
 	for tool_dir in \
@@ -38,7 +38,7 @@ Usage:
   source ~/.local/lib/kion-aws-cache [command]
 
 Commands:
-  ensure  Load valid creds into current shell, refreshing via gkion if needed.
+  ensure  Load valid creds into current shell, refreshing via kion-aws-refresh if needed.
           Preferred entry point: run before the first aws call, check its exit
           code (source ~/.local/bin/kac ensure && aws ...).
   dump    Dump current AWS vars to cache files if they are still valid.
@@ -102,7 +102,7 @@ EOF
 	_kion_aws_cache_dump() {
 		if ! _kion_aws_cache_validate_current; then
 			echo "Current AWS credentials are expired; nothing dumped." >&2
-			echo "Use: source ~/.local/bin/kac ensure   (refreshes via gkion)" >&2
+			echo "Use: source ~/.local/bin/kac ensure   (refreshes via kion-aws-refresh)" >&2
 			return 1
 		fi
 
@@ -130,7 +130,7 @@ EOF
 
 		if ! _kion_aws_cache_validate_values "$access_key_id" "$secret_access_key" "$session_token"; then
 			echo "Cached AWS credentials are expired; 'load' does not refresh." >&2
-			echo "Use: source ~/.local/bin/kac ensure   (refreshes via gkion)" >&2
+			echo "Use: source ~/.local/bin/kac ensure   (refreshes via kion-aws-refresh)" >&2
 			return 1
 		fi
 
@@ -159,25 +159,16 @@ EOF
 			return 0
 		fi
 
-		# 3. Both stale — call gkion to obtain fresh credentials.
-		# gkion env prints "export VAR=value" lines AND writes the same values
-		# to ~/.cache/kion-aws-cache/ (cache.write_files=true in gkion config),
-		# so the cache is updated as a side-effect.
-		if ! command -v gkion >/dev/null 2>&1; then
-			echo "kac ensure: credentials expired and gkion is not installed" >&2
+		# 3. Both stale — refresh the cache directly, then validate and load it.
+		if ! command -v kion-aws-refresh >/dev/null 2>&1; then
+			echo "kac ensure: credentials expired and kion-aws-refresh is not installed" >&2
 			return 1
 		fi
-
-		local exports err_file
-		err_file=$(mktemp "${TMPDIR:-/tmp}/kac-ensure-err.XXXXXX")
-		exports=$(gkion env 2>"$err_file") || {
-			echo "kac ensure: gkion env failed" >&2
-			/bin/cat "$err_file" >&2
-			rm -f "$err_file"
+		if ! kion-aws-refresh; then
+			echo "kac ensure: direct Kion credential refresh failed" >&2
 			return 1
-		}
-		rm -f "$err_file"
-		eval "$exports"
+		fi
+		_kion_aws_cache_load
 	}
 
 	_kion_aws_cache_status() {
