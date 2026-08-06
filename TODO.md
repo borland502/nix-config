@@ -81,17 +81,18 @@ it today.
       endpoint, leaves the old configuration intact on failure, and never logs
       keys. This tool is intentionally outside the Nix store because its sole
       credential source is user-local.
-- [ ] Replace `gkion` behind `kac ensure` with a Nix-managed
-      `kion-aws-refresh` direct-API helper. Read the App key from
-      `~/.kion.yml` and account/CAR selection from the existing protected
-      `~/.config/gkion/config.toml`; request temporary credentials from
-      `/api/v3/temporary-credentials/cloud-access-role`; atomically replace
-      only `~/.cache/kion-aws-cache/` with restrictive permissions. Do not
-      copy credentials or the App key into Nix, SOPS, source control, or logs.
-- [ ] Add the shared four-hour proactive refresh schedule through Home Manager:
-      LaunchAgent on Darwin and systemd user timer on NixOS/Linux. Keep
-      on-demand refresh in `kac ensure` for expiry, and cover both paths with
-      mocked HTTP/STS, atomic-write, permission, and scheduler tests.
+- [x] Replace `gkion` behind `kac ensure` with the Nix-managed
+      `kion-aws-refresh` direct-API helper. It reads the App key only at
+      runtime from `~/.kion.yml` and account/CAR selection from the existing
+      protected `~/.config/gkion/config.toml`, requests temporary credentials
+      from `/api/v3/temporary-credentials/cloud-access-role`, and atomically
+      replaces only `~/.cache/kion-aws-cache/` with restrictive permissions.
+      Neither credentials nor the App key are stored in Nix, SOPS, source
+      control, or logs.
+- [x] Add the shared four-hour proactive refresh schedule through Home Manager:
+      a LaunchAgent on Darwin and systemd user timer on NixOS/Linux. The
+      on-demand `kac ensure` expiry fallback remains in place; mocked HTTP/STS,
+      atomic-write, and permission coverage exercise the direct refresh path.
 
 ## Tier 4 — decisions to record
 

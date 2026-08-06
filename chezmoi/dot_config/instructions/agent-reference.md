@@ -74,7 +74,7 @@ Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
   `AWS_PROFILE`, and `aws --profile <name>` are frequently stale and produce
   `ExpiredTokenException`.
   Source `kac` (must be sourced; works from bash or zsh) to load from cache or
-  refresh automatically via `gkion` if the cache is stale:
+  refresh automatically via `kion-aws-refresh` if the cache is stale:
 
   ```sh
   source ~/.local/bin/kac ensure
@@ -101,9 +101,8 @@ the nix-config repo.
 - **`kac`** — Kion AWS credential cache proxy. Must be **sourced** (not
   executed). Backed by `~/.local/lib/kion-aws-cache`. Commands:
   - `source ~/.local/bin/kac ensure` — **(preferred)** load valid creds into
-    the current shell, refreshing automatically via `gkion` if the cache is
-    empty or expired. `gkion` writes the fresh creds back to
-    `~/.cache/kion-aws-cache/` as a side-effect.
+    the current shell, refreshing automatically via `kion-aws-refresh` if the
+    cache is empty or expired.
   - `source ~/.local/bin/kac dump` — write current valid AWS env vars to
     `~/.cache/kion-aws-cache/`
   - `source ~/.local/bin/kac load` — restore vars from cache into current
@@ -112,11 +111,10 @@ the nix-config repo.
   - `source ~/.local/bin/kac clear` — unset vars and remove cache files
   - `source ~/.local/bin/kac status` — print whether current/cached creds are
     valid
-- **`gkion`** — Kion session CLI that `kac ensure` shells out to for refresh.
-  Built from `~/.local/src/gkion` (chezmoi external of
-  github.com/borland502/gkion; dev copy at `~/Development/gkion`) by the
-  install-go-tools run script — same pipeline as `wordgen`. If `gkion` is
-  missing, `chezmoi apply` rebuilds it.
+- **`kion-aws-refresh`** — Direct Kion API client used by `kac ensure` and the
+  four-hour user scheduler. Reads the App key from `~/.kion.yml` and the
+  existing account/CAR selection from `~/.config/gkion/config.toml`; it writes
+  temporary credentials only to `~/.cache/kion-aws-cache/`.
 - **`monitor-gh-run <run-id>`** — Poll a GitHub Actions run, printing per-job
   status transitions. Cancels older duplicate runs; switches to newer runs
   automatically. Exits 0 on success, 1 on failure. Deps: `gh`, `jq`.
