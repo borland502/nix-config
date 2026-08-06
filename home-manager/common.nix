@@ -882,7 +882,7 @@ in {
     timers.kion-aws-refresh = {
       Unit.Description = "Refresh Kion AWS temporary credentials every four hours";
       Timer = {
-        OnUnitActiveSec = "4h";
+        OnCalendar = "*-*-* 00/4:00:00";
         Persistent = true;
       };
       Install.WantedBy = ["timers.target"];
