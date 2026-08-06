@@ -1,6 +1,9 @@
+import contextlib
 import importlib.machinery
 import importlib.util
+import io
 import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -9,8 +12,27 @@ from unittest.mock import Mock, patch
 
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT_PATH = (
-    REPOSITORY_ROOT / "chezmoi" / "dot_local" / "bin" / "executable_kion-aws-refresh"
+    REPOSITORY_ROOT
+    / "chezmoi"
+    / "dot_local"
+    / "bin"
+    / "private_executable_kion-aws-refresh"
 )
+ORIGINAL_CREDENTIALS = {
+    "access_key": "original-access",
+    "secret_access_key": "original-secret",
+    "session_token": "original-token",
+}
+NEW_CREDENTIALS = {
+    "access_key": "fixture-access",
+    "secret_access_key": "fixture-secret",
+    "session_token": "fixture-token",
+}
+NEWER_CREDENTIALS = {
+    "access_key": "newer-access",
+    "secret_access_key": "newer-secret",
+    "session_token": "newer-token",
+}
 
 
 def load_module():
@@ -34,6 +56,21 @@ class FakeResponse:
 
     def read(self):
         return json.dumps(self.body).encode("utf-8")
+
+
+class FailingWriter:
+    def __init__(self, descriptor):
+        self.descriptor = descriptor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        os.close(self.descriptor)
+        return False
+
+    def write(self, value):
+        raise OSError("simulated credential write failure")
 
 
 class KionAwsRefreshTests(unittest.TestCase):
@@ -70,6 +107,64 @@ class KionAwsRefreshTests(unittest.TestCase):
         if load:
             return self.module.load_settings(self.kion_path, self.gkion_path)
 
+    def cache_state_paths(self, cache_dir=None):
+        cache_dir = cache_dir or self.cache_dir
+        return (
+            cache_dir.parent / f".{cache_dir.name}.legacy",
+            cache_dir.parent / f".{cache_dir.name}.pending",
+        )
+
+    def create_physical_cache(self, path, credentials):
+        path.mkdir(parents=True)
+        os.chmod(path, 0o700)
+        for credential_key, filename in self.module.CACHE_FILES.items():
+            if credential_key not in credentials:
+                continue
+            credential_path = path / filename
+            credential_path.write_text(credentials[credential_key], encoding="utf-8")
+            os.chmod(credential_path, 0o600)
+
+    def create_generation(self, label, credentials, publish=False, complete=True):
+        generation = (
+            self.cache_dir.parent / f".{self.cache_dir.name}.generation-{label}"
+        )
+        generation.parent.mkdir(parents=True, exist_ok=True)
+        values = (
+            credentials
+            if complete
+            else {
+                "access_key": credentials["access_key"],
+                "secret_access_key": credentials["secret_access_key"],
+            }
+        )
+        self.create_physical_cache(generation, values)
+        if publish:
+            os.symlink(generation.name, self.cache_dir)
+        return generation
+
+    def read_cache(self, cache_dir=None):
+        cache_dir = cache_dir or self.cache_dir
+        return {
+            credential_key: (cache_dir / filename).read_text(encoding="utf-8")
+            for credential_key, filename in self.module.CACHE_FILES.items()
+        }
+
+    def assert_usable_cache(self, expected, cache_dir=None):
+        cache_dir = cache_dir or self.cache_dir
+        self.assertTrue(cache_dir.exists())
+        self.assertEqual(self.read_cache(cache_dir), expected)
+
+    def assert_private_generation(self, expected):
+        self.assertTrue(self.cache_dir.is_symlink())
+        target = self.cache_dir.parent / os.readlink(self.cache_dir)
+        self.assertTrue(target.is_dir())
+        self.assertEqual(target.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.read_cache(), expected)
+        for filename in self.module.CACHE_FILES.values():
+            credential_path = target / filename
+            self.assertFalse(credential_path.is_symlink())
+            self.assertEqual(credential_path.stat().st_mode & 0o777, 0o600)
+
     def test_request_uses_car_endpoint_and_atomically_writes_private_cache(self):
         settings = self.settings(
             "https://cloudtamer.example.test",
@@ -83,11 +178,7 @@ class KionAwsRefreshTests(unittest.TestCase):
                 201,
                 {
                     "status": 201,
-                    "data": {
-                        "access_key": "fixture-access",
-                        "secret_access_key": "fixture-secret",
-                        "session_token": "fixture-token",
-                    },
+                    "data": NEW_CREDENTIALS,
                 },
             )
         )
@@ -101,6 +192,7 @@ class KionAwsRefreshTests(unittest.TestCase):
             "https://cloudtamer.example.test"
             "/api/v3/temporary-credentials/cloud-access-role",
         )
+        self.assertEqual(request.get_method(), "POST")
         self.assertEqual(
             json.loads(request.data),
             {
@@ -109,10 +201,12 @@ class KionAwsRefreshTests(unittest.TestCase):
                 "cloud_access_role_name": "fixture-car",
             },
         )
+        self.assertEqual(request.get_header("Accept"), "application/json")
+        self.assertEqual(request.get_header("Content-type"), "application/json")
         self.assertEqual(request.get_header("Authorization"), "Bearer fixture-app-key")
-        self.assertEqual(self.cache_dir.stat().st_mode & 0o777, 0o700)
-        for filename in self.module.CACHE_FILES.values():
-            self.assertEqual((self.cache_dir / filename).stat().st_mode & 0o777, 0o600)
+        self.assertEqual(request.get_header("Kion-source"), "kion-aws-refresh")
+        opener.assert_called_once_with(request, timeout=30)
+        self.assert_private_generation(NEW_CREDENTIALS)
 
     def test_load_settings_normalizes_host_only_url(self):
         settings = self.settings(
@@ -167,14 +261,12 @@ class KionAwsRefreshTests(unittest.TestCase):
                 500,
                 {
                     "status": 201,
-                    "data": {
-                        "access_key": "fixture-access",
-                        "secret_access_key": "fixture-secret",
-                        "session_token": "fixture-token",
-                    },
+                    "data": NEW_CREDENTIALS,
                 },
             ),
-            FakeResponse(201, {"status": 201, "data": {"access_key": "fixture-access"}}),
+            FakeResponse(
+                201, {"status": 201, "data": {"access_key": "fixture-access"}}
+            ),
         )
 
         for response in responses:
@@ -189,42 +281,155 @@ class KionAwsRefreshTests(unittest.TestCase):
                         opener=Mock(return_value=response),
                     )
 
-    def test_write_cache_preserves_existing_cache_when_replacement_fails(self):
-        original = {
-            "AWS_ACCESS_KEY_ID": b"old-access",
-            "AWS_SECRET_ACCESS_KEY": b"old-secret",
-            "AWS_SESSION_TOKEN": b"old-token",
-        }
-        self.cache_dir.mkdir(parents=True)
-        for filename, contents in original.items():
-            (self.cache_dir / filename).write_bytes(contents)
-
+    def test_write_cache_failure_before_publish_preserves_original_generation(self):
+        original_generation = self.create_generation(
+            "original", ORIGINAL_CREDENTIALS, publish=True
+        )
+        _, pending_path = self.cache_state_paths()
         real_replace = self.module.os.replace
-        replacement_attempts = 0
+        publish_attempted = False
 
-        def fail_new_cache_replacement(source, destination):
-            nonlocal replacement_attempts
-            if pathlib.Path(destination) == self.cache_dir:
-                replacement_attempts += 1
-                if replacement_attempts == 1:
-                    raise OSError("simulated replacement failure")
+        def fail_publish(source, destination):
+            nonlocal publish_attempted
+            if (
+                pathlib.Path(source) == pending_path
+                and pathlib.Path(destination) == self.cache_dir
+            ):
+                publish_attempted = True
+                raise OSError("simulated publish failure")
             return real_replace(source, destination)
 
-        with patch.object(self.module.os, "replace", side_effect=fail_new_cache_replacement):
+        with patch.object(self.module.os, "replace", side_effect=fail_publish):
             with self.assertRaises(self.module.RefreshError):
-                self.module.write_cache(
-                    self.cache_dir,
-                    {
-                        "access_key": "fixture-access",
-                        "secret_access_key": "fixture-secret",
-                        "session_token": "fixture-token",
-                    },
-                )
+                self.module.write_cache(self.cache_dir, NEW_CREDENTIALS)
 
+        self.assertTrue(publish_attempted)
+        self.assert_usable_cache(ORIGINAL_CREDENTIALS)
         self.assertEqual(
-            {filename: (self.cache_dir / filename).read_bytes() for filename in original},
-            original,
+            self.cache_dir.parent / os.readlink(self.cache_dir), original_generation
         )
+        self.assertFalse(pending_path.is_symlink())
+
+    def test_write_cache_recovers_failed_legacy_migration(self):
+        self.create_physical_cache(self.cache_dir, ORIGINAL_CREDENTIALS)
+        legacy_path, pending_path = self.cache_state_paths()
+        real_replace = self.module.os.replace
+
+        def fail_publish_and_rollback(source, destination):
+            source = pathlib.Path(source)
+            destination = pathlib.Path(destination)
+            if source == pending_path and destination == self.cache_dir:
+                raise OSError("simulated publish failure")
+            if source == legacy_path and destination == self.cache_dir:
+                raise OSError("simulated rollback failure")
+            return real_replace(source, destination)
+
+        with patch.object(
+            self.module.os, "replace", side_effect=fail_publish_and_rollback
+        ):
+            with self.assertRaises(self.module.RefreshError):
+                self.module.write_cache(self.cache_dir, NEW_CREDENTIALS)
+
+        self.assertFalse(self.cache_dir.exists())
+        self.assertTrue(legacy_path.is_dir())
+        self.assertTrue(pending_path.is_symlink())
+        self.assert_usable_cache(NEW_CREDENTIALS, pending_path)
+
+        self.module.write_cache(self.cache_dir, NEW_CREDENTIALS)
+
+        self.assert_private_generation(NEW_CREDENTIALS)
+        self.assertFalse(legacy_path.exists())
+        self.assertFalse(pending_path.is_symlink())
+
+    def test_write_cache_recovers_stale_transaction_before_new_write_fails(self):
+        legacy_path, pending_path = self.cache_state_paths()
+        self.create_physical_cache(legacy_path, ORIGINAL_CREDENTIALS)
+        incomplete_generation = self.create_generation(
+            "incomplete", NEW_CREDENTIALS, complete=False
+        )
+        os.symlink(incomplete_generation.name, pending_path)
+
+        with patch.object(
+            self.module.tempfile,
+            "mkdtemp",
+            side_effect=OSError("simulated generation creation failure"),
+        ):
+            with self.assertRaises(self.module.RefreshError):
+                self.module.write_cache(self.cache_dir, NEW_CREDENTIALS)
+
+        self.assert_usable_cache(ORIGINAL_CREDENTIALS)
+        self.assertFalse(legacy_path.exists())
+        self.assertFalse(pending_path.is_symlink())
+        self.assertFalse(incomplete_generation.exists())
+
+    def test_write_cache_write_and_chmod_errors_preserve_original_generation(self):
+        for failure in ("write", "chmod"):
+            with self.subTest(failure=failure):
+                cache_dir = self.home_dir / ".cache" / f"kion-aws-cache-{failure}"
+                self.cache_dir = cache_dir
+                self.create_generation("original", ORIGINAL_CREDENTIALS, publish=True)
+                real_chmod = self.module.os.chmod
+
+                def fail_file_chmod(path, mode):
+                    if pathlib.Path(path).name == "AWS_SECRET_ACCESS_KEY":
+                        raise OSError("simulated credential chmod failure")
+                    return real_chmod(path, mode)
+
+                patcher = (
+                    patch.object(
+                        self.module.os,
+                        "fdopen",
+                        side_effect=lambda descriptor, *args, **kwargs: FailingWriter(
+                            descriptor
+                        ),
+                    )
+                    if failure == "write"
+                    else patch.object(
+                        self.module.os, "chmod", side_effect=fail_file_chmod
+                    )
+                )
+                with patcher:
+                    with self.assertRaises(self.module.RefreshError):
+                        self.module.write_cache(cache_dir, NEW_CREDENTIALS)
+
+                self.assert_usable_cache(ORIGINAL_CREDENTIALS, cache_dir)
+                _, pending_path = self.cache_state_paths(cache_dir)
+                self.assertFalse(pending_path.is_symlink())
+
+    def test_write_cache_cleanup_error_keeps_new_generation_and_retries_later(self):
+        original_generation = self.create_generation(
+            "original", ORIGINAL_CREDENTIALS, publish=True
+        )
+        real_rmtree = self.module.shutil.rmtree
+
+        def fail_original_cleanup(path):
+            if pathlib.Path(path) == original_generation:
+                raise OSError("simulated stale generation cleanup failure")
+            return real_rmtree(path)
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with patch.object(
+                self.module.shutil, "rmtree", side_effect=fail_original_cleanup
+            ):
+                self.module.write_cache(self.cache_dir, NEW_CREDENTIALS)
+
+        self.assert_private_generation(NEW_CREDENTIALS)
+        self.assertTrue(original_generation.exists())
+        self.assertIn("cleanup", stderr.getvalue().lower())
+        for fixture_value in ORIGINAL_CREDENTIALS.values():
+            self.assertNotIn(fixture_value, stderr.getvalue())
+        for fixture_value in NEW_CREDENTIALS.values():
+            self.assertNotIn(fixture_value, stderr.getvalue())
+
+        self.module.write_cache(self.cache_dir, NEWER_CREDENTIALS)
+
+        self.assert_private_generation(NEWER_CREDENTIALS)
+        self.assertFalse(original_generation.exists())
+        generation_paths = list(
+            self.cache_dir.parent.glob(f".{self.cache_dir.name}.generation-*")
+        )
+        self.assertEqual(len(generation_paths), 1)
 
 
 if __name__ == "__main__":
