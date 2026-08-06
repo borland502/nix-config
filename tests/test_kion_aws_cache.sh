@@ -12,6 +12,15 @@ mkdir -p "$fixture_bin" "$root/home/.local/bin" "$root/home/.local/lib" "$cache_
 cp "$repository_root/chezmoi/dot_local/lib/kion-aws-cache" "$root/home/.local/lib/kion-aws-cache"
 cp "$repository_root/chezmoi/dot_local/bin/executable_kac" "$root/home/.local/bin/kac"
 
+cat >"$fixture_bin/dirname" <<'EOF'
+#!/bin/bash
+if [[ "$1" == "--" ]]; then
+	shift
+fi
+printf '%s\n' "${1%/*}"
+EOF
+chmod 700 "$fixture_bin/dirname"
+
 reset_stale_cache() {
 	printf stale-cache-access >"$cache_dir/AWS_ACCESS_KEY_ID"
 	printf stale-cache-secret >"$cache_dir/AWS_SECRET_ACCESS_KEY"
@@ -38,12 +47,24 @@ EOF
 	chmod 700 "$fixture_bin/kion-aws-refresh"
 }
 
+write_invalid_cache_refresher() {
+	cat >"$fixture_bin/kion-aws-refresh" <<'EOF'
+#!/usr/bin/env bash
+mkdir -p "$HOME/.cache/kion-aws-cache"
+printf invalid-refresh-access >"$HOME/.cache/kion-aws-cache/AWS_ACCESS_KEY_ID"
+printf invalid-refresh-secret >"$HOME/.cache/kion-aws-cache/AWS_SECRET_ACCESS_KEY"
+printf invalid-refresh-token >"$HOME/.cache/kion-aws-cache/AWS_SESSION_TOKEN"
+EOF
+	chmod 700 "$fixture_bin/kion-aws-refresh"
+}
+
 assert_no_credentials() {
 	local output="$1" value
 	for value in \
 		stale-current-access stale-current-secret stale-current-token \
 		stale-cache-access stale-cache-secret stale-cache-token \
-		fixture-access fixture-secret fixture-token; do
+		fixture-access fixture-secret fixture-token \
+		invalid-refresh-access invalid-refresh-secret invalid-refresh-token; do
 		if [[ "$output" == *"$value"* ]]; then
 			echo "credential value leaked to command output" >&2
 			return 1
@@ -84,6 +105,10 @@ case "${AWS_ACCESS_KEY_ID:-}:${AWS_SECRET_ACCESS_KEY:-}:${AWS_SESSION_TOKEN:-}" 
 		printf 'refreshed\n' >>"$AWS_TEST_TRACE"
 		exit 0
 		;;
+	invalid-refresh-access:invalid-refresh-secret:invalid-refresh-token)
+		printf 'invalid-refreshed\n' >>"$AWS_TEST_TRACE"
+		exit 1
+		;;
 	*)
 		echo "fixture aws received unexpected credentials" >&2
 		exit 65
@@ -117,20 +142,58 @@ assert_no_credentials "$success_output"
 
 reset_stale_cache
 rm -f "$fixture_bin/kion-aws-refresh"
+cat >"$root/missing-refresher-test" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+command() {
+	if [[ "$#" -eq 2 && "$1" == "-v" && "$2" == "kion-aws-refresh" ]]; then
+		return 1
+	fi
+	builtin command "$@"
+}
+
+aws() {
+	if [[ "$#" -ne 2 || "$1" != sts || "$2" != get-caller-identity ]]; then
+		return 64
+	fi
+
+	case "${AWS_ACCESS_KEY_ID:-}:${AWS_SECRET_ACCESS_KEY:-}:${AWS_SESSION_TOKEN:-}" in
+		stale-current-access:stale-current-secret:stale-current-token)
+			printf 'current\n' >>"$AWS_TEST_TRACE"
+			return 1
+			;;
+		stale-cache-access:stale-cache-secret:stale-cache-token)
+			printf 'cached\n' >>"$AWS_TEST_TRACE"
+			return 1
+			;;
+		*)
+			return 65
+			;;
+	esac
+}
+
+set +e
+source "$HOME/.local/bin/kac" ensure
+status=$?
+set -e
+[[ "$AWS_ACCESS_KEY_ID" == stale-current-access ]]
+[[ "$AWS_SECRET_ACCESS_KEY" == stale-current-secret ]]
+[[ "$AWS_SESSION_TOKEN" == stale-current-token ]]
+exit "$status"
+EOF
+chmod 700 "$root/missing-refresher-test"
 set +e
 missing_output="$(
-	HOME="$root/home" \
-	PATH="$fixture_bin:$PATH" \
-	AWS_TEST_TRACE="$trace_file" \
-	AWS_ACCESS_KEY_ID=stale-current-access \
-	AWS_SECRET_ACCESS_KEY=stale-current-secret \
-	AWS_SESSION_TOKEN=stale-current-token \
-	bash -c 'source "$HOME/.local/bin/kac" ensure
-		status=$?
-		[[ "$AWS_ACCESS_KEY_ID" = stale-current-access &&
-			"$AWS_SECRET_ACCESS_KEY" = stale-current-secret &&
-			"$AWS_SESSION_TOKEN" = stale-current-token ]]
-		exit "$status"' 2>&1
+	env -i \
+		HOME="$root/home" \
+		USER=fixture-user \
+		PATH="$fixture_bin" \
+		AWS_TEST_TRACE="$trace_file" \
+		AWS_ACCESS_KEY_ID=stale-current-access \
+		AWS_SECRET_ACCESS_KEY=stale-current-secret \
+		AWS_SESSION_TOKEN=stale-current-token \
+		/bin/bash --noprofile --norc "$root/missing-refresher-test" 2>&1
 )"
 missing_status=$?
 set -e
@@ -164,3 +227,27 @@ set -e
 assert_trace $'current\ncached'
 assert_invocation_count 2
 assert_no_credentials "$failing_output"
+
+reset_stale_cache
+write_invalid_cache_refresher
+set +e
+invalid_cache_output="$(
+	HOME="$root/home" \
+	PATH="$fixture_bin:$PATH" \
+	AWS_TEST_TRACE="$trace_file" \
+	AWS_ACCESS_KEY_ID=stale-current-access \
+	AWS_SECRET_ACCESS_KEY=stale-current-secret \
+	AWS_SESSION_TOKEN=stale-current-token \
+	bash -c 'source "$HOME/.local/bin/kac" ensure
+		status=$?
+		[[ "$AWS_ACCESS_KEY_ID" = stale-current-access &&
+			"$AWS_SECRET_ACCESS_KEY" = stale-current-secret &&
+			"$AWS_SESSION_TOKEN" = stale-current-token ]]
+		exit "$status"' 2>&1
+)"
+invalid_cache_status=$?
+set -e
+[[ "$invalid_cache_status" -ne 0 ]]
+assert_trace $'current\ncached\ninvalid-refreshed'
+assert_invocation_count 3
+assert_no_credentials "$invalid_cache_output"

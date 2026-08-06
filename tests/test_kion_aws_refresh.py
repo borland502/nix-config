@@ -281,6 +281,56 @@ class KionAwsRefreshTests(unittest.TestCase):
                         opener=Mock(return_value=response),
                     )
 
+    def test_main_never_outputs_credentials_or_exports(self):
+        self.settings(
+            "cloudtamer.example.test",
+            "fixture-app-key",
+            "123456789012",
+            "fixture-alias",
+            "fixture-car",
+            load=False,
+        )
+        cases = (
+            (
+                "success",
+                FakeResponse(201, {"status": 201, "data": NEW_CREDENTIALS}),
+                0,
+                "completed",
+            ),
+            (
+                "failure",
+                FakeResponse(500, {"status": 500, "data": NEW_CREDENTIALS}),
+                1,
+                "failed",
+            ),
+        )
+
+        for name, response, expected_status, expected_message in cases:
+            with self.subTest(name=name):
+                output = io.StringIO()
+                opener = Mock(return_value=response)
+                with (
+                    patch.object(
+                        self.module.pathlib.Path,
+                        "home",
+                        return_value=self.home_dir,
+                    ),
+                    patch.object(
+                        self.module.request_credentials,
+                        "__defaults__",
+                        (opener,),
+                    ),
+                    contextlib.redirect_stdout(output),
+                    contextlib.redirect_stderr(output),
+                ):
+                    self.assertEqual(self.module.main(), expected_status)
+
+                self.assertIn(expected_message, output.getvalue().lower())
+                self.assertNotIn("export", output.getvalue().lower())
+                for credential in (*NEW_CREDENTIALS.values(), "fixture-app-key"):
+                    self.assertNotIn(credential, output.getvalue())
+                opener.assert_called_once()
+
     def test_write_cache_failure_before_publish_preserves_original_generation(self):
         original_generation = self.create_generation(
             "original", ORIGINAL_CREDENTIALS, publish=True
