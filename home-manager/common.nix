@@ -845,6 +845,19 @@ in {
     };
   };
 
+  launchd.agents.kion-aws-refresh = lib.mkIf pkgs.stdenv.isDarwin {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "${pkgs.python3}/bin/python3"
+        "${xdgBinHome}/kion-aws-refresh"
+      ];
+      StartInterval = 14400;
+      StandardOutPath = "${xdgCacheHome}/kion-aws-refresh.log";
+      StandardErrorPath = "${xdgCacheHome}/kion-aws-refresh.log";
+    };
+  };
+
   systemd.user = lib.mkIf pkgs.stdenv.isLinux {
     services.compress-old-cache = {
       Unit.Description = "Compress old agent cache files with zstd";
@@ -858,6 +871,21 @@ in {
       Unit.Description = "Daily compression of old agent cache files";
       Timer = {
         OnCalendar = "*-*-* 03:17:00";
+        Persistent = true;
+      };
+      Install.WantedBy = ["timers.target"];
+    };
+    services.kion-aws-refresh = {
+      Unit.Description = "Refresh Kion AWS temporary credentials";
+      Service = {
+        Type = "oneshot";
+        ExecStart = "${pkgs.python3}/bin/python3 ${xdgBinHome}/kion-aws-refresh";
+      };
+    };
+    timers.kion-aws-refresh = {
+      Unit.Description = "Refresh Kion AWS temporary credentials every four hours";
+      Timer = {
+        OnCalendar = "*-*-* 00/4:00:00";
         Persistent = true;
       };
       Install.WantedBy = ["timers.target"];

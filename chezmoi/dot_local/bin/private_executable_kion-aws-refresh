@@ -1,0 +1,550 @@
+#!/usr/bin/env python3
+import contextlib
+import json
+import os
+import pathlib
+import re
+import shutil
+import sys
+import tempfile
+import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
+
+
+LIBRARY_DIR = pathlib.Path(__file__).resolve().parent.parent / "lib"
+sys.path.insert(0, str(LIBRARY_DIR))
+
+from kion_aws_cache_lock import (  # noqa: E402
+    CacheLockBusyError,
+    CacheLockError,
+    cache_lock,
+)
+
+
+CACHE_FILES = {
+    "access_key": "AWS_ACCESS_KEY_ID",
+    "secret_access_key": "AWS_SECRET_ACCESS_KEY",
+    "session_token": "AWS_SESSION_TOKEN",
+}
+ENDPOINT = "/api/v3/temporary-credentials/cloud-access-role"
+
+
+class RefreshError(Exception):
+    pass
+
+
+def _read_kion_settings(kion_path: pathlib.Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    in_kion_section = False
+    scalar_line = re.compile(
+        r'^\s+(url|api_key)\s*:\s*("[^"\n]*"|\'[^\'\n]*\'|[^#\s][^#\s]*)\s*(?:#.*)?$'
+    )
+
+    try:
+        lines = kion_path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise RefreshError("Kion settings could not be loaded") from error
+
+    for line in lines:
+        if re.match(r"^kion:\s*(?:#.*)?$", line):
+            in_kion_section = True
+            continue
+        if in_kion_section and line and not line[0].isspace():
+            in_kion_section = False
+        if not in_kion_section:
+            continue
+        match = scalar_line.match(line)
+        if match:
+            value = match.group(2)
+            if value[:1] in ("'", '"'):
+                value = value[1:-1]
+            values[match.group(1)] = value
+
+    return values
+
+
+def _normalise_url(url: str) -> str:
+    candidate = url if "://" in url else f"https://{url}"
+    parsed = urllib.parse.urlsplit(candidate)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RefreshError("Kion URL must use HTTPS")
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", "")
+    )
+
+
+def load_settings(
+    kion_path: pathlib.Path, gkion_path: pathlib.Path
+) -> tuple[str, str, str, str, str]:
+    kion_settings = _read_kion_settings(kion_path)
+    try:
+        with gkion_path.open("rb") as config_file:
+            gkion_settings = tomllib.load(config_file)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise RefreshError("Kion settings could not be loaded") from error
+
+    url = kion_settings.get("url")
+    api_key = kion_settings.get("api_key")
+    target_settings = gkion_settings.get("target")
+    if not isinstance(target_settings, dict):
+        target_settings = {}
+    account = target_settings.get("account")
+    alias = target_settings.get("alias")
+    car = target_settings.get("cloud_access_role")
+
+    if (
+        not isinstance(url, str)
+        or not url
+        or not isinstance(api_key, str)
+        or not api_key
+        or not isinstance(account, str)
+        or not account
+        or not isinstance(alias, str)
+        or not isinstance(car, str)
+        or not car
+    ):
+        raise RefreshError("Kion settings are incomplete")
+
+    return _normalise_url(url), api_key, account, alias, car
+
+
+def request_credentials(
+    url: str,
+    api_key: str,
+    account: str,
+    alias: str,
+    car: str,
+    opener=urllib.request.urlopen,
+) -> dict[str, str]:
+    request = urllib.request.Request(
+        url.rstrip("/") + ENDPOINT,
+        data=json.dumps(
+            {
+                "account_number": account,
+                "account_alias": alias,
+                "cloud_access_role_name": car,
+            }
+        ).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "kion-source": "kion-aws-refresh",
+        },
+        method="POST",
+    )
+    try:
+        with opener(request, timeout=30) as response:
+            status = response.status
+            body = json.loads(response.read())
+    except (
+        OSError,
+        TimeoutError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        TypeError,
+    ) as error:
+        raise RefreshError("Kion temporary-credential request failed") from error
+
+    data = body.get("data") if isinstance(body, dict) else None
+    if (
+        not isinstance(body, dict)
+        or status not in (200, 201)
+        or body.get("status") not in (200, 201)
+        or not isinstance(data, dict)
+        or any(
+            not isinstance(data.get(key), str) or not data[key] for key in CACHE_FILES
+        )
+    ):
+        raise RefreshError("Kion response did not contain temporary credentials")
+    return {key: data[key] for key in CACHE_FILES}
+
+
+def _cache_state_paths(
+    cache_dir: pathlib.Path,
+) -> tuple[pathlib.Path, pathlib.Path, str]:
+    state_prefix = f".{cache_dir.name}"
+    return (
+        cache_dir.parent / f"{state_prefix}.legacy",
+        cache_dir.parent / f"{state_prefix}.pending",
+        f"{state_prefix}.generation-",
+    )
+
+
+@contextlib.contextmanager
+def _cache_lock(cache_dir: pathlib.Path):
+    try:
+        with cache_lock(cache_dir):
+            yield
+    except CacheLockBusyError as error:
+        raise RefreshError(
+            "Kion credential cache refresh is already in progress"
+        ) from error
+    except CacheLockError as error:
+        raise RefreshError(
+            "Kion credential cache lock could not be acquired"
+        ) from error
+
+
+def _path_exists(path: pathlib.Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def _is_complete_cache(directory: pathlib.Path) -> bool:
+    try:
+        if directory.is_symlink() or not directory.is_dir():
+            return False
+        return all(
+            not (directory / filename).is_symlink()
+            and (directory / filename).is_file()
+            and (directory / filename).stat().st_size > 0
+            for filename in CACHE_FILES.values()
+        )
+    except OSError:
+        return False
+
+
+def _generation_link_target(
+    link_path: pathlib.Path, generation_prefix: str
+) -> pathlib.Path | None:
+    if not link_path.is_symlink():
+        return None
+    try:
+        raw_target = os.readlink(link_path)
+    except OSError:
+        return None
+    relative_target = pathlib.PurePath(raw_target)
+    if (
+        relative_target.is_absolute()
+        or len(relative_target.parts) != 1
+        or not relative_target.name.startswith(generation_prefix)
+    ):
+        return None
+    return link_path.parent / relative_target.name
+
+
+def _complete_generation_link_target(
+    link_path: pathlib.Path, generation_prefix: str
+) -> pathlib.Path | None:
+    target = _generation_link_target(link_path, generation_prefix)
+    return target if target is not None and _is_complete_cache(target) else None
+
+
+def _fsync_directory(directory: pathlib.Path) -> None:
+    descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _replace_and_sync(
+    source: pathlib.Path, destination: pathlib.Path, parent: pathlib.Path
+) -> None:
+    os.replace(source, destination)
+    _fsync_directory(parent)
+
+
+def _remove_path(path: pathlib.Path) -> None:
+    if path.is_symlink() or (path.exists() and not path.is_dir()):
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def _cleanup_paths(paths: list[pathlib.Path]) -> bool:
+    cleanup_failed = False
+    seen: set[pathlib.Path] = set()
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            _remove_path(path)
+        except OSError:
+            cleanup_failed = True
+    return cleanup_failed
+
+
+def _warn_cleanup() -> None:
+    print(
+        "Kion credential cache cleanup was incomplete and will be retried.",
+        file=sys.stderr,
+    )
+
+
+def _cleanup_unpublished(pending_path: pathlib.Path, generation: pathlib.Path) -> bool:
+    try:
+        _remove_path(pending_path)
+    except OSError:
+        return True
+    return _cleanup_paths([generation])
+
+
+def _cleanup_stale_state(cache_dir: pathlib.Path) -> None:
+    legacy_path, pending_path, generation_prefix = _cache_state_paths(cache_dir)
+    protected_generation = _complete_generation_link_target(
+        cache_dir, generation_prefix
+    )
+    try:
+        generations = list(cache_dir.parent.glob(f"{generation_prefix}*"))
+    except OSError:
+        _warn_cleanup()
+        return
+    stale_paths = [pending_path, legacy_path]
+    stale_paths.extend(
+        generation for generation in generations if generation != protected_generation
+    )
+    if _cleanup_paths(stale_paths):
+        _warn_cleanup()
+
+
+def _publish_pending_over_link(
+    cache_dir: pathlib.Path,
+    pending_path: pathlib.Path,
+    generation: pathlib.Path,
+    generation_prefix: str,
+) -> None:
+    try:
+        _replace_and_sync(pending_path, cache_dir, cache_dir.parent)
+    except OSError as error:
+        published_target = _complete_generation_link_target(
+            cache_dir, generation_prefix
+        )
+        cleanup_failed = False
+        if published_target != generation:
+            cleanup_failed = _cleanup_unpublished(pending_path, generation)
+        message = "Kion credential cache could not be published"
+        if cleanup_failed:
+            message += "; incomplete transaction cleanup will be retried"
+        raise RefreshError(message) from error
+
+
+def _restore_legacy_after_failed_migration(
+    cache_dir: pathlib.Path,
+    legacy_path: pathlib.Path,
+    pending_path: pathlib.Path,
+    generation: pathlib.Path,
+    migration_error: OSError,
+) -> None:
+    try:
+        _replace_and_sync(legacy_path, cache_dir, cache_dir.parent)
+    except OSError as rollback_error:
+        raise RefreshError(
+            "Kion credential cache migration failed and rollback could not be completed"
+        ) from rollback_error
+    cleanup_failed = _cleanup_unpublished(pending_path, generation)
+    message = "Kion credential cache could not be published"
+    if cleanup_failed:
+        message += "; incomplete transaction cleanup will be retried"
+    raise RefreshError(message) from migration_error
+
+
+def _publish_pending_over_legacy(
+    cache_dir: pathlib.Path,
+    legacy_path: pathlib.Path,
+    pending_path: pathlib.Path,
+    generation: pathlib.Path,
+) -> None:
+    if _path_exists(legacy_path):
+        raise RefreshError("Kion credential cache legacy transaction is unresolved")
+    try:
+        _replace_and_sync(cache_dir, legacy_path, cache_dir.parent)
+    except OSError as migration_error:
+        if not _path_exists(cache_dir) and _is_complete_cache(legacy_path):
+            _restore_legacy_after_failed_migration(
+                cache_dir,
+                legacy_path,
+                pending_path,
+                generation,
+                migration_error,
+            )
+        cleanup_failed = _cleanup_unpublished(pending_path, generation)
+        message = "Kion credential cache could not begin legacy migration"
+        if cleanup_failed:
+            message += "; incomplete transaction cleanup will be retried"
+        raise RefreshError(message) from migration_error
+
+    try:
+        _replace_and_sync(pending_path, cache_dir, cache_dir.parent)
+    except OSError as publish_error:
+        _restore_legacy_after_failed_migration(
+            cache_dir,
+            legacy_path,
+            pending_path,
+            generation,
+            publish_error,
+        )
+
+
+def _recover_cache_state(cache_dir: pathlib.Path) -> None:
+    legacy_path, pending_path, generation_prefix = _cache_state_paths(cache_dir)
+    pending_target = _complete_generation_link_target(pending_path, generation_prefix)
+
+    if cache_dir.is_symlink():
+        if _complete_generation_link_target(cache_dir, generation_prefix) is not None:
+            _cleanup_stale_state(cache_dir)
+            return
+        if pending_target is not None:
+            try:
+                _replace_and_sync(pending_path, cache_dir, cache_dir.parent)
+            except OSError as error:
+                raise RefreshError(
+                    "Kion credential cache transaction recovery failed"
+                ) from error
+            _cleanup_stale_state(cache_dir)
+            return
+        if _is_complete_cache(legacy_path):
+            try:
+                cache_dir.unlink()
+                _fsync_directory(cache_dir.parent)
+                _replace_and_sync(legacy_path, cache_dir, cache_dir.parent)
+            except OSError as error:
+                raise RefreshError(
+                    "Kion credential cache legacy recovery failed"
+                ) from error
+            _cleanup_stale_state(cache_dir)
+            return
+        raise RefreshError("Kion credential cache symlink is invalid")
+
+    if _path_exists(cache_dir):
+        if not _is_complete_cache(cache_dir):
+            raise RefreshError("Kion credential cache directory is incomplete")
+        if pending_target is not None and not _path_exists(legacy_path):
+            _publish_pending_over_legacy(
+                cache_dir, legacy_path, pending_path, pending_target
+            )
+        _cleanup_stale_state(cache_dir)
+        return
+
+    if pending_target is not None:
+        try:
+            _replace_and_sync(pending_path, cache_dir, cache_dir.parent)
+        except OSError as error:
+            raise RefreshError(
+                "Kion credential cache pending transaction recovery failed"
+            ) from error
+        _cleanup_stale_state(cache_dir)
+        return
+
+    if _is_complete_cache(legacy_path):
+        try:
+            _replace_and_sync(legacy_path, cache_dir, cache_dir.parent)
+        except OSError as error:
+            raise RefreshError(
+                "Kion credential cache legacy recovery failed"
+            ) from error
+        _cleanup_stale_state(cache_dir)
+        return
+
+    if _path_exists(legacy_path):
+        raise RefreshError("Kion credential cache legacy state is incomplete")
+
+    _cleanup_stale_state(cache_dir)
+
+
+def _build_generation(
+    cache_dir: pathlib.Path, credentials: dict[str, str], generation_prefix: str
+) -> pathlib.Path:
+    generation: pathlib.Path | None = None
+    try:
+        generation = pathlib.Path(
+            tempfile.mkdtemp(prefix=generation_prefix, dir=cache_dir.parent)
+        )
+        os.chmod(generation, 0o700)
+        for credential_key, filename in CACHE_FILES.items():
+            credential_path = generation / filename
+            descriptor = os.open(
+                credential_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            with os.fdopen(descriptor, "w", encoding="utf-8") as credential_file:
+                os.chmod(credential_path, 0o600)
+                credential_file.write(credentials[credential_key])
+                credential_file.flush()
+                os.fsync(credential_file.fileno())
+        _fsync_directory(generation)
+        return generation
+    except OSError as error:
+        cleanup_failed = generation is not None and _cleanup_paths([generation])
+        message = "Kion credential generation could not be written"
+        if cleanup_failed:
+            message += "; incomplete generation cleanup will be retried"
+        raise RefreshError(message) from error
+
+
+def write_cache(cache_dir: pathlib.Path, credentials: dict[str, str]) -> None:
+    cache_dir = pathlib.Path(cache_dir)
+    if any(
+        not isinstance(credentials.get(key), str) or not credentials[key]
+        for key in CACHE_FILES
+    ):
+        raise RefreshError("Temporary credentials are incomplete")
+
+    try:
+        cache_dir.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise RefreshError("Kion credential cache could not be prepared") from error
+
+    with _cache_lock(cache_dir):
+        try:
+            _recover_cache_state(cache_dir)
+        except OSError as error:
+            raise RefreshError("Kion credential cache could not be prepared") from error
+
+        legacy_path, pending_path, generation_prefix = _cache_state_paths(cache_dir)
+        generation = _build_generation(cache_dir, credentials, generation_prefix)
+        try:
+            os.symlink(generation.name, pending_path)
+            _fsync_directory(cache_dir.parent)
+        except OSError as error:
+            cleanup_failed = _cleanup_unpublished(pending_path, generation)
+            message = "Kion credential cache pending transaction could not be created"
+            if cleanup_failed:
+                message += "; incomplete transaction cleanup will be retried"
+            raise RefreshError(message) from error
+
+        if cache_dir.is_symlink() or not _path_exists(cache_dir):
+            _publish_pending_over_link(
+                cache_dir, pending_path, generation, generation_prefix
+            )
+        elif _is_complete_cache(cache_dir):
+            _publish_pending_over_legacy(
+                cache_dir, legacy_path, pending_path, generation
+            )
+        else:
+            cleanup_failed = _cleanup_unpublished(pending_path, generation)
+            message = "Kion credential cache path is invalid"
+            if cleanup_failed:
+                message += "; incomplete transaction cleanup will be retried"
+            raise RefreshError(message)
+
+        _cleanup_stale_state(cache_dir)
+
+
+def main() -> int:
+    home_dir = pathlib.Path.home()
+    try:
+        settings = load_settings(
+            home_dir / ".kion.yml", home_dir / ".config" / "gkion" / "config.toml"
+        )
+        credentials = request_credentials(*settings)
+        write_cache(home_dir / ".cache" / "kion-aws-cache", credentials)
+    except RefreshError:
+        print("Kion AWS credential refresh failed.", file=sys.stderr)
+        return 1
+
+    print("Kion AWS credential refresh completed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

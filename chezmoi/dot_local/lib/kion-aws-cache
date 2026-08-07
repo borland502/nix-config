@@ -9,13 +9,33 @@ _kion_aws_cache_main() {
 	fi
 
 	local cache_root="$HOME/.cache/kion-aws-cache"
+	local cache_parent="${cache_root%/*}"
+	local cache_name="${cache_root##*/}"
+	local generation_prefix=".$cache_name.generation-"
 	local -a vars=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN)
 	local command="${1:-help}"
+	local cache_helper_path cache_lock_command
+	if [ -n "${_kac_helper_path:-}" ]; then
+		cache_helper_path="$_kac_helper_path"
+	elif [ -n "${BASH_SOURCE:-}" ]; then
+		cache_helper_path="${BASH_SOURCE[0]}"
+	elif [ -n "${ZSH_VERSION:-}" ]; then
+		cache_helper_path="$(eval 'printf "%s" "${(%):-%x}"')"
+	else
+		cache_helper_path="$0"
+	fi
+	cache_lock_command="${cache_helper_path%/*/*}/bin/kion-aws-cache-lock"
 
 	# Harden against PATH-stripped subshells (bare `zsh -c`, `env -i`, sudo):
-	# prepend the dirs that hold gkion/aws so validate/refresh still resolve.
+	# prepend the dirs that hold kion-aws-refresh/aws so validate/refresh still resolve.
 	# `local` keeps the caller's PATH untouched; exported AWS_* still persist.
 	local PATH="$PATH" tool_dir
+	# zsh's `local` drops the export attribute (bash keeps it), so without this
+	# every child would inherit no PATH at all — the lock helper's
+	# `#!/usr/bin/env python3` would then fall back to /usr/bin/python3 and die
+	# with "tool 'python3' not found". The export stays function-scoped, so the
+	# caller's PATH is still restored on return.
+	export PATH
 	for tool_dir in \
 		/opt/homebrew/bin \
 		"/etc/profiles/per-user/${USER:-$(id -un)}/bin" \
@@ -38,7 +58,7 @@ Usage:
   source ~/.local/lib/kion-aws-cache [command]
 
 Commands:
-  ensure  Load valid creds into current shell, refreshing via gkion if needed.
+  ensure  Load valid creds into current shell, refreshing via kion-aws-refresh if needed.
           Preferred entry point: run before the first aws call, check its exit
           code (source ~/.local/bin/kac ensure && aws ...).
   dump    Dump current AWS vars to cache files if they are still valid.
@@ -99,22 +119,56 @@ EOF
 		chmod 700 "$cache_root" 2>/dev/null || true
 	}
 
+	_kion_aws_cache_run_locked() {
+		local worker_command="$1"
+
+		if [[ ! -x "$cache_lock_command" ]]; then
+			echo "Kion credential cache lock helper is not installed." >&2
+			return 1
+		fi
+		umask 077
+		mkdir -p "$cache_parent"
+		AWS_ACCESS_KEY_ID='' \
+			AWS_SECRET_ACCESS_KEY='' \
+			AWS_SESSION_TOKEN='' \
+			"$cache_lock_command" \
+			"$cache_root" \
+			bash --noprofile --norc -c \
+			"source \"\$1\" \"\$2\"" \
+			kion-aws-cache-worker \
+			"$cache_helper_path" \
+			"$worker_command"
+	}
+
+	_kion_aws_cache_dump_locked() {
+		local access_key_id secret_access_key session_token
+		[[ "${KION_AWS_CACHE_LOCKED:-}" == 1 ]] || return 1
+		IFS= read -r -d '' access_key_id || return 1
+		IFS= read -r -d '' secret_access_key || return 1
+		IFS= read -r -d '' session_token || return 1
+		_kion_aws_cache_mkdir
+		printf '%s' "$access_key_id" >"$cache_root/AWS_ACCESS_KEY_ID"
+		printf '%s' "$secret_access_key" >"$cache_root/AWS_SECRET_ACCESS_KEY"
+		printf '%s' "$session_token" >"$cache_root/AWS_SESSION_TOKEN"
+		chmod 600 "$cache_root/AWS_ACCESS_KEY_ID" \
+			"$cache_root/AWS_SECRET_ACCESS_KEY" \
+			"$cache_root/AWS_SESSION_TOKEN" 2>/dev/null || true
+	}
+
 	_kion_aws_cache_dump() {
 		if ! _kion_aws_cache_validate_current; then
 			echo "Current AWS credentials are expired; nothing dumped." >&2
-			echo "Use: source ~/.local/bin/kac ensure   (refreshes via gkion)" >&2
+			echo "Use: source ~/.local/bin/kac ensure   (refreshes via kion-aws-refresh)" >&2
 			return 1
 		fi
 
-		_kion_aws_cache_mkdir
-
-		local name file value
-		for name in "${vars[@]}"; do
-			file="$cache_root/$name"
-			value="$(_kion_aws_cache_get "$name")"
-			printf '%s' "$value" >"$file"
-			chmod 600 "$file" 2>/dev/null || true
-		done
+		if ! printf '%s\0%s\0%s\0' \
+			"${AWS_ACCESS_KEY_ID:-}" \
+			"${AWS_SECRET_ACCESS_KEY:-}" \
+			"${AWS_SESSION_TOKEN:-}" |
+			_kion_aws_cache_run_locked __dump_locked; then
+			return 1
+		fi
 	}
 
 	_kion_aws_cache_load() {
@@ -130,7 +184,7 @@ EOF
 
 		if ! _kion_aws_cache_validate_values "$access_key_id" "$secret_access_key" "$session_token"; then
 			echo "Cached AWS credentials are expired; 'load' does not refresh." >&2
-			echo "Use: source ~/.local/bin/kac ensure   (refreshes via gkion)" >&2
+			echo "Use: source ~/.local/bin/kac ensure   (refreshes via kion-aws-refresh)" >&2
 			return 1
 		fi
 
@@ -139,12 +193,57 @@ EOF
 		export AWS_SESSION_TOKEN="$session_token"
 	}
 
+	_kion_aws_cache_remove_generation() {
+		local path="$1"
+		local path_parent="${path%/*}"
+		local path_name="${path##*/}"
+
+		if [[ "$path_parent" != "$cache_parent" || "$path_name" != "$generation_prefix"* ]]; then
+			echo "Refusing credential generation outside $cache_parent." >&2
+			return 1
+		fi
+		rm -rf -- "$path"
+	}
+
+	_kion_aws_cache_clear_locked() {
+		local state path
+		local clear_failed=0
+		[[ "${KION_AWS_CACHE_LOCKED:-}" == 1 ]] || return 1
+
+		for state in cache pending legacy; do
+			case "$state" in
+			cache) path="$cache_root" ;;
+			pending) path="$cache_parent/.$cache_name.pending" ;;
+			legacy) path="$cache_parent/.$cache_name.legacy" ;;
+			esac
+
+			if [[ -e "$path" || -L "$path" ]]; then
+				if ! rm -rf -- "$path"; then
+					clear_failed=1
+				fi
+			fi
+		done
+
+		for path in "$cache_parent/$generation_prefix"*; do
+			[[ -e "$path" || -L "$path" ]] || continue
+			if ! _kion_aws_cache_remove_generation "$path"; then
+				clear_failed=1
+			fi
+		done
+		if ((clear_failed)); then
+			echo "Cached AWS credentials could not be cleared." >&2
+			return 1
+		fi
+	}
+
 	_kion_aws_cache_clear() {
-		local name file
+		local name
+		if ! _kion_aws_cache_run_locked __clear_locked; then
+			return 1
+		fi
+
 		for name in "${vars[@]}"; do
 			unset "$name"
-			file="$cache_root/$name"
-			[[ -e "$file" ]] && rm -f "$file"
 		done
 	}
 
@@ -159,25 +258,16 @@ EOF
 			return 0
 		fi
 
-		# 3. Both stale — call gkion to obtain fresh credentials.
-		# gkion env prints "export VAR=value" lines AND writes the same values
-		# to ~/.cache/kion-aws-cache/ (cache.write_files=true in gkion config),
-		# so the cache is updated as a side-effect.
-		if ! command -v gkion >/dev/null 2>&1; then
-			echo "kac ensure: credentials expired and gkion is not installed" >&2
+		# 3. Both stale — refresh the cache directly, then validate and load it.
+		if ! command -v kion-aws-refresh >/dev/null 2>&1; then
+			echo "kac ensure: credentials expired and kion-aws-refresh is not installed" >&2
 			return 1
 		fi
-
-		local exports err_file
-		err_file=$(mktemp "${TMPDIR:-/tmp}/kac-ensure-err.XXXXXX")
-		exports=$(gkion env 2>"$err_file") || {
-			echo "kac ensure: gkion env failed" >&2
-			/bin/cat "$err_file" >&2
-			rm -f "$err_file"
+		if ! kion-aws-refresh; then
+			echo "kac ensure: direct Kion credential refresh failed" >&2
 			return 1
-		}
-		rm -f "$err_file"
-		eval "$exports"
+		fi
+		_kion_aws_cache_load
 	}
 
 	_kion_aws_cache_status() {
@@ -202,6 +292,12 @@ EOF
 	_kion_aws_cache_require_sourced
 
 	case "$command" in
+	__clear_locked)
+		_kion_aws_cache_clear_locked
+		;;
+	__dump_locked)
+		_kion_aws_cache_dump_locked
+		;;
 	ensure)
 		_kion_aws_cache_ensure
 		;;
