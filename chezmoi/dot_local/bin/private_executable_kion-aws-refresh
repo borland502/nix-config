@@ -65,6 +65,55 @@ def _read_kion_settings(kion_path: pathlib.Path) -> dict[str, str]:
     return values
 
 
+def _read_kion_favorites(kion_path: pathlib.Path) -> dict[str, dict[str, str]]:
+    """Map each `favorites:` entry name to its account / cloud_access_role.
+
+    gkion stores the selection indirectly: its config names a favorite, and the
+    values live here. Role names contain spaces, so these patterns are laxer
+    than the scalar ones above — they stop at a comment, not at whitespace.
+    """
+    favorites: dict[str, dict[str, str]] = {}
+    in_favorites = False
+    current: dict[str, str] | None = None
+    value = r"(\"[^\"\n]*\"|'[^'\n]*'|[^#\s][^#]*?)"
+    entry_line = re.compile(rf"^\s*-\s*name\s*:\s*{value}\s*(?:#.*)?$")
+    field_line = re.compile(
+        rf"^\s+(account|cloud_access_role)\s*:\s*{value}\s*(?:#.*)?$"
+    )
+
+    try:
+        lines = kion_path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise RefreshError("Kion settings could not be loaded") from error
+
+    for line in lines:
+        if re.match(r"^favorites:\s*(?:#.*)?$", line):
+            in_favorites = True
+            continue
+        if in_favorites and line and not line[0].isspace():
+            in_favorites = False
+        if not in_favorites:
+            continue
+
+        entry = entry_line.match(line)
+        if entry:
+            current = {}
+            favorites[_unquote(entry.group(1))] = current
+            continue
+
+        field = field_line.match(line)
+        if field and current is not None:
+            current[field.group(1)] = _unquote(field.group(2))
+
+    return favorites
+
+
+def _unquote(value: str) -> str:
+    if value[:1] in ("'", '"'):
+        return value[1:-1]
+    return value
+
+
 def _normalise_url(url: str) -> str:
     candidate = url if "://" in url else f"https://{url}"
     parsed = urllib.parse.urlsplit(candidate)
@@ -100,6 +149,17 @@ def load_settings(
     account = target_settings.get("account")
     alias = target_settings.get("alias")
     car = target_settings.get("cloud_access_role")
+
+    # gkion leaves [target]'s account/cloud_access_role empty and records the
+    # selection as a favorite name; resolve that against ~/.kion.yml. Values
+    # written explicitly into [target] still win.
+    favorite = target_settings.get("favorite")
+    if (not account or not car) and isinstance(favorite, str) and favorite:
+        entry = _read_kion_favorites(kion_path).get(favorite, {})
+        if not account:
+            account = entry.get("account", account)
+        if not car:
+            car = entry.get("cloud_access_role", car)
 
     if (
         not isinstance(url, str)

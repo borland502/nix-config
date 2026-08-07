@@ -267,6 +267,88 @@ class KionAwsRefreshTests(unittest.TestCase):
             ),
         )
 
+    def favorites_settings(self, favorite):
+        """gkion's real shape: [target] names a favorite, values live in .kion.yml."""
+        self.kion_path.write_text(
+            "\n".join(
+                (
+                    "kion:",
+                    "  url: cloudtamer.example.test",
+                    "  api_key: fixture-app-key",
+                    "favorites:",
+                    "    # Set cloud_access_role to the role you can assume.",
+                    "  - name: mdp-old",
+                    "    account: 999999999999",
+                    "    cloud_access_role: Old Admin",
+                    "  - name: mdp-dev",
+                    "    account: 123456789012",
+                    "    cloud_access_role: MDP Developer Admin",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.gkion_path.write_text(
+            "\n".join(
+                (
+                    "[target]",
+                    f'favorite = "{favorite}"',
+                    'account = ""',
+                    'alias = ""',
+                    'cloud_access_role = ""',
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+
+    def test_load_settings_resolves_empty_target_from_named_favorite(self):
+        self.favorites_settings("mdp-dev")
+
+        self.assertEqual(
+            self.module.load_settings(self.kion_path, self.gkion_path),
+            (
+                "https://cloudtamer.example.test",
+                "fixture-app-key",
+                "123456789012",
+                "",
+                "MDP Developer Admin",
+            ),
+        )
+
+    def test_load_settings_prefers_populated_target_over_favorite(self):
+        self.favorites_settings("mdp-dev")
+        self.gkion_path.write_text(
+            "\n".join(
+                (
+                    "[target]",
+                    'favorite = "mdp-dev"',
+                    'account = "555555555555"',
+                    'alias = "explicit-alias"',
+                    'cloud_access_role = "Explicit Role"',
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(
+            self.module.load_settings(self.kion_path, self.gkion_path),
+            (
+                "https://cloudtamer.example.test",
+                "fixture-app-key",
+                "555555555555",
+                "explicit-alias",
+                "Explicit Role",
+            ),
+        )
+
+    def test_load_settings_rejects_favorite_with_no_matching_entry(self):
+        self.favorites_settings("mdp-missing")
+
+        with self.assertRaises(self.module.RefreshError):
+            self.module.load_settings(self.kion_path, self.gkion_path)
+
     def test_load_settings_rejects_missing_api_key_or_cloud_access_role(self):
         for api_key, car in (("", "fixture-car"), ("fixture-app-key", "")):
             with self.subTest(api_key=api_key, car=car):
