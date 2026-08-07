@@ -227,6 +227,10 @@
     tealdeer
     scrcpy
 
+    # Diagrams — Confluence architecture/sequence visuals
+    d2 # text -> layout-aware SVG; faster than hand-authored SVG for control-plane diagrams
+    resvg # SVG -> PNG, consistent rendering for quick visual QA
+
     # Basic utilities
     file
     which
