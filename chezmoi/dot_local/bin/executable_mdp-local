@@ -197,7 +197,7 @@ if command -v aws >/dev/null 2>&1 && aws sts get-caller-identity >/dev/null 2>&1
 	ok "authenticated (account $acct, region $AWS_REGION)"
 else
 	die "AWS creds missing/expired. Refresh in your zsh shell, then re-run:
-       source ~/.local/bin/kac ensure   # or: gkion
+       source ~/.local/bin/kac ensure
      (kac is zsh-only and must be sourced, so this bash launcher can't refresh for you.)"
 fi
 

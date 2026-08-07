@@ -31,7 +31,7 @@ Use this skill when a task needs a credential and you don't yet know where to fi
 
 ## AWS credentials (Kion)
 
-**Do not trust `~/.aws/credentials`, `AWS_PROFILE`, or `aws --profile <name>`** — the `--profile` flag is the same stale-credential path as the env var — they are usually stale and produce `ExpiredTokenException`. The live AWS session lives in the Kion credential cache at `~/.cache/kion-aws-cache/`. Prefer the `kac` helper, which loads from that cache and auto-refreshes via `gkion` when it's empty or expired:
+**Do not trust `~/.aws/credentials`, `AWS_PROFILE`, or `aws --profile <name>`** — the `--profile` flag is the same stale-credential path as the env var — they are usually stale and produce `ExpiredTokenException`. The live AWS session lives in the Kion credential cache at `~/.cache/kion-aws-cache/`. Prefer the `kac` helper, which loads from that cache and auto-refreshes via `kion-aws-refresh` when it's empty or expired:
 
 ```bash
 # Preferred: load valid creds into the current shell (must be sourced; works
@@ -51,11 +51,12 @@ zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws sts get-caller-identit
 
 **`ensure`, not `load`.** `kac load` validates the cached creds but does **not**
 refresh them — on expiry it fails (stopping an `&&` chain) instead of
-self-healing via `gkion`. `load` is for a human who just refreshed; agents and
-scripts always use `ensure`.
+self-healing via `kion-aws-refresh`. `load` is for a human who just refreshed;
+agents and scripts always use `ensure`.
 
 **Shell PATH note:** a bare `zsh -c '…'` (no `-l`) or `env -i` strips the
-nix/Homebrew `PATH`, which used to make `gkion`/`aws` "vanish" mid-refresh. The
+nix/Homebrew `PATH`, which used to make the refresher and `aws` "vanish"
+mid-refresh. The
 `kac` lib now prepends the known tool dirs itself, but prefer the current
 (already-provisioned) shell or `zsh -lc` anyway — other tools in the same
 command line don't get that rescue (see shell-pitfalls "Subshell PATH loss").
@@ -63,7 +64,7 @@ command line don't get that rescue (see shell-pitfalls "Subshell PATH loss").
 Anti-patterns (observed wasting time in real sessions):
 
 - **Do not reach for `aws sso login`** — Kion, not raw SSO, owns auth here; `kac`
-  refreshes via `gkion` for you.
+  refreshes via `kion-aws-refresh` for you.
 - **Do not `find` / `zstdcat` for the cache location.** `kac` owns
   `~/.cache/kion-aws-cache/`; the path is documented here and in
   `agent-reference.md`. Re-deriving it from cold burns tokens and risks a stale
