@@ -429,12 +429,24 @@ tasks:
     # The file list comes from fd because alejandra's own --exclude only matches
     # exact file paths, not directories (verified on 4.0.0) — passing it
     # `--exclude secrets` silently formats the directory anyway.
-    cmd: alejandra $(fd -e nix . --exclude secrets)
+    #
+    # The empty-list guard is load-bearing: alejandra reads stdin when given no
+    # file arguments, so a missing fd (CI runs a minimal `nix shell`) turned
+    # into "unexpected end of file" on an anonymous stdin file rather than
+    # anything pointing at fd. Fail loudly instead.
+    cmd: |
+      files=$(fd -e nix . --exclude secrets)
+      [ -n "$files" ] || { printf 'fmt: no .nix files found — is fd installed?\n' >&2; exit 1; }
+      alejandra $files
 
   fmt:check:
     desc: Check nix file formatting (skips secrets/)
     platforms: [linux, darwin]
-    cmd: alejandra --check $(fd -e nix . --exclude secrets)
+    # See fmt: for why the list comes from fd and why the guard is required.
+    cmd: |
+      files=$(fd -e nix . --exclude secrets)
+      [ -n "$files" ] || { printf 'fmt:check: no .nix files found — is fd installed?\n' >&2; exit 1; }
+      alejandra --check $files
 
   fmt:md:
     desc: Auto-fix markdown files (skips ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
