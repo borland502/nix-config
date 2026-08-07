@@ -178,12 +178,21 @@ the nix-config repo.
   `--classify`), `--date YYYY-MM-DD`, `--session ID`, `--limit N`.
   De-duplicates the `~/.cache/claude` symlink. Prefer this over hand-rolled
   `rg` sweeps of the log dir.
-- **`sync-to-gdrive`** — Sync `~/.config`, `~/.local`, and `~/.cache/copilot`
-  to Google Drive
-  (`~/Library/CloudStorage/GoogleDrive-jhettenh@gmail.com/My Drive/42245/dotfiles`).
-  Uses the unison profile at `$UNISON/gdrive-dotfiles.prf`. Sensitive dirs
-  (sops, ops-agent, gh tokens) and large regenerable caches are excluded.
-  Run: `sync-to-gdrive` or `sync-to-gdrive --verbose`.
+- **`sync-to-gdrive`** — Back up `~/.config` and `~/.local` to Google Drive
+  (`gdrive:42245/dotfiles`) with rclone, on a daily scheduled agent
+  (`home-manager/modules/gdrive-sync.nix`). Secrets (sops, sops-nix's decrypted
+  mirrors, ops-agent, gh, kion, aws, browser token stores) and large
+  regenerable state (caches, nix-managed trees, agent worktrees) are excluded;
+  the same pattern list also purges those paths from the remote. Flags:
+  `--dry-run`, `--verbose`, `--if-stale HOURS`, `--allow-local-delete`.
+  Requires the `gdrive:` rclone remote — see `setup-gdrive-remote` below; it
+  exits non-zero with instructions when the remote is missing.
+- **`setup-gdrive-remote`** — One-time per-host bootstrap for the `gdrive:`
+  rclone remote `sync-to-gdrive` depends on. Reads the OAuth client
+  credentials from the sops-encrypted `secrets/rclone-gdrive.json` (never onto
+  a command line), creates the remote — or reconnects its token if it already
+  exists — then prints the remotes and runs a `sync-to-gdrive --dry-run`.
+  Needs a real terminal: rclone opens a browser to authorize.
 - **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
   Safari (darwin only).
 - **`btrfs-safety-snapshot [description] [task-tag]`** — Best-effort pre-change
