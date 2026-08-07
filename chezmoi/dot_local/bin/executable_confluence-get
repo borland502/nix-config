@@ -1,0 +1,68 @@
+#!/bin/zsh
+# confluence-get — GET a Confluence REST API path with the sops-managed token.
+#
+# Counterpart to jira-get, and it exists because the two base URLs are NOT
+# symmetric — the recurring source of hand-rolled `confluence_curl()` snippets:
+#
+#   ~/.config/ops-agent/jira-base-url   ends with /rest/api/2  (API root)
+#   ~/.config/confluence/base-url       is the bare host       (no /rest/api)
+#
+# So a path that works for jira-get 404s here unless /rest/api is added. This
+# script owns that composition. As with Jira, a Confluence error body is often
+# HTML, which makes a piped `jq` die with a parse error that masks the real
+# failure — so non-2xx and non-JSON are reported clearly instead.
+set -euo pipefail
+
+if [[ $# -ne 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+	cat >&2 <<'EOF'
+Usage: confluence-get <path>
+  GET a Confluence REST API path using the token at ~/.config/confluence/token.
+  <path> is relative to the REST API root: unlike Jira, the configured base URL
+  (~/.config/confluence/base-url) is the bare host, so this script adds
+  /rest/api for you — do NOT prepend it. Examples:
+    confluence-get 'user/current'
+    confluence-get 'content/123456?expand=body.storage'
+    confluence-get 'content/search?cql=title~"RC Validation"'
+  Prints the JSON body on stdout (pipe to jq). Non-2xx or non-JSON
+  responses (Confluence errors are often HTML) become a clear stderr
+  error, exit 1.
+EOF
+	exit 2
+fi
+
+CONFLUENCE_BASE=$(/bin/cat ~/.config/confluence/base-url)
+CONFLUENCE_TOKEN=$(/bin/cat ~/.config/confluence/token)
+
+# Tolerate a trailing slash on the base and a leading one on the path, and
+# accept a caller that already prefixed /rest/api rather than silently
+# producing /rest/api/rest/api/... .
+base="${CONFLUENCE_BASE%/}"
+req_path="${1#/}"
+req_path="${req_path#rest/api/}"
+url="${base}/rest/api/${req_path}"
+
+body=$(mktemp)
+trap 'rm -f "$body"' EXIT
+
+# NB: zsh reserves `status` (read-only) — use http_code.
+http_code=$(curl -sS -o "$body" -w '%{http_code}' \
+	-H "Authorization: Bearer $CONFLUENCE_TOKEN" \
+	-H "Accept: application/json" \
+	"$url")
+
+if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
+	echo "confluence-get: HTTP $http_code for $url" >&2
+	head -c 300 "$body" >&2
+	echo >&2
+	exit 1
+fi
+
+first_char=$(head -c 1 "$body")
+if [[ "$first_char" != "{" && "$first_char" != "[" ]]; then
+	echo "confluence-get: non-JSON response from $url — check the path (the configured base URL is the bare host; /rest/api is added for you)" >&2
+	head -c 300 "$body" >&2
+	echo >&2
+	exit 1
+fi
+
+/bin/cat "$body"

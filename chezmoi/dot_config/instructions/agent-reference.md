@@ -169,6 +169,15 @@ the nix-config repo.
   that composition (see the Jira trap above). Non-2xx / non-JSON responses
   become a clear stderr error instead of a downstream `jq` parse failure.
   Example: `jira-get 'issue/MDPMDD-828?fields=summary,status'`.
+- **`confluence-get <path>`** — The Confluence counterpart, and the base URLs
+  are **not** symmetric: `jira-base-url` ends with `/rest/api/2`, while
+  `~/.config/confluence/base-url` is the bare host. This helper adds
+  `/rest/api` for you, so pass only the path (a leading `rest/api/` is tolerated
+  rather than doubled). Same error contract: non-2xx / non-JSON becomes a clear
+  stderr error rather than a downstream `jq` parse failure — Confluence error
+  bodies are HTML. Use it instead of hand-rolling a `confluence_curl()`
+  function per session. Example:
+  `confluence-get 'content/123456?expand=body.storage'`.
 - **`cache-scan`** — Scan the agent log dir for recent activity. **Terse by
   default** (token-lean, since an agent reads it): a one-line-per-session
   overview plus the commands that hit stderr or were interrupted.

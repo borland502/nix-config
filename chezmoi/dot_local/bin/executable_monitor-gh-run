@@ -10,8 +10,38 @@
 #     and the script switches to monitor the newer one instead.
 set -euo pipefail
 
-RUN_ID="${1:?Usage: $0 <run-id>}"
 INTERVAL=20
+
+usage() {
+	print -r -- "Usage: monitor-gh-run <run-id>"
+	print -r -- "  Polls a GitHub Actions run every ${INTERVAL}s until it completes."
+	print -r -- "  Exits 0 when every job succeeds, 1 on the first job failure."
+}
+
+# Argument validation before the first gh call. Without it `--help` was taken as
+# a run id: `gh run view --help` exits 0 with help text, the metadata guard below
+# never fired, and jq parsed prose as JSON — the script printed
+# "jq: parse error: Invalid numeric literal" and still exited 0, so callers could
+# not tell it had failed.
+case "${1:-}" in
+-h | --help)
+	usage
+	exit 0
+	;;
+esac
+
+RUN_ID="${1:-}"
+if [[ -z "$RUN_ID" ]]; then
+	print -u2 "monitor-gh-run: missing <run-id>"
+	usage >&2
+	exit 2
+fi
+if [[ "$RUN_ID" != <-> ]]; then
+	print -u2 "monitor-gh-run: <run-id> must be numeric (got: $RUN_ID)"
+	usage >&2
+	exit 2
+fi
+
 declare -A LAST_STATUS
 
 resolve_run_meta() {

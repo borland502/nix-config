@@ -211,6 +211,10 @@
     # Secret management
     age
     sops
+    # `task lint:secrets` runs gitleaks, so without it here the full `task lint`
+    # chain exits 127 on every local run — CI passed only because the workflow
+    # installs it explicitly via `nix shell nixpkgs#gitleaks`.
+    gitleaks
 
     # Dotfiles & file sync
     chezmoi
@@ -226,6 +230,10 @@
     gum
     tealdeer
     scrcpy
+    # Backs the always-on defuddle skill, which instructs agents to use it
+    # instead of WebFetch for article-shaped pages. It was never installed, so
+    # every invocation died on command-not-found and cost a recovery turn.
+    defuddle
 
     # Diagrams — Confluence architecture/sequence visuals
     d2 # text -> layout-aware SVG; faster than hand-authored SVG for control-plane diagrams
