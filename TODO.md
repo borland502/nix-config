@@ -60,6 +60,13 @@ trampolines, so TCC grants generally survive.
 
 ## Tier 3 — bring `gkion` under management (load-bearing orphan)
 
+> **Superseded 2026-08-07.** `kion-aws-refresh` replaced `gkion` behind
+> `kac ensure`, so the CLI was removed from this repo — its external checkout
+> and Go build entry are gone. Only `secrets/gkion.toml` remains, still
+> sops-deployed to `~/.config/gkion/config.toml`, because it holds the target
+> account/CAR selection the refresher reads. The items below are kept as
+> history; they were accurate when written.
+
 `~/.local/bin/gkion` (hand-placed 2026-05-06) is `kac ensure`'s refresh
 dependency; the `kion-cli` formula ships `kion`, not `gkion`. Nothing rebuilds
 it today.

@@ -113,8 +113,10 @@ the nix-config repo.
     valid
 - **`kion-aws-refresh`** — Direct Kion API client used by `kac ensure` and the
   four-hour user scheduler. Reads the App key from `~/.kion.yml` and the
-  existing account/CAR selection from `~/.config/gkion/config.toml`; it writes
-  temporary credentials only to `~/.cache/kion-aws-cache/`.
+  account/CAR selection from `~/.config/gkion/config.toml` (sops-managed from
+  `secrets/gkion.toml`). That file is kept deliberately: the `gkion` CLI it is
+  named for is no longer installed, but it remains the target configuration.
+  It writes temporary credentials only to `~/.cache/kion-aws-cache/`.
 - **`monitor-gh-run <run-id>`** — Poll a GitHub Actions run, printing per-job
   status transitions. Cancels older duplicate runs; switches to newer runs
   automatically. Exits 0 on success, 1 on failure. Deps: `gh`, `jq`.

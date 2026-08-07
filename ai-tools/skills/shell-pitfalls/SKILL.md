@@ -129,7 +129,7 @@ scripts assume GNU `stat -c` for this reason (see `cache-scan`'s header note).
 
 `env -i`, `sudo`, and a bare `zsh -c '…'` (no `-l`) do **not** inherit the nix
 profile + Homebrew `PATH`. Tools that resolve fine interactively — GNU `stat`,
-`timeout`, `gkion`, `aws` — suddenly report `command not found`, and it looks
+`timeout`, `kion-aws-refresh`, `aws` — suddenly report `command not found`, and it looks
 like a missing install when it's a missing PATH.
 
 ```bash
