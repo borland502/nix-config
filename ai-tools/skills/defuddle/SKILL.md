@@ -8,7 +8,10 @@ origin: kepano/obsidian-skills
 
 Use Defuddle CLI to extract clean readable content from web pages. Prefer over WebFetch for standard web pages — it removes navigation, ads, and clutter, reducing token usage.
 
-If not installed: `npm install -g defuddle`
+Installed from nixpkgs via the shared package set (`home-manager/common.nix`).
+If `defuddle` is not on `PATH`, the host has not switched since it was added —
+run `task switch` (or `task home-switch`) rather than `npm install -g defuddle`,
+which would shadow the managed copy.
 
 ## Usage
 
