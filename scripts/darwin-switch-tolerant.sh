@@ -45,8 +45,15 @@ fi
 
 flake="${1:?usage: darwin-switch-tolerant.sh <flake-ref>}"
 
-log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
+# Persist the log instead of a mktemp deleted on exit. The temp file made the
+# classifier work but destroyed the evidence: when activation failed partway
+# (silently, exit 0) the only record was scrollback, and diagnosing it meant
+# re-running activation by hand. cache-scan indexes this directory, and
+# compress-old-cache zstd-compresses it after a day.
+log_dir="${XDG_CACHE_HOME:-$HOME/.cache}/claude"
+mkdir -p "$log_dir"
+log="$log_dir/darwin-switch-$(date +%Y%m%d-%H%M%S).log"
+echo "==> darwin-rebuild switch — log: $log"
 
 # Stream live (minus the orphan spam) while capturing the full combined output
 # so a non-zero exit can be classified. PIPESTATUS[0] keeps darwin-rebuild's own
@@ -70,8 +77,12 @@ WARNING: darwin-rebuild returned non-zero, but the only failure was Homebrew
          activated successfully. Re-run `task switch` off-VPN to fetch the
          blocked casks.
 EOF
+	echo "         Full output: $log" >&2
 	exit 0
 fi
 
-echo "darwin-rebuild failed (exit $rc) for reasons beyond blocked Homebrew cask downloads — see output above." >&2
+echo "darwin-rebuild failed (exit $rc) for reasons beyond blocked Homebrew cask downloads." >&2
+echo "  full output: $log" >&2
+grep -niE '^error:|builder for .* failed|build of .* failed|hash mismatch|^Error:|cannot|permission denied' "$log" |
+	tail -8 | sed 's/^/    /' >&2 || true
 exit "$rc"
