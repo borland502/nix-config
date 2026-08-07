@@ -203,6 +203,16 @@ junk_patterns=(
 	'/.config/gcloud/**'    # credentials.db / access_tokens.db
 	'/.config/1Password/**' # 1password.sqlite + local vault cache
 	'/.config/aws/**'       # aws credentials / config
+	# sops-nix keeps decrypted runtime copies of the very secrets excluded
+	# above: /.config/sops-nix/secrets/ops_agent/jira_token is byte-identical
+	# to /.config/ops-agent/jira-token. Excluding only the consumer path left
+	# the same credential reachable through this mirror.
+	'/.config/sops-nix/**'
+	# Kion App API key (kion_api_key.txt) — the long-lived credential
+	# kion-aws-refresh authenticates with to mint AWS sessions.
+	'/.config/kion/**'
+	# Copilot CLI runtime dir: ws.token / ws.port for the live session socket.
+	'/.config/copilot/run/**'
 	# rclone's own config holds the gdrive OAuth refresh token — the very
 	# credential this backup authenticates with. Uploading it puts the key to
 	# the remote *on* the remote. Recover it from secrets/rclone-gdrive.json
@@ -249,6 +259,22 @@ junk_patterns=(
 	'/.local/state/gdrive-sync/**'  # this script's own --if-stale stamp (host-local)
 	'/.local/state/watchyourlan/**' # service DB, rebuilt by rescanning the LAN
 	'/.cache/**'
+	# Agent worktrees: complete source checkouts, git history and node_modules
+	# included, created by the git-worktrees skill under a config dir rather
+	# than a state one. 4.6 GiB on this host — 42,074 of the ~42,200 files a
+	# dry run planned to upload — and fully regenerable from the upstream repo.
+	'/.config/superpowers/**'
+	# Home Manager writes these when it backs up a file it is taking over
+	# (backupFileExtension). Stale duplicates by definition; the doubled dot is
+	# HM's own naming, matched loosely so a changed extension stays covered.
+	'**/*..bak*'
+	# Host-local caches, histories and runtime state — all rebuilt on next use.
+	'/.config/chezmoi/chezmoistate.boltdb'
+	'/.config/copilot/*.db' # data / session-store / repo-metadata-cache
+	'/.config/copilot/command-history-state.json'
+	'/.config/zsh/.zcompdump*'
+	'/.local/state/lesshst'
+	'/.local/state/systems.determinate.detsys-ids-client/**'
 	# Multi-hundred-MiB blobs that a reinstall or first launch re-fetches:
 	# the colima VM base disk, and Discord's per-version native modules.
 	'/.config/colima/**'
