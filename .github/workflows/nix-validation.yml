@@ -24,7 +24,9 @@ jobs:
         run: nix flake check --print-build-logs
 
       - name: Check Nix formatting
-        run: nix shell nixpkgs#go-task nixpkgs#alejandra -c task fmt:check
+        # fd is required: fmt:check builds its file list with it to skip
+        # secrets/ (alejandra's own --exclude ignores directories).
+        run: nix shell nixpkgs#go-task nixpkgs#alejandra nixpkgs#fd -c task fmt:check
 
       - name: Run Nix linters
         run: nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix -c task lint:nix

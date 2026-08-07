@@ -62,7 +62,11 @@ digraph process {
 
     "Read plan, note context and global constraints, create todos" [shape=box];
     "More tasks remain?" [shape=diamond];
-    "Dispatch final code reviewer subagent (../git-request-review/code-reviewer.md)" [shape=box];
+    "Dispatch final code reviewer subagent on MID tier (../git-request-review/code-reviewer.md)" [shape=box];
+    "Mid-tier final review clean?" [shape=diamond];
+    "Dispatch ONE fix subagent with the complete findings list" [shape=box];
+    "Dispatch HIGH-tier confirming review (max 2 per branch)" [shape=box];
+    "High-tier review clean?" [shape=diamond];
     "Use nix-config-tools:git-finish-branch" [shape=box style=filled fillcolor=lightgreen];
 
     "Read plan, note context and global constraints, create todos" -> "Dispatch implementer subagent (./implementer-prompt.md)";
@@ -77,8 +81,14 @@ digraph process {
     "Task reviewer reports spec ✅ and quality approved?" -> "Mark task complete in todo list and progress ledger" [label="yes"];
     "Mark task complete in todo list and progress ledger" -> "More tasks remain?";
     "More tasks remain?" -> "Dispatch implementer subagent (./implementer-prompt.md)" [label="yes"];
-    "More tasks remain?" -> "Dispatch final code reviewer subagent (../git-request-review/code-reviewer.md)" [label="no"];
-    "Dispatch final code reviewer subagent (../git-request-review/code-reviewer.md)" -> "Use nix-config-tools:git-finish-branch";
+    "More tasks remain?" -> "Dispatch final code reviewer subagent on MID tier (../git-request-review/code-reviewer.md)" [label="no"];
+    "Dispatch final code reviewer subagent on MID tier (../git-request-review/code-reviewer.md)" -> "Mid-tier final review clean?";
+    "Mid-tier final review clean?" -> "Dispatch ONE fix subagent with the complete findings list" [label="no"];
+    "Dispatch ONE fix subagent with the complete findings list" -> "Dispatch final code reviewer subagent on MID tier (../git-request-review/code-reviewer.md)" [label="re-review on mid"];
+    "Mid-tier final review clean?" -> "Dispatch HIGH-tier confirming review (max 2 per branch)" [label="yes"];
+    "Dispatch HIGH-tier confirming review (max 2 per branch)" -> "High-tier review clean?";
+    "High-tier review clean?" -> "Dispatch ONE fix subagent with the complete findings list" [label="no — fix, then back to mid"];
+    "High-tier review clean?" -> "Use nix-config-tools:git-finish-branch" [label="yes"];
 }
 ```
 
@@ -109,14 +119,25 @@ conserve cost and increase speed.
 
 **Integration and judgment tasks** (multi-file coordination, pattern matching, debugging): **mid** tier.
 
-**Architecture and design tasks**: **high** tier. The final whole-branch
-review is one of these — dispatch it on the high tier explicitly, not the
-session default (now the mid tier), which would under-power a substantive
-review; reviewing it inline also drains your own context on a fresh read.
+**Architecture and design tasks**: **high** tier.
 
-**Review tasks**: choose the tier with the same judgment, scaled to the
-diff's size, complexity, and risk. A small mechanical diff does not need the
-high tier; a subtle concurrency change does.
+**Review tasks — iterate cheap, confirm once on high.** A review loop is the
+most expensive shape in this workflow: every round of findings costs a fix
+plus another full read of the diff. Never iterate on the high tier.
+
+- **Per-task reviews stay on the cheap tier throughout** — **mid**, or **low**
+  for a small mechanical diff. Review → fix → re-review all run at the same
+  tier; do not escalate a task review to high because it returned findings.
+- **The final whole-branch review is the single high-tier gate**, and you
+  enter it only from a clean cheap round: dispatch it on **mid** first, and
+  spend the high tier only once that round comes back with no Critical or
+  Important findings. Dispatch it as a subagent either way — reviewing inline
+  drains your own context on a fresh read.
+- If the high-tier pass returns findings, fix them and drop back to **mid**
+  for the re-review. Return to high only from another clean mid round.
+- **Two high-tier passes per branch is the ceiling.** If the second still
+  returns Critical findings, stop and bring it to the human — a third pass
+  burns exactly the credits this ladder exists to save.
 
 **Always specify the model explicitly when dispatching a subagent.** An
 omitted model inherits your session's model — the mid default, or whatever
@@ -127,7 +148,8 @@ silently defeats this section.
 **Turn count beats token price.** Wall-clock and context cost scale with how
 many turns a subagent takes, and the cheapest models routinely take 2-3× the
 turns on multi-step work — costing more overall. Use the mid tier as the
-floor for reviewers and for implementers working from prose descriptions.
+floor for reviewers of anything but a small mechanical diff, and for
+implementers working from prose descriptions.
 When the task's plan text contains the complete code to write, the
 implementation is transcription plus testing: use the cheapest tier for
 that implementer. Single-file mechanical fixes also take the cheapest tier.
@@ -223,6 +245,10 @@ final whole-branch review. When you fill a reviewer template:
   subagent with the complete findings list — not one fixer per finding.
   Per-finding fixers each rebuild context and re-run suites; a real
   session's final-review fix wave cost more than all its tasks combined.
+  Then re-review on the **mid** tier regardless of which tier surfaced the
+  findings — a high-tier pass verifying its own fixes is the loop this
+  workflow spends the most credits on, and the clean mid re-review is what
+  re-earns the high-tier gate (see Model Selection).
 
 ## File Handoffs
 

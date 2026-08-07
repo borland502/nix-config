@@ -39,16 +39,43 @@ only if the subagent reports it is stuck for want of reasoning (not context).
 | ---- | ---- | -------- |
 | Planning / architecture / system design | **high** | flow-writing-plans, the `Plan` agent, whole-branch design calls |
 | Brainstorming / spec exploration | **high** | flow-brainstorming — a vague idea into a design |
-| Substantive review (correctness, security, concurrency) | **high** | git-request-review / sec-review on a non-trivial diff |
+| Review iteration rounds — every round that may still return findings | **mid** | git-request-review / sec-review / SDD per-task reviews on a non-trivial diff |
+| Final confirming review, entered only from a clean cheap round | **high** | pre-merge / whole-branch pass on a non-trivial diff |
 | Feature implementation with integration concerns | **mid** | javascript-pro, typescript-pro, github-actions-expert; multi-file changes |
 | Routine debugging, pattern matching, test writing | **mid** | flow-test-driven-development, flow-systematic-debugging |
-| Trivial review (typo, style, single-file diff) | **low–mid** | quick sanity pass |
+| Trivial review (typo, style, single-file diff) | **low** | quick sanity pass; no high-tier pass needed |
 | Mechanical, fully-specified edits | **low** | single-file transcription against a complete spec |
 | Tool/CLI bridging, log scans, doc lookups | **low** | ops-agent (Jira/ECS), ops-cache-scan, plain Jira reads |
 
-Escalation is one-directional and evidence-driven: if a mid/low subagent
-reports it is stuck for lack of *reasoning* (not lack of context), re-dispatch
-one tier up — never force the same tier to retry unchanged (see
+### Review escalation ladder
+
+Reviews get their own rule because they loop, and a loop on the top tier is
+the most expensive shape in this config. **Never iterate on the high tier.**
+
+1. Run every review round that could still return findings on **mid** (**low**
+   for a trivial diff): review → fix → re-review, all at the same tier.
+2. Only when a cheap round comes back clean — no Critical or Important
+   findings, nothing changed since — dispatch **one** high-tier confirming
+   pass, and only for the final/pre-merge review of a non-trivial diff.
+3. If that pass returns findings, fix them and drop back to the cheap tier for
+   the re-review. Return to high only from another clean cheap round.
+4. Two high-tier passes on one branch is the ceiling. If the second still
+   returns Critical findings, stop and bring it to the human — a third pass
+   buys judgment you already have and burns the credits this ladder exists to
+   save.
+
+Per-task reviews inside a multi-task workflow stay on the cheap tier
+throughout; the whole-branch review at the end is the single high-tier gate.
+
+The ladder covers document reviews too — the plan and spec reviewers in
+flow-writing-plans and flow-brainstorming loop the same way. *Authoring* a plan
+or spec is still a high-tier job (see the table); *reviewing* one iterates on
+mid and earns a single high-tier confirming pass before the document goes
+downstream.
+
+Escalation is otherwise one-directional and evidence-driven: if a mid/low
+subagent reports it is stuck for lack of *reasoning* (not lack of context),
+re-dispatch one tier up — never force the same tier to retry unchanged (see
 flow-subagent-driven-development). The plugin agents already bake this in:
 `sonnet` for the coding/CI specialists, `haiku` for the ops-agent bridge. For
 inline reasoning-heavy work in a mid-default session (planning, brainstorming),

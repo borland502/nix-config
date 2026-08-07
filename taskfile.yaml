@@ -417,22 +417,44 @@ tasks:
     cmd: '{{.NIX_CONFIG_PREFIX}}nix flake check "path:$PWD"'
 
   fmt:
-    desc: Format nix files
+    desc: Format nix files (skips secrets/)
     platforms: [linux, darwin]
-    cmd: alejandra .
+    # secrets/ is excluded from every formatter and linter in this file: those
+    # files are SOPS output, so the extension never describes the contents —
+    # sops emits JSON for some .toml/.yaml inputs. Formatting ciphertext
+    # rewrites the file and invalidates its MAC. Keep the exclusion on every
+    # fmt:*/lint:* task even where the directory holds no file of that type
+    # today; a future encrypted secrets/*.sh or *.py must not break the chain.
+    #
+    # The file list comes from fd because alejandra's own --exclude only matches
+    # exact file paths, not directories (verified on 4.0.0) — passing it
+    # `--exclude secrets` silently formats the directory anyway.
+    #
+    # The empty-list guard is load-bearing: alejandra reads stdin when given no
+    # file arguments, so a missing fd (CI runs a minimal `nix shell`) turned
+    # into "unexpected end of file" on an anonymous stdin file rather than
+    # anything pointing at fd. Fail loudly instead.
+    cmd: |
+      files=$(fd -e nix . --exclude secrets)
+      [ -n "$files" ] || { printf 'fmt: no .nix files found — is fd installed?\n' >&2; exit 1; }
+      alejandra $files
 
   fmt:check:
-    desc: Check nix file formatting
+    desc: Check nix file formatting (skips secrets/)
     platforms: [linux, darwin]
-    cmd: alejandra --check .
+    # See fmt: for why the list comes from fd and why the guard is required.
+    cmd: |
+      files=$(fd -e nix . --exclude secrets)
+      [ -n "$files" ] || { printf 'fmt:check: no .nix files found — is fd installed?\n' >&2; exit 1; }
+      alejandra --check $files
 
   fmt:md:
-    desc: Auto-fix markdown files (skips ai-tools/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
+    desc: Auto-fix markdown files (skips ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 --fix "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
+    cmd: markdownlint-cli2 --fix "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
 
   fmt:sh:
-    desc: Format shell scripts in place (shfmt -w -i 0, skips ai-tools/)
+    desc: Format shell scripts in place (shfmt -w -i 0, skips ai-tools/ and secrets/)
     platforms: [linux, darwin]
     # -i 0 (tab indent, shfmt's default) is passed explicitly to match CI. shfmt
     # otherwise walks parent directories for an .editorconfig; this repo has
@@ -440,16 +462,16 @@ tasks:
     # while CI — a container with no home config — keeps tabs. Passing any
     # formatting flag disables editorconfig lookup, making both identical.
     cmd: |
-      shfmt -f . | awk '!/^ai-tools\//' | while IFS= read -r f; do
+      shfmt -f . | awk '!/^ai-tools\// && !/^secrets\//' | while IFS= read -r f; do
         shfmt -w -i 0 "$f"
       done
 
   fmt:py:
-    desc: Format Python files and apply ruff autofixes (skips ai-tools/)
+    desc: Format Python files and apply ruff autofixes (skips ai-tools/ and secrets/)
     platforms: [linux, darwin]
     cmd: |
-      ruff format --exclude ai-tools .
-      ruff check --fix --exclude ai-tools .
+      ruff format --exclude ai-tools,secrets .
+      ruff check --fix --exclude ai-tools,secrets .
 
   fmt:toml:
     desc: Format TOML files (taplo fmt, skips ai-tools/ and secrets/)
@@ -483,11 +505,11 @@ tasks:
       - task: lint:secrets
 
   lint:nix:
-    desc: Lint nix files
+    desc: Lint nix files (skips secrets/)
     platforms: [linux, darwin]
     cmd: |
-      statix check .
-      deadnix .
+      statix check . -i secrets
+      deadnix --exclude secrets .
       task check:copilot-instructions
       task check:agent-instructions
       task check:instruction-size
@@ -509,26 +531,26 @@ tasks:
       echo 'model-agnostic OK: no versioned model IDs in ai-tools/'
 
   lint:md:
-    desc: Lint markdown files (skips ai-tools/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
+    desc: Lint markdown files (skips ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
+    cmd: markdownlint-cli2 "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
 
   lint:sh:
-    desc: Lint and check formatting of shell scripts (skips ai-tools/)
+    desc: Lint and check formatting of shell scripts (skips ai-tools/ and secrets/)
     platforms: [linux, darwin]
     cmd: |
-      shellcheck $(fd -e sh . --exclude node_modules --exclude ai-tools)
-      shfmt -f . | awk '!/^ai-tools\//' | while IFS= read -r f; do
+      shellcheck $(fd -e sh . --exclude node_modules --exclude ai-tools --exclude secrets)
+      shfmt -f . | awk '!/^ai-tools\// && !/^secrets\//' | while IFS= read -r f; do
         shfmt -d -i 0 "$f"
       done
 
   lint:py:
-    desc: Lint Python files (skips ai-tools/)
+    desc: Lint Python files (skips ai-tools/ and secrets/)
     platforms: [linux, darwin]
-    cmd: ruff check --exclude ai-tools .
+    cmd: ruff check --exclude ai-tools,secrets .
 
   lint:yaml:
-    desc: Lint YAML files
+    desc: Lint YAML files (skips secrets/ via .yamllint.yaml)
     platforms: [linux, darwin]
     cmd: yamllint .
 
