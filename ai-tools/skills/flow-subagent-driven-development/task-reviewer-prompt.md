@@ -10,8 +10,10 @@ more, nothing less) and is well-built (clean, tested, maintainable)
 ```
 Subagent (general-purpose):
   description: "Review Task N (spec + quality)"
-  model: [MODEL — REQUIRED: choose per SKILL.md Model Selection; an omitted
-         model silently inherits the session's most expensive one]
+  model: [MODEL — REQUIRED: the cheap tier (mid, or low for a small
+         mechanical diff) per SKILL.md Model Selection. Task reviews never
+         run on the high tier, including re-reviews after a fix; an omitted
+         model silently inherits the session's model]
   prompt: |
     You are reviewing one task's implementation: first whether it matches its
     requirements, then whether it is well-built. This is a task-scoped gate,
@@ -166,7 +168,8 @@ Subagent (general-purpose):
 ```
 
 **Placeholders:**
-- `[MODEL]` — REQUIRED: reviewer model per SKILL.md Model Selection
+- `[MODEL]` — REQUIRED: cheap-tier reviewer model per SKILL.md Model
+  Selection (mid, or low for a small mechanical diff — never high)
 - `[BRIEF_FILE]` — REQUIRED: the task brief file (`scripts/task-brief PLAN N`
   prints the path; same file the implementer worked from)
 - `[GLOBAL_CONSTRAINTS]` — the binding requirements copied verbatim from

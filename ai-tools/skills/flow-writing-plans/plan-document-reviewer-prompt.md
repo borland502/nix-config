@@ -6,9 +6,24 @@ Use this template when dispatching a plan document reviewer subagent.
 
 **Dispatch after:** The complete plan is written.
 
+**Tier — iterate cheap, confirm once on high.** A plan review loops the same
+way a code review does (review → revise → re-review), and looping on the high
+tier is the most expensive shape available. Run every round that may still
+return issues on the **mid** tier. Only once a mid round returns Approved with
+nothing changed since, spend **one** high-tier confirming pass before the plan
+goes to implementers — that pass is worth it because a flawed plan multiplies
+across every task dispatched from it. If it finds issues, revise and drop back
+to mid; return to high only from another clean mid round. Two high-tier passes
+per plan is the ceiling. Resolve `high`/`mid` via
+`~/.config/instructions/agent-reference.md` § Model Tiers.
+
 ```
 Subagent (general-purpose):
   description: "Review plan document"
+  model: [MODEL — REQUIRED: mid for every round that may still return issues,
+         including re-reviews after a revision; high only for one confirming
+         pass off a clean mid round. An omitted model silently inherits the
+         session's model]
   prompt: |
     You are a plan document reviewer. Verify this plan is complete and ready for implementation.
 
@@ -45,5 +60,11 @@ Subagent (general-purpose):
     **Recommendations (advisory, do not block approval):**
     - [suggestions for improvement]
 ```
+
+**Placeholders:**
+- `[MODEL]` — REQUIRED: reviewer tier per the ladder above (mid while issues
+  keep landing, high once for the confirming pass)
+- `[PLAN_FILE_PATH]` — the plan under review
+- `[SPEC_FILE_PATH]` — the spec it must match
 
 **Reviewer returns:** Status, Issues (if any), Recommendations

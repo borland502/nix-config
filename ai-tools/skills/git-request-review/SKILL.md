@@ -33,11 +33,30 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 Dispatch a `general-purpose` subagent, filling the template at [code-reviewer.md](code-reviewer.md)
 
-Dispatch it on the **high** tier for a substantive diff (correctness, security,
-concurrency, broad or multi-file change); the **low–mid** tier suffices for a
-trivial one (typo, style, single-file). Always name the tier explicitly — an
-omitted model inherits your session's mid default, under-powering a review that
-needs judgment.
+Pick the tier with the escalation ladder below, and always name it explicitly —
+an omitted model silently inherits your session's model, which defeats the
+ladder in both directions.
+
+**Escalation ladder — iterate cheap, confirm once on high:**
+
+Review loops are where top-tier credits vanish: each round of findings triggers
+a fix and another full read of the diff. So **never iterate on the high tier.**
+
+1. Run every round that may still return findings on the **mid** tier (**low**
+   for a trivial diff — typo, style, single-file): review → fix → re-review, all
+   at the same tier. Stay here as long as findings keep landing.
+2. When a cheap round comes back clean — no Critical or Important findings, and
+   nothing changed since — dispatch **one** high-tier confirming pass. This is
+   the final/pre-merge review of a substantive diff (correctness, security,
+   concurrency, broad or multi-file change). A trivial diff never needs it.
+3. If the high-tier pass returns findings, fix them and drop back to the cheap
+   tier for the re-review. Return to high only from another clean cheap round.
+4. Two high-tier passes per branch is the ceiling. If the second still returns
+   Critical findings, stop and bring it to the human rather than looping.
+
+Resolve `high`/`mid`/`low` to your harness's model via
+`~/.config/instructions/agent-reference.md` § Model Tiers. Never write a
+versioned model ID.
 
 **Placeholders:**
 - `{DESCRIPTION}` - Brief summary of what you built
@@ -100,6 +119,9 @@ You: [Fix progress indicators]
 - Ignore Critical issues
 - Proceed with unfixed Important issues
 - Argue with valid technical feedback
+- Run a review loop on the high tier — findings → fix → re-review is a cheap-tier
+  loop; the high tier gets one confirming pass off a clean round
+- Re-review a high-tier pass's own findings on the high tier
 
 **If reviewer wrong:**
 - Push back with technical reasoning
