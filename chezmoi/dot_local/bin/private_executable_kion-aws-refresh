@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 import contextlib
-import fcntl
 import json
 import os
 import pathlib
 import re
 import shutil
-import stat
 import sys
 import tempfile
 import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
+
+
+LIBRARY_DIR = pathlib.Path(__file__).resolve().parent.parent / "lib"
+sys.path.insert(0, str(LIBRARY_DIR))
+
+from kion_aws_cache_lock import (  # noqa: E402
+    CacheLockBusyError,
+    CacheLockError,
+    cache_lock,
+)
 
 
 CACHE_FILES = {
@@ -172,48 +180,19 @@ def _cache_state_paths(
     )
 
 
-def _cache_lock_path(cache_dir: pathlib.Path) -> pathlib.Path:
-    return cache_dir.parent / f".{cache_dir.name}.lock"
-
-
 @contextlib.contextmanager
 def _cache_lock(cache_dir: pathlib.Path):
-    lock_path = _cache_lock_path(cache_dir)
-    flags = (
-        os.O_RDWR
-        | os.O_CREAT
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    descriptor: int | None = None
     try:
-        descriptor = os.open(lock_path, flags, 0o600)
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise RefreshError("Kion credential cache lock is not a regular file")
-        os.fchmod(descriptor, 0o600)
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as error:
-        if descriptor is not None:
-            os.close(descriptor)
+        with cache_lock(cache_dir):
+            yield
+    except CacheLockBusyError as error:
         raise RefreshError(
             "Kion credential cache refresh is already in progress"
         ) from error
-    except OSError as error:
-        if descriptor is not None:
-            os.close(descriptor)
+    except CacheLockError as error:
         raise RefreshError(
             "Kion credential cache lock could not be acquired"
         ) from error
-    except RefreshError:
-        if descriptor is not None:
-            os.close(descriptor)
-        raise
-
-    try:
-        yield
-    finally:
-        os.close(descriptor)
 
 
 def _path_exists(path: pathlib.Path) -> bool:

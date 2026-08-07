@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+import os
+import pathlib
+import subprocess
+import sys
+
+
+LIBRARY_DIR = pathlib.Path(__file__).resolve().parent.parent / "lib"
+sys.path.insert(0, str(LIBRARY_DIR))
+
+from kion_aws_cache_lock import CacheLockBusyError, CacheLockError, cache_lock  # noqa: E402
+
+
+def main() -> int:
+    if len(sys.argv) < 3:
+        print(
+            "Usage: kion-aws-cache-lock CACHE_DIR COMMAND [ARG ...]",
+            file=sys.stderr,
+        )
+        return 64
+
+    try:
+        with cache_lock(pathlib.Path(sys.argv[1])):
+            environment = os.environ.copy()
+            environment["KION_AWS_CACHE_LOCKED"] = "1"
+            result = subprocess.run(sys.argv[2:], check=False, env=environment)
+    except CacheLockBusyError:
+        print("Kion credential cache is busy; no changes were made.", file=sys.stderr)
+        return 75
+    except CacheLockError:
+        print("Kion credential cache lock could not be acquired.", file=sys.stderr)
+        return 1
+    except OSError:
+        print("Kion credential cache worker could not be started.", file=sys.stderr)
+        return 1
+
+    return result.returncode if result.returncode >= 0 else 128 - result.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
