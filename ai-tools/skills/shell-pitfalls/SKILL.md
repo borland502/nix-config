@@ -1,6 +1,6 @@
 ---
 name: shell-pitfalls
-description: Use when a shell command fails with a confusing error, an alias is interfering, a zsh wrapper script has a subtle bug, or a heavily-quoted inline `zsh -c` is failing repeatedly. Consolidates the shell anti-patterns this repo has been bitten by — alias escaping, the zsh `status` read-only trap, when to switch from inline commands to a script file, and the wrapped-capture permission-denied workaround.
+description: Use when a shell command fails with a confusing error, an alias is interfering, a zsh wrapper script has a subtle bug, or a heavily-quoted inline `zsh -c` is failing repeatedly. Consolidates the shell anti-patterns this repo has been bitten by — alias escaping, the zsh `status` read-only trap, zsh `local` silently dropping a variable's export attribute, when to switch from inline commands to a script file, and the wrapped-capture permission-denied workaround.
 ---
 
 # Shell Pitfalls
@@ -151,6 +151,39 @@ reinstalling anything. This is also why the GNU-vs-BSD `stat` trap (above)
 sometimes appears to flip: a stripped PATH can fall back to `/usr/bin/stat`
 (BSD) while the interactive shell resolves the nix GNU one.
 
+## zsh `local` drops the export attribute
+
+The inverse failure: PATH is fine in the parent, and children still get none.
+In zsh, `local VAR=…` creates a **non-exported** parameter even when `VAR` was
+exported in the environment; bash keeps the export attribute. So the common
+idiom for "adjust PATH without clobbering the caller's" silently launches every
+child process with no PATH at all.
+
+```zsh
+# Identical source, opposite behavior
+f() { local PATH="$PATH"; /usr/bin/env | grep -c '^PATH='; }
+f     # zsh  -> 0   children inherit NO PATH
+      # bash -> 1   children inherit it
+
+# Fix: re-export inside the function. The export stays function-scoped, so the
+# caller's PATH is still restored on return — in both shells.
+f() { local PATH="$PATH"; export PATH; PATH="/extra:$PATH"; … }
+```
+
+**Signature to memorize:** a child whose shebang is `#!/usr/bin/env python3`
+dies with `error: tool 'python3' not found`. That is not a missing interpreter
+— with no PATH in the environment, `env` falls back to the system default path
+and reaches macOS's `/usr/bin/python3` xcrun shim, which emits that message.
+
+This bit [chezmoi/dot_local/lib/kion-aws-cache](../../../chezmoi/dot_local/lib/kion-aws-cache):
+its PATH-hardening block opened with `local PATH="$PATH"`, which broke every
+sourced `kac dump` / `kac clear` under zsh — the shell `kac` exists to be
+sourced from — while the bash test fixtures kept passing. A bash-only test
+suite cannot catch this; exercise sourced helpers under `zsh -f` too.
+
+The trap is not PATH-specific. Any exported variable a function scopes with
+`local` stops reaching children until it is re-exported.
+
 ## zsh nullglob: "no matches found" aborts the command
 
 Unlike bash, zsh **errors out** when a glob matches nothing — the command never
@@ -233,6 +266,7 @@ After ruling those out, check [ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md) f
 - `gh api graphql` / long `jq` filters file-backed up front (gh-graphql-jq-pipelines).
 - Credentials loaded via `kac ensure` (exit-code gated); never echoed into output.
 - Subshells launched with `-l` / explicit `PATH` when nix-profile tools are needed.
+- Any `local` on an exported variable (`local PATH=…`) followed by `export` so zsh children still inherit it.
 - zsh globs guarded (`(N)`, `fd`, or `setopt nullglob`) so no-match doesn't abort.
 
 ## References
