@@ -227,6 +227,10 @@
     tealdeer
     scrcpy
 
+    # Diagrams — Confluence architecture/sequence visuals
+    d2 # text -> layout-aware SVG; faster than hand-authored SVG for control-plane diagrams
+    resvg # SVG -> PNG, consistent rendering for quick visual QA
+
     # Basic utilities
     file
     which
@@ -584,7 +588,17 @@ in {
       # state file written by _record-nix-config-dir, so this wiring tracks
       # the repo even if it gets renamed or moved.  Idempotent: only writes
       # when a key is missing or a path drifted.
+      # The body runs in a SUBSHELL because it uses `exit 0` as an early return.
+      # Home Manager concatenates every activation snippet into one script, so a
+      # bare `exit` there terminates the whole activation — silently, with status
+      # 0. That is exactly what happened: once the marketplaces were registered
+      # the idempotence check below took its `exit 0` branch on every switch,
+      # skipping every later step (seedFlameshotConfig, setDefaultBrowser,
+      # setDefaultShell, setupLaunchAgents, vscodeProfiles) and never writing the
+      # generation gcroot. No launchd agent added after that point was ever
+      # deployed. Keep the parentheses; `exit` inside must not escape them.
       registerClaudeMarketplaces = lib.hm.dag.entryAfter ["ensureClaudeHook" "ensureXdgDirectories"] ''
+        (
         _settings="${xdgConfigHome}/claude/settings.json"
         _cm_dir_file="${xdgStateHome}/chezmoi/nix-config-dir"
         if [ ! -f "$_cm_dir_file" ]; then
@@ -639,6 +653,7 @@ in {
              | .enabledPlugins["nix-config-tools@nix-config-dev"] = true' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
+        )
       '';
 
       ensureClaudeMcpServers = lib.hm.dag.entryAfter ["ensureClaudeHook"] ''
