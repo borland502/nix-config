@@ -7,6 +7,20 @@ description: "Use when a task needs Playwright-backed browser automation from th
 
 `playwright-cli` is a token-efficient shell interface to Playwright. It keeps browser state across commands, exposes page snapshots with stable element refs such as `e15`, and prints the Playwright code it ran so the interaction can be converted into tests.
 
+**Install:** it ships in the npm package `@playwright/cli` (the bare
+`playwright-cli` package is deprecated and is *not* this tool), and nixpkgs has
+no equivalent — `playwright-test` is the test framework, not this CLI. So it is
+not in the shared package set:
+
+```bash
+npm install -g @playwright/cli   # provides the `playwright-cli` binary
+```
+
+Because npm globals land under the active nvm node version
+(`~/.nvm/versions/node/<ver>/bin`), the command disappears after an nvm version
+switch — re-run the install rather than assuming the skill is broken. Check with
+`command -v playwright-cli` before starting a browser workflow.
+
 ## Core Workflow
 
 ```bash

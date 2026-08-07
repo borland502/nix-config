@@ -184,6 +184,31 @@ suite cannot catch this; exercise sourced helpers under `zsh -f` too.
 The trap is not PATH-specific. Any exported variable a function scopes with
 `local` stops reaching children until it is re-exported.
 
+## `rg -h` is `--help`, not "hide filenames"
+
+The most dangerous of the grep→rg habit slips, because it **fails silently in
+the wrong direction**: `grep -h` suppresses filename prefixes, but ripgrep uses
+`-h` for `--help`. So `rg -h PATTERN file` prints ripgrep's help text and exits
+0 — no error, no hint — and whatever consumes that output parses a manual page
+as if it were matches.
+
+```bash
+# Wrong: prints rg's help; downstream sees ~200 lines of option docs as "data"
+rg -h 'command not found' ~/.cache/claude/session_*.log | sort | uniq -c
+
+# Right
+rg --no-filename 'command not found' ~/.cache/claude/session_*.log | sort | uniq -c
+```
+
+Observed damage: three successive log-analysis passes produced counts of
+ripgrep's own `--binary` / `--block-buffered` option lines, and the mistake was
+invisible until the *same* output appeared for three different patterns.
+
+**Tell:** identical results from patterns that should differ, or option-looking
+strings (`--foo`) in what should be data. Other name collisions worth knowing:
+`rg -i` matches grep's `-i`, but grep's `-r`/`-R` have no rg equivalent
+(recursion is the default) and `-e` is `--regexp` in both.
+
 ## zsh nullglob: "no matches found" aborts the command
 
 Unlike bash, zsh **errors out** when a glob matches nothing — the command never
