@@ -25,6 +25,11 @@
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
     inherit pkgs;
   };
+  # SSH host inventory lives in TOML rather than inline Nix so the same list is
+  # editable (and readable) outside the flake. Read from the repo copy — flake
+  # eval is pure, so the deployed ~/.config/ssh/hosts.toml is not reachable
+  # here; chezmoi deploys that copy from this same file.
+  sshHosts = (builtins.fromTOML (builtins.readFile ../chezmoi/dot_config/ssh/hosts.toml)).hosts;
   copilotLogBashHook = builtins.toJSON {
     version = 1;
     hooks.postToolUse = [
@@ -1017,6 +1022,24 @@ in {
 
     fd.enable = true;
     ripgrep.enable = true;
+
+    # SSH host aliases, ported from the hand-written ~/.ssh/config that
+    # predated this repo (files dated 2021). The host list itself lives in
+    # chezmoi/dot_config/ssh/hosts.toml (deployed to ~/.config/ssh/hosts.toml);
+    # only the host aliases are declarative — key material stays on disk and
+    # out of git.
+    #
+    # enableDefaultConfig = false keeps the generated file to these blocks
+    # alone; the default would prepend a `Host *` block that the hand-written
+    # config never had, silently changing global ssh behaviour.
+    ssh = {
+      enable = true;
+      enableDefaultConfig = false;
+      # `settings`, not the older `matchBlocks` — home-manager deprecated the
+      # latter (attribute names are Host patterns in both, so it is a rename).
+      # TOML table names map straight onto Host patterns.
+      settings = sshHosts;
+    };
 
     # Direnv for automatic environment loading
     direnv = {

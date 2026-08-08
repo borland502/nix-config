@@ -1,0 +1,57 @@
+# Default application associations — which app handles which mimetype/URI scheme.
+#
+# Consumed two ways:
+#   * home-manager/profiles/desktop-linux.nix reads this at eval time (from the
+#     repo copy, not the deployed one — flake eval is pure) and renders it into
+#     xdg.mimeApps.defaultApplications, i.e. ~/.config/mimeapps.list.
+#   * chezmoi deploys it to ~/.config/mimeapps/defaults.toml as the readable
+#     inventory for non-Nix hosts.
+#
+# [apps] maps a short role name to a .desktop id. [handlers] maps each
+# mimetype/scheme to one of those role names — the indirection means changing
+# browsers is a one-line edit here rather than 6 substitutions below.
+#
+# NB: `zoom` is deliberately absent from [apps]. Its .desktop id differs by host
+# (nixpkgs zoom-us ships "Zoom.desktop"; the Flathub build used on generic Linux
+# ships "us.zoom.Zoom.desktop"), so desktop-linux.nix resolves that role from
+# `isNixos` and merges it in. Any role named here overrides the Nix-side default.
+
+[apps]
+# Vivaldi's binary self-checks the default browser against a hardcoded
+# "vivaldi-stable.desktop"; pointing the default at any other id (e.g. a custom
+# vivaldi.desktop) makes Vivaldi think it isn't the default and prompt on every
+# launch. The nixpkgs package ships vivaldi-stable.desktop with Exec wired to
+# the Nix binary.
+browser = "vivaldi-stable.desktop"
+mail = "thunderbird.desktop"
+
+[handlers]
+"application/xhtml+xml" = "browser"
+"text/html" = "browser"
+"x-scheme-handler/about" = "browser"
+"x-scheme-handler/http" = "browser"
+"x-scheme-handler/https" = "browser"
+"x-scheme-handler/unknown" = "browser"
+
+# Thunderbird: email
+"x-scheme-handler/mailto" = "mail"
+"message/rfc822" = "mail"
+# Thunderbird: calendar (ics files + webcal subscription links)
+"text/calendar" = "mail"
+"x-scheme-handler/webcal" = "mail"
+"x-scheme-handler/webcals" = "mail"
+# Thunderbird: protocol-scheme links (message-id, news/usenet)
+"x-scheme-handler/mid" = "mail"
+"x-scheme-handler/news" = "mail"
+"x-scheme-handler/snews" = "mail"
+"x-scheme-handler/nntp" = "mail"
+
+# Zoom: meeting/phone links clicked in the browser. "tel" is deliberately
+# absent — kdeconnect owns it on this host.
+"x-scheme-handler/zoommtg" = "zoom"
+"x-scheme-handler/zoomus" = "zoom"
+"x-scheme-handler/zoomphonecall" = "zoom"
+"x-scheme-handler/zoomphonesms" = "zoom"
+"x-scheme-handler/zoomcontactcentercall" = "zoom"
+"x-scheme-handler/callto" = "zoom"
+"application/x-zoom" = "zoom"
