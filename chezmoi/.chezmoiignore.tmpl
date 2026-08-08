@@ -13,6 +13,12 @@ Development/**
 {{ if ne .chezmoi.os "darwin" -}}
 .local/bin/toggle-browser
 {{ end -}}
+{{ if not (stat (joinPath .chezmoi.homeDir ".config/keepassxc/keepassxc.ini")) -}}
+# The KeePassXC theme is asserted by a modify_ script that edits the app's own
+# ini in place — deploy it only where that ini already exists, never create a
+# KeePassXC config on a host without KeePassXC.
+.config/keepassxc/keepassxc.ini
+{{ end -}}
 {{ if ne .chezmoi.os "windows" -}}
 # Agent instructions managed by home-manager on Linux/macOS; chezmoi owns them on Windows only.
 .claude/CLAUDE.md
