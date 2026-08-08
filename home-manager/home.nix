@@ -55,6 +55,17 @@ in {
     };
   };
 
+  # GTK3 never sees the desktop's dark preference. `color-scheme=prefer-dark`
+  # (gsettings, republished by the XDG portal as org.freedesktop.appearance)
+  # is read by GTK4/libadwaita only — GTK3 consults this settings.ini key
+  # alone, and stylix's gtk target does not set it. The result was GTK3 apps
+  # loading the light adw-gtk3 stylesheet on a dark desktop while GTK4 apps
+  # rendered dark. adw-gtk3 ships share/themes/adw-gtk3/gtk-3.0/gtk-dark.css,
+  # so this flips GTK3 to the dark sheet without touching the theme *name*
+  # (adw-gtk3), which stylix owns. GTK4 dropped the property, so it is set for
+  # gtk3 only.
+  gtk.gtk3.extraConfig.gtk-application-prefer-dark-theme = true;
+
   # Linux-specific font fallbacks
   fonts.fontconfig.defaultFonts = {
     sansSerif = lib.mkAfter ["DejaVu Sans"];
