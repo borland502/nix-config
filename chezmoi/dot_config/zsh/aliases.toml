@@ -1,0 +1,37 @@
+# Shell aliases — single source of truth.
+#
+# Consumed two ways:
+#   * home-manager/zsh.nix reads this at eval time (from the repo copy, not the
+#     deployed one — flake eval is pure) and renders it into
+#     programs.zsh.shellAliases.
+#   * chezmoi deploys it to ~/.config/zsh/aliases.toml so non-Nix hosts
+#     (Windows/msys zsh) can source the same set instead of drifting.
+#
+# Keys are alias names, values the expansion, one flat [aliases] table. Values
+# are literal shell text — no templating, no interpolation.
+
+[aliases]
+rsync-cp = "rsync -avzhi --filter=':- .gitignore' --exclude='node_modules' --exclude='.venv' --compress-choice=zstd --info=progress2 --stats"
+rsync-mv = "rsync -avz --compress-choice=zstd --progress -h --remove-source-files"
+rsync-update = "rsync -avzu --compress-choice=zstd --progress -h"
+rsync-sync = "rsync -avzu --compress-choice=zstd --delete --info=progress2 --no-whole-file -h"
+# Was "--backup-dir={{.xdg_cache_home}}" — a chezmoi template placeholder that
+# never got rendered, because this alias lived in Nix where chezmoi never saw
+# it. rsync was literally creating a directory named "{{.xdg_cache_home}}".
+rsync-bak = "rsync -avbuzh --numeric-ids --compress-choice=zstd --progress --backup-dir=$HOME/.cache/rsync"
+
+cat = "bat --pager=never"
+top = "sudo htop"
+du = "ncdu --color dark -rr -x --exclude .git --exclude node_modules"
+
+# Modern replacements
+ls = "eza --icons"                                          # ls
+l = "eza -lbF --git --icons"                                # list, size, type, git
+ll = "eza -lbGF --git --icons"                              # long list
+ltr = "eza -lbGd --git --sort=modified --icons"             # long list, modified date sort
+llm = "eza --all --header --long --sort=modified $eza_params"
+la = "eza -lbhHigUmuSa --git --color-scale --icons"         # all list
+lx = "eza -lbhHigUmuSa@ --git --color-scale --icons"        # all + extended list
+
+# Zoxide shortcuts
+cd = "z" # Use zoxide instead of cd

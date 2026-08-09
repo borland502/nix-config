@@ -1,5 +1,10 @@
 _: let
   c = import ./lib/colors.nix;
+  # Aliases live in TOML rather than inline Nix so the same set is editable
+  # (and readable) outside the flake. Read from the repo copy — flake eval is
+  # pure, so the deployed ~/.config/zsh/aliases.toml is not reachable here;
+  # chezmoi deploys that copy from this same file.
+  inherit (builtins.fromTOML (builtins.readFile ../chezmoi/dot_config/zsh/aliases.toml)) aliases;
 in {
   programs.zsh = {
     enable = true;
@@ -50,30 +55,9 @@ in {
       fi
     '';
 
-    shellAliases = {
-      rsync-cp = "rsync -avzhi --filter=':- .gitignore' --exclude='node_modules' --exclude='.venv' --compress-choice=zstd --info=progress2 --stats";
-      rsync-mv = "rsync -avz --compress-choice=zstd --progress -h --remove-source-files";
-      rsync-update = "rsync -avzu --compress-choice=zstd --progress -h";
-      rsync-sync = "rsync -avzu --compress-choice=zstd --delete --info=progress2 --no-whole-file -h";
-
-      rsync-bak = "rsync -avbuzh --numeric-ids --compress-choice=zstd --progress --backup-dir={{.xdg_cache_home}}/rsync";
-
-      cat = "bat --pager=never";
-      top = "sudo htop";
-      du = "ncdu --color dark -rr -x --exclude .git --exclude node_modules";
-
-      # Modern replacements
-      ls = "eza --icons"; # ls
-      l = "eza -lbF --git --icons"; # list, size, type, git
-      ll = "eza -lbGF --git --icons"; # long list
-      ltr = "eza -lbGd --git --sort=modified --icons"; # long list, modified date sort
-      llm = "eza --all --header --long --sort=modified $eza_params";
-      la = "eza -lbhHigUmuSa --git --color-scale --icons"; # all list
-      lx = "eza -lbhHigUmuSa@ --git --color-scale --icons"; # all + extended list
-
-      # Zoxide shortcuts
-      cd = "z"; # Use zoxide instead of cd
-    };
+    # Aliases come from chezmoi/dot_config/zsh/aliases.toml
+    # (deployed to ~/.config/zsh/aliases.toml).
+    shellAliases = aliases;
 
     envExtra = ''
           # Ensure the nix daemon profile is loaded in non-interactive shells.

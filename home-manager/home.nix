@@ -55,6 +55,17 @@ in {
     };
   };
 
+  # GTK3 never sees the desktop's dark preference. `color-scheme=prefer-dark`
+  # (gsettings, republished by the XDG portal as org.freedesktop.appearance)
+  # is read by GTK4/libadwaita only — GTK3 consults this settings.ini key
+  # alone, and stylix's gtk target does not set it. The result was GTK3 apps
+  # loading the light adw-gtk3 stylesheet on a dark desktop while GTK4 apps
+  # rendered dark. adw-gtk3 ships share/themes/adw-gtk3/gtk-3.0/gtk-dark.css,
+  # so this flips GTK3 to the dark sheet without touching the theme *name*
+  # (adw-gtk3), which stylix owns. GTK4 dropped the property, so it is set for
+  # gtk3 only.
+  gtk.gtk3.extraConfig.gtk-application-prefer-dark-theme = true;
+
   # Linux-specific font fallbacks
   fonts.fontconfig.defaultFonts = {
     sansSerif = lib.mkAfter ["DejaVu Sans"];
@@ -207,6 +218,16 @@ in {
         };
       };
 
+      # Four virtual desktops in a single row, so Meta+Ctrl+Left/Right walks
+      # the whole set (Plasma ships with one desktop, which makes the stock
+      # switching shortcuts no-ops). Names are left unset: without them KWin
+      # labels the desktops "Desktop 1".."Desktop 4", which is what the
+      # pager and the switcher OSD would show anyway.
+      kwin.virtualDesktops = {
+        number = 4;
+        rows = 1;
+      };
+
       # Disable Plasma "hot corners" — the corner-triggered screen-edge
       # actions. Plasma 6 enables top-left -> Overview by default; the other
       # corners are already inert but are pinned to "no action" so nothing
@@ -283,6 +304,11 @@ in {
       panels = [
         {
           location = "bottom";
+          # Pin the panel to screen 0 (the primary external display). Without
+          # this, re-applying the layout recreates the panel wherever Plasma
+          # feels like putting it — it landed on the laptop's internal eDP
+          # panel, not the monitor it had always been on.
+          screen = 0;
           widgets = [
             "org.kde.plasma.kickoff"
             "org.kde.plasma.pager"
@@ -292,12 +318,22 @@ in {
               # from the panel on next start (icontasks silently drops pins whose
               # service KService can't resolve). Re-synced from the live panel
               # (plasma-org.kde.plasma.desktop-appletsrc) on 2026-07-27.
+              #
+              # Spelled as concrete "applications:" ids rather than
+              # "preferred://" wherever the app is pinned by name anyway. A
+              # preferred:// entry resolves through the mimeapps association and
+              # degrades badly when that is missing: it stays in the panel as a
+              # blank generic icon that launches nothing, rather than being
+              # pruned. filemanager hit exactly that (no inode/directory default
+              # was declared); it now has one in mimeapps/defaults.toml, and the
+              # pin no longer depends on it either way.
               iconTasks.launchers = [
                 "applications:systemsettings.desktop"
-                "preferred://filemanager"
+                "applications:org.kde.dolphin.desktop"
                 "applications:code.desktop"
                 "preferred://browser"
                 "applications:kitty.desktop"
+                "applications:steam.desktop"
                 "applications:org.keepassxc.KeePassXC.desktop"
                 "applications:slack.desktop"
                 "applications:discord.desktop"
