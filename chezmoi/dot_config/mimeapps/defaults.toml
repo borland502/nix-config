@@ -24,8 +24,19 @@
 # the Nix binary.
 browser = "vivaldi-stable.desktop"
 mail = "thunderbird.desktop"
+# Dolphin ships under this id on both plasma6 (nixpkgs) and the distro package.
+# Naming it explicitly is what makes Plasma's "preferred://filemanager" resolve:
+# that URI is answered from the inode/directory association below, and with no
+# association at all Plasma renders the entry as a blank generic icon that does
+# nothing when clicked.
+filemanager = "org.kde.dolphin.desktop"
 
 [handlers]
+# Folders. KDE has no separate "default file manager" setting — Plasma resolves
+# preferred://filemanager (and Dolphin-vs-other "Open Containing Folder"
+# actions) straight from this mimetype.
+"inode/directory" = "filemanager"
+
 "application/xhtml+xml" = "browser"
 "text/html" = "browser"
 "x-scheme-handler/about" = "browser"
