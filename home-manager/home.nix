@@ -304,6 +304,11 @@ in {
       panels = [
         {
           location = "bottom";
+          # Pin the panel to screen 0 (the primary external display). Without
+          # this, re-applying the layout recreates the panel wherever Plasma
+          # feels like putting it — it landed on the laptop's internal eDP
+          # panel, not the monitor it had always been on.
+          screen = 0;
           widgets = [
             "org.kde.plasma.kickoff"
             "org.kde.plasma.pager"
@@ -313,12 +318,22 @@ in {
               # from the panel on next start (icontasks silently drops pins whose
               # service KService can't resolve). Re-synced from the live panel
               # (plasma-org.kde.plasma.desktop-appletsrc) on 2026-07-27.
+              #
+              # Spelled as concrete "applications:" ids rather than
+              # "preferred://" wherever the app is pinned by name anyway. A
+              # preferred:// entry resolves through the mimeapps association and
+              # degrades badly when that is missing: it stays in the panel as a
+              # blank generic icon that launches nothing, rather than being
+              # pruned. filemanager hit exactly that (no inode/directory default
+              # was declared); it now has one in mimeapps/defaults.toml, and the
+              # pin no longer depends on it either way.
               iconTasks.launchers = [
                 "applications:systemsettings.desktop"
-                "preferred://filemanager"
+                "applications:org.kde.dolphin.desktop"
                 "applications:code.desktop"
                 "preferred://browser"
                 "applications:kitty.desktop"
+                "applications:steam.desktop"
                 "applications:org.keepassxc.KeePassXC.desktop"
                 "applications:slack.desktop"
                 "applications:discord.desktop"
