@@ -95,9 +95,38 @@
   availablePackages =
     lib.filter (pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg)
     (desktopPackages ++ lib.optionals isNixos nixosOnlyPackages);
+
+  # plasma-manager applies the declared panel layout by feeding a JS file to
+  # plasmashell over D-Bus, and the script it generates calls bare `qdbus`
+  # (modules/startup.nix — not configurable). NixOS's plasma6 module adds
+  # qttools to systemPackages precisely to "Expose qdbus in PATH"; a standalone
+  # Home Manager host gets no such help, and distros ship the Qt6 binary under a
+  # versioned name (qdbus6 on Arch/CachyOS, qdbus-qt6 on Debian/Fedora), so bare
+  # `qdbus` does not exist.
+  #
+  # The failure is silent and destructive rather than merely inert: the script
+  # deletes plasma-org.kde.plasma.desktop-appletsrc *before* the qdbus call
+  # (upstream's workaround for plasma-manager#76), so every activation wiped the
+  # panel and then failed to rebuild it, leaving the stock Plasma panel with
+  # none of the pinned launchers declared in home.nix. It only showed up in the
+  # session journal:
+  #   run_all.sh[…]: …/2_desktop_script_panels.sh: line 17: qdbus: command not found
+  #
+  # nixpkgs' kdePackages.qttools would supply a real qdbus, but drags in ~715 MiB
+  # of closure (designer, assistant, linguist) for one 40 KB binary. Shim to the
+  # host's Qt6 copy instead. Kept off NixOS so it can never shadow the real one.
+  qdbusShim = pkgs.writeShellScriptBin "qdbus" ''
+    for candidate in qdbus6 qdbus-qt6 /usr/lib/qt6/bin/qdbus; do
+      if command -v "$candidate" > /dev/null 2>&1; then
+        exec "$candidate" "$@"
+      fi
+    done
+    echo "qdbus: no Qt 6 D-Bus tool on this host (looked for qdbus6, qdbus-qt6)" >&2
+    exit 127
+  '';
 in {
   # Desktop applications
-  home.packages = availablePackages;
+  home.packages = availablePackages ++ lib.optional (!isNixos) qdbusShim;
   home.sessionVariables.BROWSER = "vivaldi";
 
   # Note: System monitoring tools (htop, btop, iotop) moved to platform-specific configs
