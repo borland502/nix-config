@@ -218,6 +218,16 @@ in {
         };
       };
 
+      # Four virtual desktops in a single row, so Meta+Ctrl+Left/Right walks
+      # the whole set (Plasma ships with one desktop, which makes the stock
+      # switching shortcuts no-ops). Names are left unset: without them KWin
+      # labels the desktops "Desktop 1".."Desktop 4", which is what the
+      # pager and the switcher OSD would show anyway.
+      kwin.virtualDesktops = {
+        number = 4;
+        rows = 1;
+      };
+
       # Disable Plasma "hot corners" — the corner-triggered screen-edge
       # actions. Plasma 6 enables top-left -> Overview by default; the other
       # corners are already inert but are pinned to "no action" so nothing
