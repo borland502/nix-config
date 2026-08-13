@@ -1,0 +1,403 @@
+#!/usr/bin/env python3
+"""confluence-page — read and write Confluence Server/DC pages, attachments, images.
+
+The write-side counterpart to `confluence-get` (which stays the tool for raw
+GETs). Everything here exists because a 21-day log scan found the same handful
+of Confluence write mistakes repeated across sessions; each is encoded as a safe
+default rather than left to the caller:
+
+  * An update that omits the body WIPES the page. `update` re-fetches the
+    current storage body and sends it back unchanged unless --body-file says
+    otherwise, so retitle/reparent are safe by construction.
+  * The version number must be exactly current+1. It is always read from a
+    fresh GET immediately before the PUT, never guessed or cached.
+  * `/rest/api/content/{id}/move/...` 404s on this DC version. Re-parenting
+    goes through `ancestors` in the same PUT.
+  * Re-POSTing an attachment whose filename already exists 400s with "Cannot
+    add a new attachment with same file name". `attach` looks up existing
+    attachments and POSTs to `/child/attachment/{attId}/data` to add a version.
+  * Uploads need `X-Atlassian-Token: no-check` or they are rejected by XSRF.
+  * Confluence error bodies are often HTML, which turns a piped `jq` into a
+    parse error that masks the real failure. Non-2xx is reported with the body.
+
+The token is read from disk and sent as a header from inside this process, so
+it never lands in argv (visible to `ps`, and captured by the log-bash hook).
+
+Credentials, both sops-managed:
+  ~/.config/confluence/base-url   bare host, NO /rest/api suffix
+  ~/.config/confluence/token      Personal Access Token, sent as Bearer
+"""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import mimetypes
+import os
+import re
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+
+CONFIG_DIR = os.path.expanduser("~/.config/confluence")
+TIMEOUT = 120
+
+# Confluence sniffs content types it does not recognise into
+# application/octet-stream, which makes the browser download the file instead
+# of rendering it. These are the ones that have actually bitten us.
+FORCED_TYPES = {
+    ".svg": "image/svg+xml",
+    ".drawio": "application/xml",
+    ".mmd": "text/plain",
+}
+
+
+def die(msg: str) -> None:
+    print(f"confluence-page: {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def read_config(name: str) -> str:
+    path = os.path.join(CONFIG_DIR, name)
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except FileNotFoundError:
+        die(
+            f"missing {path}. Confluence credentials are sops-managed — run "
+            "`task switch` to materialise them, or see the sec-credentials skill."
+        )
+
+
+def call(method, path, data=None, headers=None, raw=False):
+    """One REST call. `path` is relative to the REST API root (no /rest/api)."""
+    base = read_config("base-url").rstrip("/")
+    token = read_config("token")
+    path = path.lstrip("/")
+    path = re.sub(r"^rest/api/", "", path)
+    url = f"{base}/rest/api/{path}"
+
+    hdrs = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    hdrs.update(headers or {})
+    body = data
+    if data is not None and not raw:
+        body = json.dumps(data).encode()
+        hdrs["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            payload = resp.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:600]
+        hint = ""
+        if exc.code == 400 and "same file name" in detail:
+            hint = "\n  hint: attachment exists — POST to /child/attachment/{id}/data instead"
+        elif exc.code == 404 and "/move/" in url:
+            hint = "\n  hint: /move 404s on this DC version — re-parent via `ancestors` in the PUT"
+        elif exc.code == 401:
+            hint = "\n  hint: PAT expired or Basic auth used; regenerate in the instance profile"
+        die(f"HTTP {exc.code} on {method} {url}\n  {detail}{hint}")
+    except urllib.error.URLError as exc:
+        die(f"cannot reach {url}: {exc.reason} (VPN up?)")
+
+    if not payload:
+        return {}
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        die(
+            f"non-JSON response from {method} {url} — Confluence errors are often "
+            f"HTML:\n  {payload.decode('utf-8', 'replace')[:300]}"
+        )
+
+
+def storage_to_text(s: str) -> str:
+    """Flatten storage XHTML to readable text. Lossy on purpose — for reading."""
+    s = re.sub(r"<ac:parameter[^>]*>.*?</ac:parameter>", "", s, flags=re.S)
+    s = s.replace("<![CDATA[", "\n```\n").replace("]]>", "\n```\n")
+    s = re.sub(
+        r'<ac:link[^>]*>\s*<ri:page[^>]*ri:content-title="([^"]*)"[^>]*/>\s*</ac:link>',
+        r"[[\1]]",
+        s,
+    )
+    s = re.sub(r'<ri:page[^>]*ri:content-title="([^"]*)"[^>]*/>', r"[[\1]]", s)
+    s = re.sub(r'<ri:attachment[^>]*ri:filename="([^"]*)"[^>]*/?>', r"[attach:\1]", s)
+    s = re.sub(r"<br\s*/?>", "\n", s)
+    s = re.sub(r'<ac:structured-macro ac:name="([^"]*)"[^>]*>', r"\n<<macro:\1>>\n", s)
+    s = re.sub(r"</(p|h1|h2|h3|h4|h5|li|tr|div)>", "\n", s)
+    s = re.sub(r"<(h1|h2|h3|h4|h5)>", "\n## ", s)
+    s = re.sub(r"<li[^>]*>", "- ", s)
+    s = re.sub(r"<t[dh][^>]*>", " | ", s)
+    s = re.sub(r"</t[dh]>", "", s)
+    s = re.sub(r"<[^>]+>", "", s)
+    s = html.unescape(s)
+    s = re.sub(r"[ \t]+\n", "\n", s)
+    return re.sub(r"\n{3,}", "\n\n", s).strip()
+
+
+def get_page(page_id: str, expand="body.storage,version,space,ancestors"):
+    return call("GET", f"content/{page_id}?expand={expand}")
+
+
+def page_url(page: dict) -> str:
+    base = read_config("base-url").rstrip("/")
+    return base + page.get("_links", {}).get("webui", "")
+
+
+def read_body_arg(path: str) -> str:
+    if path == "-":
+        return sys.stdin.read()
+    try:
+        with open(path) as fh:
+            return fh.read()
+    except FileNotFoundError:
+        die(f"body file not found: {path}")
+
+
+# --------------------------------------------------------------------------
+# subcommands
+# --------------------------------------------------------------------------
+
+
+def cmd_read(args):
+    page = get_page(args.id)
+    body = page.get("body", {}).get("storage", {}).get("value", "")
+    if args.format == "json":
+        print(json.dumps(page, indent=2))
+        return
+    if args.format == "storage":
+        print(body)
+        return
+    ver = page.get("version", {})
+    print(f"# {page.get('title', '')}")
+    print(
+        f"# id={page['id']} space={page.get('space', {}).get('key')} "
+        f"v={ver.get('number')} when={ver.get('when', '')[:10]}"
+    )
+    ancestors = page.get("ancestors") or []
+    if ancestors:
+        print(f"# parent={ancestors[-1]['id']} ({ancestors[-1]['title']})")
+    print()
+    print(storage_to_text(body))
+
+
+def cmd_children(args):
+    res = call("GET", f"content/{args.id}/child/page?limit={args.limit}&expand=version")
+    for child in res.get("results", []):
+        print(f"{child['id']}\tv{child['version']['number']}\t{child['title']}")
+
+
+def cmd_create(args):
+    payload = {
+        "type": "page",
+        "title": args.title,
+        "space": {"key": args.space},
+        "body": {
+            "storage": {"value": read_body_arg(args.body_file), "representation": "storage"}
+        },
+    }
+    if args.parent:
+        payload["ancestors"] = [{"id": str(args.parent)}]
+    if args.dry_run:
+        print(json.dumps(payload, indent=2)[:2000])
+        return
+    page = call("POST", "content", payload)
+    print(f"created id={page['id']} v={page['version']['number']}")
+    print(page_url(page))
+
+
+def cmd_update(args):
+    # Always read the live page first: the version must be exactly current+1,
+    # and an omitted body would blank the page.
+    current = get_page(args.id)
+    body = (
+        read_body_arg(args.body_file)
+        if args.body_file
+        else current.get("body", {}).get("storage", {}).get("value", "")
+    )
+    if not body:
+        die("refusing to write an empty body (this wipes the page)")
+
+    payload = {
+        "id": str(args.id),
+        "type": "page",
+        "title": args.title or current["title"],
+        "space": {"key": current.get("space", {}).get("key")},
+        "body": {"storage": {"value": body, "representation": "storage"}},
+        "version": {
+            "number": current["version"]["number"] + 1,
+            "minorEdit": args.minor,
+            "message": args.message or "Updated via confluence-page",
+        },
+    }
+    # Re-parent in the same PUT — the /move endpoint 404s on this DC version.
+    if args.parent:
+        payload["ancestors"] = [{"id": str(args.parent)}]
+    elif current.get("ancestors"):
+        payload["ancestors"] = [{"id": current["ancestors"][-1]["id"]}]
+
+    if args.dry_run:
+        print(
+            f"would PUT id={args.id} v{current['version']['number']} -> "
+            f"v{payload['version']['number']} title={payload['title']!r} "
+            f"body={len(body)} bytes"
+        )
+        return
+    page = call("PUT", f"content/{args.id}", payload)
+    print(f"updated id={page['id']} v={page['version']['number']}")
+    print(page_url(page))
+
+
+def multipart(filepath: str, comment: str | None):
+    boundary = uuid.uuid4().hex
+    name = os.path.basename(filepath)
+    ext = os.path.splitext(name)[1].lower()
+    ctype = FORCED_TYPES.get(ext) or mimetypes.guess_type(name)[0] or "application/octet-stream"
+    out = b""
+    if comment:
+        out += (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="comment"'
+            f"\r\n\r\n{comment}\r\n"
+        ).encode()
+    out += (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+        f'filename="{name}"\r\nContent-Type: {ctype}\r\n\r\n'
+    ).encode()
+    try:
+        with open(filepath, "rb") as fh:
+            out += fh.read()
+    except FileNotFoundError:
+        die(f"attachment not found: {filepath}")
+    out += b"\r\n" + f"--{boundary}--\r\n".encode()
+    return out, boundary, ctype
+
+
+def cmd_attach(args):
+    existing = {
+        a["title"]: a["id"]
+        for a in call("GET", f"content/{args.id}/child/attachment?limit=200").get(
+            "results", []
+        )
+    }
+    for path in args.files:
+        name = os.path.basename(path)
+        # A plain POST for an existing filename 400s; posting to the
+        # attachment's own /data adds a version instead.
+        if name in existing:
+            endpoint = f"content/{args.id}/child/attachment/{existing[name]}/data"
+            verb, verbed = "update", "updated"
+        else:
+            endpoint = f"content/{args.id}/child/attachment"
+            verb, verbed = "add", "added"
+        body, boundary, ctype = multipart(path, args.comment)
+        if args.dry_run:
+            print(f"would {verb} {name} ({ctype}, {len(body):,} bytes) -> {endpoint}")
+            continue
+        res = call(
+            "POST",
+            endpoint,
+            body,
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "X-Atlassian-Token": "no-check",
+            },
+            raw=True,
+        )
+        result = (res.get("results") or [res])[0]
+        ver = result.get("version", {}).get("number", "?")
+        print(f"{verbed} {name}\tv{ver}\t{ctype}")
+
+
+def cmd_attachments(args):
+    res = call("GET", f"content/{args.id}/child/attachment?limit=200&expand=version")
+    for att in res.get("results", []):
+        size = att.get("extensions", {}).get("fileSize", "?")
+        print(
+            f"{att['id']}\tv{att['version']['number']}\t{size}\t"
+            f"{att.get('extensions', {}).get('mediaType', '?')}\t{att['title']}"
+        )
+
+
+def cmd_embed(args):
+    """Emit the storage-format snippet that renders an attachment inline."""
+    attrs = ['ac:align="center"']
+    if args.width:
+        attrs.append(f'ac:width="{args.width}"')
+    if args.alt:
+        attrs.append(f'ac:alt="{html.escape(args.alt, quote=True)}"')
+    print(
+        f"<ac:image {' '.join(attrs)}>"
+        f'<ri:attachment ri:filename="{html.escape(args.filename, quote=True)}" />'
+        f"</ac:image>"
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="confluence-page",
+        description="Read and write Confluence Server/DC pages, attachments, and images.",
+        epilog=(
+            "Raw GETs belong in `confluence-get`. Pitfalls and worked examples: "
+            "the ops-confluence skill."
+        ),
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    r = sub.add_parser("read", help="fetch a page as text (default), storage XHTML, or JSON")
+    r.add_argument("id")
+    r.add_argument("--format", choices=("text", "storage", "json"), default="text")
+    r.set_defaults(func=cmd_read)
+
+    c = sub.add_parser("children", help="list child pages")
+    c.add_argument("id")
+    c.add_argument("--limit", type=int, default=100)
+    c.set_defaults(func=cmd_children)
+
+    n = sub.add_parser("create", help="create a page")
+    n.add_argument("--space", required=True)
+    n.add_argument("--title", required=True)
+    n.add_argument("--parent")
+    n.add_argument("--body-file", required=True, help="storage-format XHTML; - for stdin")
+    n.add_argument("--dry-run", action="store_true")
+    n.set_defaults(func=cmd_create)
+
+    u = sub.add_parser(
+        "update",
+        help="update a page; without --body-file the current body is preserved",
+    )
+    u.add_argument("id")
+    u.add_argument("--body-file", help="storage-format XHTML; - for stdin")
+    u.add_argument("--title")
+    u.add_argument("--parent", help="re-parent (uses ancestors, not the 404ing /move)")
+    u.add_argument("--message", help="version comment")
+    u.add_argument("--minor", action="store_true", help="do not notify watchers")
+    u.add_argument("--dry-run", action="store_true")
+    u.set_defaults(func=cmd_update)
+
+    a = sub.add_parser("attach", help="upload files, adding a version if the name exists")
+    a.add_argument("id")
+    a.add_argument("files", nargs="+")
+    a.add_argument("--comment")
+    a.add_argument("--dry-run", action="store_true")
+    a.set_defaults(func=cmd_attach)
+
+    ls = sub.add_parser("attachments", help="list attachments")
+    ls.add_argument("id")
+    ls.set_defaults(func=cmd_attachments)
+
+    e = sub.add_parser("embed", help="print the <ac:image> snippet for an attachment")
+    e.add_argument("filename")
+    e.add_argument("--alt")
+    e.add_argument("--width", type=int)
+    e.set_defaults(func=cmd_embed)
+
+    return p
+
+
+if __name__ == "__main__":
+    parsed = build_parser().parse_args()
+    parsed.func(parsed)

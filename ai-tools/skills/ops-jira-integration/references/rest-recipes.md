@@ -96,6 +96,11 @@ jira_curl -G \
 
 ## Confluence
 
+> **Prefer the `confluence-page` helper and the ops-confluence skill.** That
+> skill owns the Confluence surface — pages, attachments, images, and the full
+> pitfall list. The recipes below are the underlying REST calls, kept for when
+> you need to build a request the helper does not cover.
+
 Confluence Server/DC uses the v1 content API under
 `$CONFLUENCE_URL/rest/api/content`; the cloud v2 `/pages` API does not exist here.
 
