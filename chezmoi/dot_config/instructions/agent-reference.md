@@ -322,7 +322,7 @@ The shared package set in `home-manager/common.nix` usually provides these CLI
 tools on managed hosts (filtered by host support — verify with `command -v`
 when portability matters): git, gh, gh-dash, lazygit, delta, curl, wget, gcc,
 go, gopls, govulncheck, delve (`dlv`), go-task (`task`), pkg-config, python3,
-pipx, uv, maven, awscli2, awslogs, aws-sam-cli, checkov, bun, docker,
+pipx, uv, maven, awscli2, awslogs, aws-sam-cli, bun, docker,
 docker-buildx, docker-compose, overmind, bat, eza, fzf, fd, ripgrep (`rg`),
 sd, jq, yq-go (`yq`), zoxide, direnv, dasel, gron, tmux, age, sops, zstd,
 unzip, p7zip (`7z`/`7za`/`7zr`), alejandra, ncdu, statix, deadnix, nixd,

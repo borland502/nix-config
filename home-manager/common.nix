@@ -165,7 +165,14 @@
     awscli2
     awslogs
     awsSamCliPatched
-    checkov
+    # checkov removed 2026-08-13: it was the sole path to arrow-cpp
+    # (checkov -> igraph -> plotly -> pyarrow -> arrow-cpp), whose install-check
+    # suite fails on aarch64-darwin. nixpkgs excludes the known-broken
+    # TestAzuriteGeneric.Empty (apache/arrow#41505) only for isDarwin &&
+    # isx86_64, so the test runs here, and with sandbox=false the Azurite
+    # emulator's telemetry stalls its startup past the test's connect timeout.
+    # Nothing in this repo invoked checkov; re-add it with an arrow-cpp overlay
+    # widening that exclusion if it is ever needed again.
 
     # Containers & process management
     docker_29
