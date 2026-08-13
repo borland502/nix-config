@@ -49,6 +49,13 @@ in {
         sopsFile = ../../secrets/arr.yaml;
         path = "${config.home.homeDirectory}/.config/arr/sonarr.key";
       };
+
+      # Prowlarr API key.  Prowlarr is the indexer proxy behind Sonarr, so this
+      # is the key that reaches the indexer definitions themselves.
+      "arr/prowlarr_api_key" = {
+        sopsFile = ../../secrets/arr.yaml;
+        path = "${config.home.homeDirectory}/.config/arr/prowlarr.key";
+      };
     };
   };
 
