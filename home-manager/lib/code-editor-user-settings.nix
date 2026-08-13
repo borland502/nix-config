@@ -112,4 +112,151 @@
   # chat.agentHost.enabled and go back to the native chat client (the hook
   # settings above already cover it).
   "chat.agentHost.enabled" = true;
+
+  # ---------------------------------------------------------------------------
+  # Recovered from ~/.config/Code/User/settings.json.backup (last written
+  # 2025-03-01, when home-manager took over programs.vscode and Settings Sync
+  # lost the ability to write settings.json). 117 keys existed only in that
+  # backup; these are the ones still applicable here.
+  #
+  # Every per-language binding below was checked against the extension set this
+  # config actually installs — a defaultFormatter pointing at a missing
+  # extension is a silent "no formatter for this file" error, so bindings for
+  # uninstalled extensions were dropped rather than carried over. Deliberately
+  # NOT recovered: two plaintext credentials, settings naming paths on machines
+  # that no longer exist, and three settings that would fight current config
+  # (python.languageServer=Jedi vs Pylance, go.toolsManagement.autoUpdate=true
+  # vs the pinned Nix toolchain, workbench.iconTheme vs material-icon-theme).
+
+  # Editor behaviour
+  "editor.acceptSuggestionOnEnter" = "on";
+  "editor.accessibilitySupport" = "off";
+  "editor.defaultFormatter" = "esbenp.prettier-vscode";
+  "editor.fontWeight" = "normal";
+  "editor.linkedEditing" = true;
+  "editor.renderControlCharacters" = false;
+  "editor.snippetSuggestions" = "top";
+  "editor.suggest.preview" = true;
+  "editor.suggest.showMethods" = true;
+  "editor.suggestSelection" = "first";
+  "editor.tabSize" = 2;
+  "diffEditor.codeLens" = true;
+  "extensions.ignoreRecommendations" = false;
+  "security.workspace.trust.untrustedFiles" = "newWindow";
+  "workbench.editor.empty.hint" = "hidden";
+
+  # Git
+  "git.enableSmartCommit" = true;
+  "git.openRepositoryInParentFolders" = "always";
+  "git.terminalAuthentication" = false;
+
+  # Files. The association makes chezmoi's dot_-prefixed shell sources
+  # highlight correctly when editing this repo's chezmoi/ tree.
+  "files.associations" = {
+    dot_zshrc = "shellscript";
+  };
+  "files.exclude" = {
+    "**/.classpath" = true;
+    "**/.factorypath" = true;
+    "**/.project" = true;
+    "**/.settings" = true;
+  };
+
+  # Terminal. shellIntegration stays off: it injects prompt markers that mangle
+  # captured command output, which this setup relies on staying clean.
+  "terminal.integrated.gpuAcceleration" = "on";
+  "terminal.integrated.shellIntegration.enabled" = false;
+
+  # Per-language formatters — extension presence verified against the profile
+  "[dockerfile]" = {
+    "editor.defaultFormatter" = "esbenp.prettier-vscode";
+  };
+  "[javascript]" = {
+    "editor.defaultFormatter" = "vscode.typescript-language-features";
+  };
+  # Rebound from rvest.vs-code-prettier-eslint, which is not installed.
+  "[json]" = {
+    "editor.defaultFormatter" = "esbenp.prettier-vscode";
+  };
+  "[jsonc]" = {
+    "editor.defaultFormatter" = "esbenp.prettier-vscode";
+  };
+  "[markdown]" = {
+    "editor.defaultFormatter" = "esbenp.prettier-vscode";
+  };
+  "[python]" = {
+    "editor.defaultFormatter" = "charliermarsh.ruff";
+    "editor.formatOnType" = true;
+  };
+  "[toml]" = {
+    "editor.defaultFormatter" = "tamasfe.even-better-toml";
+  };
+  "[xml]" = {
+    "editor.defaultFormatter" = "redhat.vscode-xml";
+  };
+  "[yaml]" = {
+    "editor.defaultFormatter" = "redhat.vscode-yaml";
+  };
+
+  # Ruff (charliermarsh.ruff)
+  "ruff.configuration" = "pyproject.toml";
+  "ruff.enable" = true;
+  "ruff.fixAll" = true;
+  "ruff.lineLength" = 128;
+  "ruff.lint.enable" = true;
+  "ruff.organizeImports" = true;
+
+  # TOML (tamasfe.even-better-toml)
+  "evenBetterToml.formatter.indentEntries" = true;
+  "evenBetterToml.formatter.reorderKeys" = true;
+
+  # YAML (redhat.vscode-yaml) — customTags are the CloudFormation intrinsics
+  "yaml.customTags" = [
+    "!And"
+    "!And sequence"
+    "!Base64"
+    "!Cidr"
+    "!Equals"
+    "!Equals sequence"
+    "!FindInMap"
+    "!FindInMap sequence"
+    "!GetAZs"
+    "!GetAtt"
+    "!If"
+    "!If sequence"
+    "!ImportValue"
+    "!ImportValue sequence"
+    "!Join"
+    "!Join sequence"
+    "!Not"
+    "!Not sequence"
+    "!Or"
+    "!Or sequence"
+    "!Ref"
+    "!Select"
+    "!Select sequence"
+    "!Split"
+    "!Split sequence"
+    "!Sub"
+    "!Sub sequence"
+  ];
+  "yaml.format.printWidth" = 128;
+  "yaml.maxItemsComputed" = 10000;
+
+  # Java (redhat.java)
+  "java.codeGeneration.hashCodeEquals.useJava7Objects" = true;
+
+  # TypeScript / JavaScript (built-in language features)
+  "javascript.experimental.updateImportsOnPaste" = true;
+  "javascript.format.semicolons" = "insert";
+  "javascript.updateImportsOnFileMove.enabled" = "always";
+  "typescript.format.semicolons" = "insert";
+  "typescript.tsserver.experimental.enableProjectDiagnostics" = true;
+  "typescript.updateImportsOnFileMove.enabled" = "always";
+
+  # Docker (ms-azuretools.vscode-docker). The attach command prefers zsh, then
+  # bash, then sh, so exec-ing into a container lands in a usable shell.
+  "docker.commands.attach" = "\${config:docker.dockerPath} exec -it \${containerId} sh -c '[ -x \"$(command -v zsh)\" ] && exec zsh || [ -x \"$(command -v bash)\" ] && exec bash || exec sh'";
+  "docker.commands.run" = "\${config:docker.dockerPath} run --rm -d \${exposedPorts} \${tag}";
+  "docker.commands.runInteractive" = "\${config:docker.dockerPath} run --rm -it \${exposedPorts} \${tag}";
 }
