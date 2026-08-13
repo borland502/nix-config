@@ -133,12 +133,30 @@
     mkdir -p "$out/bin"
     "$CC" -Wall -Wextra -O2 -o "$out/bin/set-default-browser" ${setDefaultBrowserSource} -framework CoreServices -framework CoreFoundation
   '';
+  # mermaid-cli drives headless Chrome through puppeteer, but nixpkgs only wires
+  # PUPPETEER_EXECUTABLE_PATH into the mmdc wrapper when chromium is available
+  # on the host platform — and chromium has no darwin build. The stock package
+  # therefore installs fine here and then fails at render time with puppeteer's
+  # "Could not find Chrome" (the vendored download is disabled at build time via
+  # PUPPETEER_SKIP_DOWNLOAD). Point it at the same nix-provided Chrome that
+  # hosts/darwin/default.nix installs, so mmdc does not depend on whichever
+  # browser happens to be in /Applications.
+  mermaidCli = pkgs.symlinkJoin {
+    name = "mermaid-cli-with-chrome";
+    paths = [pkgs.mermaid-cli];
+    nativeBuildInputs = [pkgs.makeWrapper];
+    postBuild = ''
+      wrapProgram $out/bin/mmdc \
+        --set PUPPETEER_EXECUTABLE_PATH ${lib.escapeShellArg (lib.getExe pkgs.google-chrome)}
+    '';
+  };
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   darwinPackages = lib.filter availableOnHost (with pkgs; [
     mas
     vivaldiBrowserWrapper
     zoom-us # Zoom has a clean Nix path on darwin, so no Homebrew cask needed
     kitty # default terminal; stylix themes it and kitty.conf is managed here
+    mermaidCli # mmdc — mermaid diagram renderer (Chrome-wrapped above)
   ]);
 in {
   _module.args.isWsl = lib.mkDefault false;
