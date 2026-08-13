@@ -41,6 +41,14 @@ in {
         sopsFile = ../../secrets/ops-agent.yaml;
         path = "${config.home.homeDirectory}/.config/confluence/token";
       };
+
+      # Sonarr API key for the internal instance.  Its base URL lives in the
+      # same file as arr/sonarr_base_url — encrypted, matching how the jira and
+      # confluence base URLs are handled — and is deliberately not materialized.
+      "arr/sonarr_api_key" = {
+        sopsFile = ../../secrets/arr.yaml;
+        path = "${config.home.homeDirectory}/.config/arr/sonarr.key";
+      };
     };
   };
 
