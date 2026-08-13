@@ -4,3 +4,18 @@
 Documents/PowerShell
 Documents/WindowsPowerShell
 {{- end }}
+
+# Python bytecode and tool caches. chezmoi does NOT read .gitignore, so these
+# need rules of their own: running any managed .py from the source tree (or a
+# stray `python -m py_compile`) drops a __pycache__ beside it, and without this
+# chezmoi treats that as a file to deploy. It did — ~/.local/lib/__pycache__
+# was a deployed copy of the bytecode for .local/lib/kion_aws_cache_lock.py.
+**/__pycache__
+**/__pycache__/**
+**/*.py[cod]
+**/.mypy_cache
+**/.mypy_cache/**
+**/.pytest_cache
+**/.pytest_cache/**
+**/.ruff_cache
+**/.ruff_cache/**
