@@ -83,7 +83,14 @@ in {
       obsidian
       discord
       firefox
-      whatsapp-for-mac
+      # whatsapp-for-mac reverted to the Homebrew cask on 2026-08-13 — see the
+      # casks list below. It is the one package from the 2026-07-09 migration
+      # that cannot survive a pinned nixpkgs: its fetcher pulls a live,
+      # per-version vendor URL that WhatsApp stops serving as soon as it ships
+      # a new release, so the fixed-output derivation starts 500ing from every
+      # mirror and is not substitutable from cache.nixos.org either. That took
+      # Darwin CI down four days after the last green run, on nothing but the
+      # calendar (pin 2.26.19.17 vs 2.26.31.27 upstream).
       flameshot
     ];
 
@@ -335,6 +342,11 @@ in {
       "jetbrains-toolbox" # JetBrains Toolbox
       "keepassxc" # Password manager — Homebrew build detects the YubiKey
       "vivaldi" # Vivaldi Browser
+      # Deliberately NOT nixpkgs' whatsapp-for-mac: that fetches a pinned
+      # vendor URL which dies on every WhatsApp release. The cask tracks
+      # upstream through `brew update` and is flagged auto_updates, so the app
+      # keeps itself current and Homebrew never has to re-fetch a stale build.
+      "whatsapp" # WhatsApp desktop client
     ];
 
     # Mac App Store applications
