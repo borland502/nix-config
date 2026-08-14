@@ -10,11 +10,14 @@ and routes to the right configuration automatically.
 
 ## Highlights
 
-- **One flake, three platforms** — `darwin`, `linux`, and `wsl` hosts share a common Home Manager base.
+- **One flake, three platforms** — `darwin`, `linux`, and `wsl` hosts share a common Home Manager base,
+  with standalone Home Manager profiles for non-NixOS Linux, WSL distros, and devcontainers.
 - **Nix + chezmoi hybrid** — Nix owns packages and system state; chezmoi owns dotfiles and reaches the
-  one place Nix can't (native Windows).
-- **Single-source color palette** — Monokai Spectrum is defined once and consumed by Nix, Stylix, and
-  chezmoi alike (see [Color palette](#color-palette)).
+  places Nix can't (native Windows, `/etc` on non-flake hosts).
+- **TOML as single source of truth** — the color palette, SSH host inventory, shell aliases, and MIME
+  defaults are each defined once in TOML and read at Nix eval time (see [TOML-sourced config](#toml-sourced-config)).
+- **Safety nets** — every switch is preceded by a btrfs snapshot where snapper exists, and `~/.config`
+  plus `~/.local` back up daily to Google Drive (see [Backups & snapshots](#backups--snapshots)).
 - **AI tooling as code** — Claude Code / Copilot skills, agents, and instructions are version-controlled
   and deployed declaratively (see [AI tooling](#ai-tooling-skills--agents)).
 
@@ -61,6 +64,12 @@ task chezmoi-apply              # deploys PowerShell profile, flameshot config, 
 
 Windows support is deliberately minimal — mostly helper scripts, usually run after an initial WSL pass.
 
+### Secrets bootstrap
+
+Secrets are SOPS-encrypted with an age key that is **not** in this repo. On a new machine run
+`scripts/provision-secrets.sh` (or `install.sh`, which calls it) to place `~/.config/sops/age/keys.txt`
+**before** the first switch — sops-nix needs the key at activation time. See [Secrets](#secrets).
+
 ## Everyday commands
 
 ```bash
@@ -68,18 +77,35 @@ task build            # build only, no activation
 task switch           # build + activate (auto-detects host)
 task home-switch      # Home Manager only, no system rebuild
 task check            # validate the flake
-task fmt              # format Nix files (alejandra)
-task lint             # run all linters
 
-task upgrade          # update flake inputs + switch
+task fmt              # format nix files (alejandra)
+task fmt:all          # every formatter: nix, markdown, shell, python, toml
+task lint             # every linter (see Formatting & linting)
+
+task upgrade          # update flake inputs + switch + refresh the agent CLIs
 task update           # update flake inputs only
+task agents:update    # update the off-nixpkgs agent CLIs only
 task gc               # garbage-collect old generations
 task optimize         # deduplicate the Nix store
 ```
 
-`switch` (and friends) automatically run chezmoi apply, formatting, and agent-instruction regeneration
-before rebuilding. Override platform detection on any task with `HOST=<target>`, e.g.
-`task switch HOST=linux`. Shortcuts `task linux` / `task darwin` / `task wsl` are aliases for the same.
+Override platform detection on any task with `HOST=<target>`, e.g. `task switch HOST=linux`.
+Shortcuts `task linux` / `task darwin` / `task wsl` are aliases for the same.
+
+### What a switch actually runs
+
+`task switch` (and `home-switch` / `upgrade`) is more than a rebuild. In order:
+
+1. **`_snapshot-pre`** — a best-effort pre-change btrfs snapshot via `btrfs-safety-snapshot`
+   (see [Backups & snapshots](#backups--snapshots)). No-op without snapper; bypass with `SKIP_SNAPSHOT=1`.
+2. **`_record-nix-config-dir`** — writes `$PWD` to `~/.local/state/chezmoi/nix-config-dir` so chezmoi
+   and Home Manager find the checkout wherever it lives.
+3. **`_chezmoi-ensure`** — `chezmoi apply`, with git forced non-interactive so a stalled credential
+   prompt on an external can't hang the switch.
+4. **`fmt` + `generate:agent-instructions`** — format Nix and re-render the agent instruction files.
+5. The rebuild itself — `nixos-rebuild` / `darwin-rebuild` / standalone `home-manager`, routed by host.
+6. On plain (non-NixOS) Linux, `ensure-nix-zsh-shell` fixes the login shell to Home Manager's zsh.
+   `task upgrade` additionally runs `update-agent-clis`.
 
 ### Platform auto-detection
 
@@ -89,6 +115,7 @@ before rebuilding. Override platform detection on any task with `HOST=<target>`,
 | Linux, hostname `nixos` or `wsl` | `wsl` |
 | Linux, hostname `linux` | `linux` |
 | WSL Debian / Ubuntu (`/proc/version` + `/etc/os-release`) | `debian-wsl` / `ubuntu-wsl` |
+| `INSIDE_DEVCONTAINER` set | `vscode@devcontainer[-aarch64]` |
 | Fallback | `linux` |
 
 ### Dev shells
@@ -106,23 +133,36 @@ AGENTS.md / CLAUDE.md       Repo guide for coding agents (CLAUDE.md is a one-lin
 install.sh                  Fresh Linux / WSL bootstrap
 taskfile.yaml               All build, switch, and maintenance tasks
 hosts/                      System-level definitions: darwin/, linux/, wsl/
-modules/                    Shared system modules (e.g. audio/pulseaudio.nix)
+modules/                    Shared NixOS system modules (e.g. audio/pulseaudio.nix)
 home-manager/               Shared user config — common.nix (packages), per-platform entrypoints,
-                              zsh.nix, starship.nix, lib/ (renderers & helpers), profiles/
-chezmoi/                    chezmoi-managed dotfiles for every platform (incl. Windows)
+                              zsh.nix, starship.nix, lib/ (renderers & helpers), modules/, profiles/
+chezmoi/                    chezmoi-managed dotfiles for every platform (incl. Windows), plus
+                              ~/.local/bin helper scripts and run_once / run_onchange provisioning
 ai-tools/                   Skills, agents, slash commands, and the Claude Code plugin marketplace
 secrets/                    SOPS-encrypted secrets (age); never plaintext — see sec-sops-encrypt skill
-scripts/                    Provisioning and CI helper scripts
+scripts/                    Provisioning, switch-tolerance, and CI helper scripts
+tests/                      Test suites for the Kion AWS credential cache (bash + python)
 docs/                       Design notes (e.g. agent-token-cost-levers.md)
+TODO.md                     Working backlog
 .github/workflows/          CI: nix-validation, secrets-scan, update-flake
 ```
 
 ## Available hosts
 
+Flake-managed:
+
 - **darwin** — macOS via nix-darwin + Home Manager. (`ICFGG241C3Y03` is a legacy alias for the same config.)
 - **linux** — NixOS with KDE Plasma, development tooling, and desktop packages.
 - **wsl** — NixOS-WSL. `hosts/wsl/default.nix` sets the hostname to `wsl` so auto-detection works after
   the first switch.
+
+Standalone `homeConfigurations` (no NixOS underneath): `jhettenh@linux`, `jhettenh@nixos-wsl`,
+`jhettenh@debian-wsl`, `jhettenh@ubuntu-wsl`, and `vscode@devcontainer[-aarch64]`.
+
+**Not every managed machine is in the flake.** `tifa` is a CachyOS (Arch) box whose system config lives
+outside this repo; `chezmoi/run_once_provision-tifa-etc.sh.tmpl` reproduces its hand-applied `/etc` fixes
+(NVIDIA suspend/RTD3, a Bluetooth sleep hook, `nvidia-powerd`) so a reinstall doesn't lose them. It is
+hostname-gated and a no-op everywhere else.
 
 > **First WSL switch:** before your new local files are tracked by Git, use a path-based flake reference:
 >
@@ -134,13 +174,24 @@ docs/                       Design notes (e.g. agent-token-cost-levers.md)
 
 ## Home Manager profiles
 
-Shared dev tools (`git`, `gh`, `go`, `ripgrep`, `fzf`, `jq`, `docker`, `awscli2`, and many more) live in
-`common.nix` and apply everywhere. Linux layers two profiles on top:
+Shared dev tools (`git`, `gh`, `go`, `neovim`, `ripgrep`, `fzf`, `jq`, `docker`, `awscli2`, and many more)
+live in `common.nix` and apply everywhere. Linux layers two profiles on top:
 
-- **Development** (`profiles/development-linux.nix`) — Neovim, VS Code (non-WSL) with a curated extension
-  set, gnumake/cmake, Node.js, kubectl.
+- **Development** (`profiles/development-linux.nix`) — gnumake/cmake, Node.js, kubectl, and VS Code
+  (non-WSL) with a curated extension set plus per-language **VS Code profiles** for Go, Python, Java,
+  and Node. Profiles don't inherit default-profile settings, so each re-uses the shared settings from
+  `lib/code-editor-user-settings.nix`.
 - **Desktop** (`profiles/desktop-linux.nix`) — Firefox + Vivaldi (default), VLC/mpv, Discord/Slack,
-  LibreOffice/Obsidian/KeePassXC, GIMP/Inkscape/Flameshot.
+  LibreOffice/Obsidian/KeePassXC, GIMP/Inkscape/Flameshot, declarative MIME defaults, and the KDE Plasma
+  layout (four virtual desktops in one row, a panel pinned to screen 0, pinned launchers, Dolphin as the
+  file manager).
+
+**GPU-dependent packages are deliberately not Nix-managed on generic Linux.** `kitty` and `zoom-us` link
+against Nix's glibc and can't safely load a host Mesa/NVIDIA driver, so they are gated behind
+`isNixos` (set for the NixOS `linux` host, where `/run/opengl-driver` exists). Elsewhere install them
+natively — `pkg-install kitty`, `flatpak install --user flathub us.zoom.Zoom` — and Home Manager still
+owns their config and Stylix theming. Flatpak export dirs are added to `XDG_DATA_DIRS` so
+`xdg-open` can resolve Flatpak `.desktop` IDs in a non-login session.
 
 ## Chezmoi dotfile management
 
@@ -152,30 +203,125 @@ same automatically on every `task switch`.
 task chezmoi-apply              # apply dotfiles to your home directory
 task chezmoi-add FILE=~/.somerc # bring a file under management
 task chezmoi-diff               # preview pending changes
+task chezmoi-edit FILE=~/.somerc
 ```
 
-`.chezmoiignore` is a Go template that splits behavior by platform:
+Ignore rules are split across two files:
 
-- **Linux / macOS** — agent instruction files are ignored (Home Manager owns them via Nix store
-  symlinks), as are Windows-only files.
-- **Windows** — everything is deployed, since Home Manager isn't available: agent instructions,
-  PowerShell profiles, `~/.local/bin` scripts, flameshot config, and more.
+- `.chezmoiignore.tmpl` — the Go-templated rules. Platform splits (agent instruction files are ignored on
+  Linux/macOS because Home Manager owns them via Nix store symlinks; Windows gets everything, since Home
+  Manager isn't available there), plus **deploy-only-if-present** rules: the work-repo directives, the
+  KeePassXC theme `modify_` script, and `toggle-browser` only deploy on hosts that already have the
+  corresponding checkout, ini, or OS.
+- `.chezmoiignore` — static rules, mainly Python bytecode and tool caches. chezmoi does not read
+  `.gitignore`, so a stray `__pycache__` beside a managed `.py` would otherwise be deployed.
+
+Externals (`.chezmoiexternal.toml.tmpl`, `refreshPeriod = 720h`) pull the borland502 Go CLI sources into
+`~/.local/src` and the upstream AI-tooling repos into `~/.local/src/ai-tools/`.
 
 On Windows, `run_onchange_deploy-vscode-instructions.ps1.tmpl` additionally copies the Copilot
 instructions into `%APPDATA%\Code\User\prompts\`, where native VS Code reads them. (It's a no-op
 elsewhere.)
 
-## Color palette
+## TOML-sourced config
 
-The Monokai Spectrum palette is defined **once** in `chezmoi/dot_config/colors/monokai.toml` and reused
-everywhere:
+Several settings are authored once in TOML under `chezmoi/dot_config/` and parsed at Nix eval time with
+`builtins.fromTOML`, so chezmoi and Nix can never disagree about them:
 
-- Parsed at Nix eval time (`builtins.fromTOML` in `home-manager/lib/colors.nix`)
+| Source | Consumed by | Drives |
+|---|---|---|
+| `colors/monokai.toml` | `lib/colors.nix`, `common.nix` | Stylix `base16Scheme`, Starship, zsh, PowerShell |
+| `ssh/hosts.toml` | `common.nix` | the managed `~/.ssh/config` host inventory |
+| `zsh/aliases.toml` | `zsh.nix` | shell aliases |
+| `mimeapps/defaults.toml` | `profiles/desktop-linux.nix` | `xdg.mimeApps` default handlers |
+
+### Color palette
+
+The Monokai Spectrum palette is the oldest and widest-reaching of these:
+
 - Fed to Stylix as the `base16Scheme`, which themes bat, btop, fzf, kitty, Starship, Vim, VS Code, GTK,
   and KDE automatically
-- Referenced by `starship-settings.nix`, `zsh.nix`, and the per-platform Home Manager entrypoints
+- Referenced by `starship-settings.nix`, `zsh.nix`, `lib/vivid-theme.nix`, and the per-platform Home
+  Manager entrypoints
 - Deployed to `~/.config/colors/monokai.toml` by chezmoi on all platforms, and read by the PowerShell
   profile's `$Monokai` table for PSReadLine and fzf theming
+
+## Secrets
+
+`secrets/` holds SOPS-encrypted files (age). `home-manager/modules/sops.nix` decrypts them at activation:
+
+| File | Contents |
+|---|---|
+| `ops-agent.yaml` | Jira / Confluence / ops-agent tokens |
+| `arr.yaml` | Sonarr / Prowlarr API keys |
+| `rclone-gdrive.json` | Google Drive OAuth *client* credentials (the per-device token stays local) |
+| `gkion.toml` | Kion API settings — decrypted whole-file at activation |
+| `technitiumdns-cli.toml` | Technitium DNS CLI config — decrypted whole-file at activation |
+
+sops-nix extracts individual keys, but tools that want a whole config file (gkion, technitiumdns) get a
+full-file decrypt in an activation script instead.
+
+> **Bootstrap order matters.** The age key must exist at `~/.config/sops/age/keys.txt` *before* the first
+> switch — run `scripts/provision-secrets.sh` first. Without it, activation used to skip secrets silently;
+> it now fails loudly instead. Use the `sec-sops-encrypt` skill when adding or rotating a secret, and
+> `task lint:secrets` (gitleaks) to scan history.
+
+## Backups & snapshots
+
+**Pre-switch btrfs snapshots.** `~/.local/bin/btrfs-safety-snapshot` takes a snapper `root` snapshot
+before any activation, filling the gap snap-pac leaves (it brackets pacman transactions, not nix
+switches). The `root` subvolume is `/`, so `/nix` — and therefore the pre-switch store closure — is
+captured, which is exactly what a dangling-profile recovery needs. It is a no-op without a snapper `root`
+config (macOS, WSL, non-snapper Linux) and skips non-interactively when sudo isn't cached, but is
+fail-closed otherwise: a real snapshot failure aborts the switch. Bypass with `SKIP_SNAPSHOT=1`.
+Run it standalone before any risky manual change.
+
+**Daily Google Drive backup.** `~/.local/bin/sync-to-gdrive` backs `~/.config` and `~/.local` up to an
+rclone `gdrive:` remote (no mount required). It is additive — remote files are never deleted just because
+they're absent locally — while junk that was previously backed up gets purged. Secrets, browser password
+stores, agent session transcripts, caches, and large regenerable trees are filtered out; `--copy-links`
+resolves Nix store symlinks so real content is preserved.
+
+```bash
+setup-gdrive-remote                 # once per host: creates/reconnects the rclone remote (needs a TTY)
+sync-to-gdrive --dry-run            # preview
+sync-to-gdrive --allow-local-delete # UNSAFE: restore direction (gdrive -> local)
+```
+
+`home-manager/modules/gdrive-sync.nix` schedules the backup direction — a systemd user timer on Linux
+(`OnCalendar` daily with `Persistent=true` so a run missed while the machine was off catches up, plus a
+randomized delay) and a launchd agent on darwin.
+
+```bash
+systemctl --user list-timers gdrive-sync.timer     # Linux
+journalctl --user -u gdrive-sync.service
+launchctl list org.nix-community.home.gdrive-sync  # darwin (log: ~/.cache/gdrive-sync.launchd.log)
+```
+
+## Helper scripts
+
+Deployed by chezmoi to `~/.local/bin` (on `PATH`, ahead of the Nix profile):
+
+| Script | Purpose |
+|---|---|
+| `kac` | Kion AWS credential cache proxy — **source** it: `source ~/.local/bin/kac ensure` |
+| `kion-aws-refresh` / `kion-aws-cache` | fetch and cache temporary AWS credentials from the Kion API (tested in `tests/`) |
+| `update-agent-clis` | install/update Claude Code and the GitHub Copilot CLI via their vendor installers |
+| `pkg-install` | install via the host's native package manager (pacman/apt/dnf/zypper/brew), not Nix |
+| `ensure-nix-zsh-shell` | point the login shell at Home Manager's zsh on non-NixOS Linux |
+| `btrfs-safety-snapshot` | pre-change snapper snapshot |
+| `sync-to-gdrive` / `setup-gdrive-remote` | Google Drive backup and its one-time remote setup |
+| `cache-scan` | terse scan of recent agent session logs |
+| `jira-get` / `jira-my-tickets` / `confluence-get` / `confluence-page` | Atlassian REST helpers |
+| `gh-graphql` / `gh-run-logs` / `monitor-gh-run` | file-backed GraphQL queries and Actions run monitoring |
+| `toggle-browser` | toggle the macOS default browser |
+
+The Kion credential helpers are the one part of this repo with real test coverage; run them directly:
+
+```bash
+bash tests/test_kion_aws_cache.sh
+python3 tests/test_kion_aws_refresh.py
+```
 
 ## AI tooling (skills + agents)
 
@@ -207,11 +353,31 @@ project. Generated `*.prompt.md` bridges keep stack skills reachable on-demand i
 via `/`. Skills and agents are deployed as on-demand slash commands, **not** always-on instructions —
 only `copilot-defaults.instructions.md` carries `applyTo: "**"`, keeping the always-on surface to one file.
 
+Skills and agents must stay **model-agnostic**: tier aliases (`opus`/`sonnet`/`haiku`) in `model:`
+frontmatter, never versioned model IDs. `task check:model-agnostic` (part of `task lint:nix` and the
+pre-commit hook) enforces it. The sanctioned pin points are the `ANTHROPIC_DEFAULT_*_MODEL` block in
+`chezmoi/dot_claude/settings.json`, the Copilot default in `common.nix`, and the tier map in
+`agent-reference.md`.
+
 The `registerClaudeMarketplaces` activation hook idempotently registers two marketplaces in
 `~/.config/claude/settings.json`: `nix-config-dev` (this repo's `ai-tools`, enabling `nix-config-tools`)
 and `anthropic-agent-skills` (a chezmoi external at `~/.local/src/ai-tools/anthropic-skills`, enabling
 `document-skills` and `claude-api`). The proprietary `document-skills` plugin is loaded directly from
 the upstream checkout and never copied into this repo.
+
+### Agent CLIs are not in the flake
+
+Claude Code and the GitHub Copilot CLI are deliberately **not** Nix-managed. A Nix store install is
+read-only, so the CLI's own `update` can't refresh it — the Copilot copy froze at 1.0.26, and a stale
+build's hardcoded subagent model allowlist rejects current models even when the interactive picker
+offers them. Both install into `~/.local` via their vendor installers (`update-agent-clis`, invoked by
+`run_onchange_install-agent-clis.sh.tmpl`, `task agents:update`, and the tail of `task upgrade`), and
+`~/.local/bin` is ahead of the Nix profile on `PATH`.
+
+The `nixpkgs-unstable` overlay still exists, but now only for Electron apps (VS Code, Slack, Discord,
+Obsidian) and Nix-managed browsers, which need current Chromium security fixes. Vivaldi is overridden
+with `proprietaryCodecs = true` — without it the bundled free codec triggers an auto-download that fails
+to load and crashes Vivaldi on launch.
 
 ### Agent instructions
 
@@ -283,8 +449,9 @@ chezmoi owns the profile, Home Manager owns the Starship config.
 ## Editor configuration
 
 - `home-manager/lib/code-editor-user-settings.nix` is the shared source for VS Code user settings;
-  `common.nix` deploys them everywhere via `programs.vscode.userSettings`, and `home-wsl.nix` reuses
-  them for the `.vscode-server` (VS Code Remote) settings on WSL.
+  `common.nix` deploys them everywhere via `programs.vscode.userSettings`, `home-wsl.nix` reuses them for
+  the `.vscode-server` (VS Code Remote) settings on WSL, and the per-language profiles in
+  `profiles/development-linux.nix` re-apply them so a profile doesn't start from stock VS Code.
 - `.devcontainer/devcontainer.json` bootstraps container sessions before the Home Manager profile applies.
 - `.vscode/` is repo-workspace-specific (Nix formatter, language server, extension recommendations) and
   should stay focused on this repository.
@@ -293,8 +460,15 @@ chezmoi owns the profile, Home Manager owns the Starship config.
 
 ## Modules
 
+System modules (`modules/`, imported by NixOS hosts):
+
 - **Audio (`modules/audio/pulseaudio.nix`)** — disables legacy PulseAudio and enables PipeWire with ALSA,
   PulseAudio compatibility, and Real-Time Kit support.
+
+Home Manager modules (`home-manager/modules/`):
+
+- **`sops.nix`** — user-level secret decryption at activation (see [Secrets](#secrets)).
+- **`gdrive-sync.nix`** — the scheduled Google Drive backup (see [Backups & snapshots](#backups--snapshots)).
 
 Inspect user services through tasks:
 
@@ -306,7 +480,12 @@ task logs SERVICE=pipewire.service             # journalctl --user
 ## Platform notes
 
 - **macOS** — nix-darwin for system settings, Home Manager for user config; Firefox via Homebrew casks
-  (the Stylix Firefox target is disabled here).
+  (the Stylix Firefox target is disabled here). `scripts/darwin-switch-tolerant.sh` tolerates
+  VPN-blocked cask downloads.
+- **NixOS (`linux`)** — the only host where `isNixos = true`, which unlocks the GPU-dependent packages
+  guarded in `profiles/desktop-linux.nix`.
+- **Plain Linux (non-NixOS)** — standalone Home Manager via `jhettenh@linux`; the login shell is fixed by
+  `ensure-nix-zsh-shell`, and GPU-dependent apps come from the distro (`pkg-install`) or Flatpak.
 - **WSL** — NixOS-WSL base; `programs.nix-ld` is enabled so VS Code Remote / `.vscode-server` binaries
   run on NixOS. `install.sh` detects WSL, enables interop in `/etc/wsl.conf`, and runs the Windows
   bootstrap; `task wsl-bootstrap-windows` sets up Scoop, the Nerd Font, and Windows Terminal.
@@ -319,36 +498,59 @@ task logs SERVICE=pipewire.service             # journalctl --user
 2. Add/remove packages in `home-manager/common.nix` (shared) or a platform profile.
 3. Edit `chezmoi/dot_config/instructions/agent-defaults.md` for agent changes, then run
    `task generate:agent-instructions` and commit the result.
-4. Edit `chezmoi/dot_config/colors/monokai.toml` to change the palette — Nix, Stylix, and chezmoi all
-   read it.
+4. Edit the TOML sources in `chezmoi/dot_config/` — `colors/monokai.toml` (palette), `ssh/hosts.toml`,
+   `zsh/aliases.toml`, `mimeapps/defaults.toml` — and both Nix and chezmoi pick the change up.
+
+## Formatting & linting
+
+```bash
+task fmt:all          # every formatter: alejandra, markdownlint --fix, shfmt -i 0, ruff, taplo
+task fmt              # nix only (alejandra)
+task fmt:md fmt:sh fmt:py fmt:toml
+
+task lint             # every linter below
+task lint:nix         # statix + deadnix + check:copilot-instructions / agent-instructions /
+                      #   instruction-size / model-agnostic  (this is the pre-commit chain)
+task lint:md          # markdownlint-cli2, 120-char lines
+task lint:sh          # shellcheck + shfmt -d
+task lint:py          # ruff check
+task lint:yaml        # yamllint
+task lint:toml        # taplo lint
+task lint:secrets     # gitleaks over repo history
+```
+
+`ai-tools/` and `secrets/` are excluded from most of these — the former is ingested upstream content, the
+latter is ciphertext that isn't valid TOML/YAML.
 
 ## Maintenance & CI
 
 ```bash
 task update && task switch        # keep the system current (CI also opens a weekly update PR)
+task upgrade                      # the same, plus the off-nixpkgs agent CLIs
 task gc / task optimize           # clean up generations / dedupe the store
 task generate:agent-instructions  # re-render agent files after editing the source
 task check:instruction-size       # guard the always-on prefix against bloat
 ```
 
 Run `task hooks:install` once per clone to use the tracked hooks in `.githooks/`. The pre-commit hook
-runs `task lint:nix` (statix, deadnix, and the `check:agent-instructions` / `check:copilot-instructions`
-drift checks).
+runs `task lint:nix` (statix, deadnix, and the `check:agent-instructions` / `check:copilot-instructions` /
+`check:instruction-size` / `check:model-agnostic` checks).
 
 CI validates Linux and macOS by building flake outputs and the WSL target by building
 `nixosConfigurations.wsl` (GitHub runners have no real WSL2, so end-to-end boot tests need a self-hosted
-Windows runner). `update-flake.yml` bumps `flake.lock` weekly (Mondays 05:17 UTC, or on demand) and
-opens a labeled PR. Note: PRs opened with the default `GITHUB_TOKEN` don't trigger validation
-automatically — close/reopen or push to the branch to run CI before merging.
+Windows runner). `secrets-scan.yml` runs gitleaks. `update-flake.yml` bumps `flake.lock` weekly
+(Mondays 05:17 UTC, or on demand) and opens a labeled PR. Note: PRs opened with the default
+`GITHUB_TOKEN` don't trigger validation automatically — close/reopen or push to the branch to run CI
+before merging.
 
 ## Credits
 
 This project's own code is MIT-licensed ([LICENSE](LICENSE)). Ingested upstream skills under
 `ai-tools/skills/` and `ai-tools/skills-stack/` retain their original licenses and `origin:` frontmatter;
 skills without an `origin:` line (`flow-reconciliation`, `gh-graphql-jq-pipelines`, the `ops-agent` /
-`ops-cache-scan` / `ops-chezmoi` / `ops-nix-pitfalls` set, `sec-credentials`, `sec-sops-encrypt`,
-`shell-pitfalls`, and others) are original to this repo. `ops-repo-scan` is community-sourced (see its
-frontmatter).
+`ops-cache-scan` / `ops-chezmoi` / `ops-confluence` / `ops-nix-pitfalls` set, `sec-credentials`,
+`sec-sops-encrypt`, `shell-pitfalls`, and others) are original to this repo. `ops-repo-scan` is
+community-sourced (see its frontmatter).
 
 | Upstream | License | Borrowed |
 |---|---|---|
