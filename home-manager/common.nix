@@ -910,21 +910,10 @@ in {
       };
       Install.WantedBy = ["timers.target"];
     };
-    services.kion-aws-refresh = {
-      Unit.Description = "Refresh Kion AWS temporary credentials";
-      Service = {
-        Type = "oneshot";
-        ExecStart = "${pkgs.python3}/bin/python3 ${xdgBinHome}/kion-aws-refresh";
-      };
-    };
-    timers.kion-aws-refresh = {
-      Unit.Description = "Refresh Kion AWS temporary credentials every four hours";
-      Timer = {
-        OnCalendar = "*-*-* 00/4:00:00";
-        Persistent = true;
-      };
-      Install.WantedBy = ["timers.target"];
-    };
+    # No kion-aws-refresh unit here on purpose: Kion credentials are only used
+    # from the darwin host, and the launchd.agents.kion-aws-refresh above
+    # already covers it.  A systemd copy here just fails every four hours on
+    # Linux hosts that have no Kion setup, degrading the user session.
   };
 
   # Common Stylix configuration
