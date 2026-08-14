@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+#
+# Reprovision the root-level fixes that live outside this repo on host "tifa".
+#
+# tifa is a CachyOS (Arch) box with no entry in flake.nix, so `task switch`
+# never touches its system config. These four fixes were hand-applied to /etc
+# and would be silently lost on a reinstall. This script is the only thing that
+# reproduces them.
+#
+# run_once_ (not run_onchange_) is deliberate: chezmoi keys it on the rendered
+# script's hash in its own state DB, so it fires again on a fresh install where
+# that DB is empty — which is exactly the case this exists for. Editing the
+# payloads below changes the hash and re-runs it too.
+#
+# Everything here is idempotent and self-contained: no dependency on dot_local/
+# or any other target having been deployed first.
+
+{{ if or (ne .chezmoi.hostname "tifa") (ne .chezmoi.os "linux") -}}
+exit 0
+{{ end -}}
+
+set -euo pipefail
+
+readonly TAG=provision-tifa-etc
+readonly MOUSE_MAC=D2:DA:5E:86:61:8D
+
+note() { printf '%s: %s\n' "$TAG" "$*"; }
+warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
+
+# --- root -------------------------------------------------------------------
+#
+# Fails loudly rather than exiting 0 when it cannot elevate. Exiting 0 would let
+# chezmoi record this script as "done" without having done anything, and it
+# would then never run again on this machine — the exact silent failure this
+# script exists to prevent. Set TIFA_ETC_SKIP=1 to bypass on purpose.
+
+if [ "${TIFA_ETC_SKIP:-0}" = "1" ]; then
+  note "TIFA_ETC_SKIP=1 set — skipping (will re-run next apply)"
+  exit 0
+fi
+
+SUDO=""
+sudo_ready=0
+
+# Resolved lazily, on first mutation only. A run where all four fixes are
+# already in place must stay a silent no-op and never prompt for a password.
+ensure_root() {
+  if [ "$sudo_ready" -eq 1 ]; then
+    return 0
+  fi
+
+  if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+  elif sudo -n true 2>/dev/null; then
+    SUDO="sudo"
+  elif [ -t 0 ]; then
+    note "changes needed — prompting for sudo to write /etc"
+    SUDO="sudo"
+  else
+    warn "changes needed but sudo is unavailable and stdin is not a TTY."
+    warn "Re-run from an interactive shell, or set TIFA_ETC_SKIP=1 to let the"
+    warn "apply through without recording this script as done."
+    exit 1
+  fi
+
+  sudo_ready=1
+}
+
+# --- helpers ----------------------------------------------------------------
+
+# install_if_changed <target> <mode>; content on stdin.
+# Returns 0 if it wrote, 1 if the target already matched.
+install_if_changed() {
+  local target=$1 mode=$2 tmp
+  tmp=$(mktemp)
+  cat >"$tmp"
+
+  if [ -e "$target" ] && cmp -s "$tmp" "$target"; then
+    rm -f "$tmp"
+    note "unchanged  $target"
+    return 1
+  fi
+
+  ensure_root
+  $SUDO install -D -m "$mode" -o root -g root "$tmp" "$target"
+  rm -f "$tmp"
+  note "INSTALLED  $target"
+  return 0
+}
+
+# The initramfs only needs rebuilding when the *effective* module parameters
+# change. Comparing whole files would rebuild on a comment edit, costing ~30s
+# and a spurious reboot prompt for no functional change, so compare just the
+# directive lines from before and after.
+nvidia_opts() {
+  cat /etc/modprobe.d/nvidia-power.conf \
+    /etc/modprobe.d/zz-nvidia-rtd3-off.conf 2>/dev/null |
+    grep -Ev '^[[:space:]]*(#|$)' | sort
+}
+
+opts_before=$(nvidia_opts)
+
+# --- 1. preserve dGPU VRAM across suspend -----------------------------------
+
+install_if_changed /etc/modprobe.d/nvidia-power.conf 0644 <<'PAYLOAD' || true
+# Preserve dGPU video memory across suspend/resume.
+#
+# Without this the RTX A2000 fails to re-init on resume from s2idle and
+# kwin_wayland loses DRM master on /dev/dri/card1, producing a dead display
+# on an otherwise still-running system.
+#
+# TemporaryFilePath must be on real storage: /tmp is tmpfs on this host, so the
+# default would write the VRAM dump into RAM. /var/tmp is btrfs subvol @tmp.
+#
+# Managed by chezmoi/run_once_provision-tifa-etc.sh.tmpl in the nix-config repo.
+options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp
+PAYLOAD
+
+# --- 2. disable NVIDIA runtime-D3 -------------------------------------------
+#
+# The zz- prefix is load-bearing. modprobe.d files are parsed in lexicographic
+# BASENAME order across all directories and the last setting of a duplicated
+# parameter wins. /usr/lib/modprobe.d/nvidia.conf sorts after every
+# nvidia-*.conf ('-' 0x2D < '.' 0x2E), so an /etc file does NOT automatically
+# win unless its basename sorts later. Do not rename this without re-checking
+# `modprobe -c | grep '^options nvidia'`.
+
+install_if_changed /etc/modprobe.d/zz-nvidia-rtd3-off.conf 0644 <<'PAYLOAD' || true
+# Disable NVIDIA runtime-D3 dynamic power management.
+#
+# Overrides NVreg_DynamicPowerManagement=0x02 from /usr/lib/modprobe.d/nvidia.conf.
+# The zz- prefix is REQUIRED: modprobe.d files are parsed in lexicographic
+# basename order and the last setting of a duplicated parameter wins, so this
+# file must sort after "nvidia.conf".
+#
+# Added 2026-08-10 while bisecting two hard locks (11:56:00, 14:39:12) that
+# followed the 2026-08-07 upgrade to nvidia-utils 610.57.04 / linux-cachyos 7.1.6.
+#
+# Managed by chezmoi/run_once_provision-tifa-etc.sh.tmpl in the nix-config repo.
+options nvidia NVreg_DynamicPowerManagement=0x00
+PAYLOAD
+
+initramfs_stale=0
+if [ "$opts_before" != "$(nvidia_opts)" ]; then
+  initramfs_stale=1
+fi
+
+# --- 3. clean BLE HID disconnect before suspend -----------------------------
+
+install_if_changed /etc/systemd/system-sleep/50-bt-le-hid-clean-disconnect 0755 <<'PAYLOAD' || true
+#!/usr/bin/env bash
+# Cleanly disconnect bonded BLE HID peers before suspend.
+#
+# Problem this solves (Tifa, CachyOS, observed twice after s2idle resume):
+#   The MX Master 4 is a BLE-only HID-over-GATT device. On an unclean suspend
+#   the host tears the ACL down without the peripheral receiving a link-layer
+#   terminate, so the mouse still believes the link is up. It keeps emitting HID
+#   reports into a void and -- the part that makes this unrecoverable -- never
+#   returns to advertising. The host meanwhile is not scanning for a peer it
+#   considers connected, so both ends sit idle until the mouse is power-cycled.
+#
+#   The 8BitDo keyboard is unaffected because classic BR/EDR HID reconnects by
+#   peripheral-initiated paging -- the host need only be page-scanning, which
+#   the controller restores on resume by itself.
+#
+# Fix: disconnect explicitly before suspend so the peripheral sees a proper
+# terminate, returns to advertising on wake, and BlueZ auto-connect picks it up.
+#
+# Trade-off: a deliberately disconnected mouse can no longer wake the machine.
+# Only the LE mouse is listed here; the keyboard stays connected and still wakes.
+#
+# The MX Master keeps a SEPARATE BLE IDENTITY PER BOND. Re-pairing always yields
+# a new address -- if you re-pair this mouse, update DEVICES below or this hook
+# silently becomes a no-op and logs "already disconnected" forever. The
+# provisioning script warns when this MAC is not a known bond.
+#
+# Note: the failure is intermittent, so a single clean resume does NOT confirm
+# this works. Judge it over a couple of weeks of normal use.
+#
+# systemd runs hooks here with $1=pre|post and $2=suspend|hibernate|...
+#
+# Managed by chezmoi/run_once_provision-tifa-etc.sh.tmpl in the nix-config repo.
+
+set -uo pipefail
+
+# Bonded BLE HID peers to disconnect before sleep. List only LE devices --
+# BR/EDR peers do not need this and would lose wake capability.
+DEVICES=(D2:DA:5E:86:61:8D)
+
+BTCTL=/usr/bin/bluetoothctl
+TAG=bt-le-hid-sleep
+
+is_connected() {
+	"${BTCTL}" info "$1" 2>/dev/null | grep -q 'Connected: yes'
+}
+
+case "${1:-}" in
+pre)
+	for mac in "${DEVICES[@]}"; do
+		is_connected "${mac}" || {
+			logger -t "${TAG}" "pre-${2:-sleep}: ${mac} already disconnected, skipping"
+			continue
+		}
+
+		"${BTCTL}" disconnect "${mac}" >/dev/null 2>&1
+
+		# Wait for the disconnect to actually land, so the link-layer terminate
+		# goes out before the controller is suspended underneath us. Bounded at
+		# ~2s: never stall the suspend path on a wedged controller.
+		for _ in $(seq 1 10); do
+			is_connected "${mac}" || break
+			sleep 0.2
+		done
+
+		if is_connected "${mac}"; then
+			logger -t "${TAG}" "pre-${2:-sleep}: ${mac} STILL connected after 2s"
+		else
+			logger -t "${TAG}" "pre-${2:-sleep}: ${mac} disconnected cleanly"
+		fi
+	done
+	;;
+post)
+	# Deliberately a no-op. If the pre-suspend disconnect alone turns out to be
+	# insufficient, the next lever is a bounded reconnect attempt here.
+	:
+	;;
+esac
+
+exit 0
+PAYLOAD
+
+# --- 4. disable NVIDIA Dynamic Boost ----------------------------------------
+#
+# nvidia-powerd raised the RTX A2000 ceiling from its 80 W default to 86-91 W,
+# and the Dell EC paid for it by asserting ACPI _PPC against the i9-11950H.
+# Measured under load: scaling_max_freq averaged 3175 MHz with 65% of samples
+# below the 2.6 GHz base clock; with the daemon stopped, 60/60 samples sat at
+# 5000 MHz. Cost is 4.6% GPU clock (1841 -> 1757 MHz).
+#
+# Re-enable for pure GPU compute (CUDA/ML) where the CPU only feeds the GPU:
+#   sudo systemctl enable --now nvidia-powerd
+
+if systemctl cat nvidia-powerd.service >/dev/null 2>&1; then
+  state=$(systemctl is-enabled nvidia-powerd.service 2>/dev/null || true)
+  if [ "$state" = "disabled" ] || [ "$state" = "masked" ]; then
+    note "unchanged  nvidia-powerd ($state)"
+  else
+    ensure_root
+    $SUDO systemctl disable --now nvidia-powerd.service
+    note "DISABLED   nvidia-powerd (was: ${state:-unknown})"
+  fi
+else
+  note "skipped    nvidia-powerd (unit not present)"
+fi
+
+# --- initramfs --------------------------------------------------------------
+#
+# /etc/mkinitcpio.conf carries MODULES=(nvidia nvidia_modeset nvidia_uvm
+# nvidia_drm) plus the modconf hook, so a modprobe.d change has no effect until
+# the initramfs is rebuilt. Only rebuild when something actually changed --
+# mkinitcpio -P takes ~30s.
+
+if [ "$initramfs_stale" -eq 1 ]; then
+  note "modprobe.d changed — rebuilding initramfs (mkinitcpio -P)"
+  ensure_root
+  $SUDO mkinitcpio -P
+  note "REBOOT REQUIRED for the nvidia module parameters to take effect"
+else
+  note "unchanged  initramfs (no modprobe.d change)"
+fi
+
+# --- drift checks -----------------------------------------------------------
+#
+# Non-fatal. These catch the two ways this script rots silently.
+
+if command -v bluetoothctl >/dev/null 2>&1; then
+  if ! bluetoothctl info "$MOUSE_MAC" >/dev/null 2>&1; then
+    warn "$MOUSE_MAC is not a known bond — the mouse was probably re-paired."
+    warn "The suspend hook is now a no-op. Find the new address with"
+    warn "  bluetoothctl devices Paired"
+    warn "and update DEVICES + MOUSE_MAC in this script."
+  fi
+fi
+
+if command -v modprobe >/dev/null 2>&1; then
+  effective=$(modprobe -c 2>/dev/null | grep '^options nvidia ' || true)
+  if [ -n "$effective" ]; then
+    case "$effective" in
+    *NVreg_DynamicPowerManagement=0x00*) ;;
+    *)
+      warn "effective nvidia options do not carry DynamicPowerManagement=0x00:"
+      warn "  $effective"
+      warn "Another modprobe.d file is sorting later. Read the value back from"
+      warn "/proc/driver/nvidia/params, NOT /sys/module/nvidia/parameters/."
+      ;;
+    esac
+  fi
+fi
+
+note "done"

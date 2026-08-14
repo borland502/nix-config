@@ -13,42 +13,10 @@
 # options (hostname, user, port, compression, ...), so anything that module
 # accepts can be added here without touching Nix.
 
-[hosts.belgarion]
-hostname = "192.168.2.106"
-user = "jhettenh"
+[hosts.graha]
+hostname = "192.168.2.113"
+user = "ansible"
 
-[hosts.barak]
-hostname = "192.168.1.157"
-user = "pirate"
-
-[hosts.taiba]
-hostname = "taiba.hettenhouser.com"
-user = "jhettenh"
-
-[hosts.eriond]
-hostname = "eriond.hettenhouser.com"
-user = "jhettenh"
-
-# vlab-* are JBoss app servers reached over a slow link — the hand-written
-# config enabled compression for these three only.
-[hosts.vlab-apps]
-hostname = "172.22.12.38"
-user = "jboss"
-compression = true
-
-[hosts.vlab-portal]
-hostname = "172.22.12.26"
-user = "jboss"
-compression = true
-
-[hosts.vlab-rba]
-hostname = "172.22.12.18"
-user = "jboss"
-compression = true
-
-# NB: the users on these two look transposed (alias `hassio` logs in as root,
-# `hassio-root` as hassio). Ported verbatim from the original rather than
-# "corrected" — fix it here if it was always a typo.
 [hosts.hassio]
 hostname = "192.168.2.111"
 user = "root"
@@ -57,16 +25,3 @@ user = "root"
 hostname = "192.168.2.111"
 user = "hassio"
 port = 2222
-
-[hosts.durnik]
-hostname = "192.168.1.1"
-user = "root"
-port = 22
-
-[hosts.talen]
-hostname = "192.168.2.67"
-user = "pi"
-
-[hosts.mara]
-hostname = "192.168.2.140"
-user = "couch"
