@@ -48,7 +48,16 @@ in {
   stylix.targets = {
     kitty.enable = true;
     gtk.enable = true;
-    kde.enable = true;
+    kde = {
+      enable = true;
+      # Keep stylix's colorscheme/look-and-feel, but let plasma-manager own
+      # the wallpaper (programs.plasma.workspace.wallpaperSlideShow below).
+      # Stylix's KDE activation runs plasma-apply-wallpaperimage, which would
+      # replace the slideshow with a single static image. Inert while
+      # stylix.image is unset (common.nix configures base16Scheme only), so
+      # this is a guard against a future image being added, not a live fix.
+      useWallpaper = false;
+    };
     firefox = {
       enable = true;
       profileNames = ["default"];
@@ -216,6 +225,20 @@ in {
           key = "Alt+Shift+5";
           command = "spectacle -l";
         };
+      };
+
+      # Wallpaper slideshow over ~/Pictures/wallpapers. The path is an
+      # interpolated string, not a Nix path literal, so the directory is read
+      # at runtime from $HOME rather than being copied into the store — the
+      # collection is ~940 4K JPEGs and churns independently of this config.
+      # preserveAspectCrop because the set is uniformly 3840x2160: it fills
+      # both the 4K monitor and the 16:10 internal panel without letterboxing.
+      workspace = {
+        wallpaperSlideShow = {
+          path = "${config.home.homeDirectory}/Pictures/wallpapers";
+          interval = 600;
+        };
+        wallpaperFillMode = "preserveAspectCrop";
       };
 
       # Four virtual desktops in a single row, so Meta+Ctrl+Left/Right walks
