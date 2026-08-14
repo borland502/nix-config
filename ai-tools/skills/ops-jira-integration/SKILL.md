@@ -1,6 +1,6 @@
 ---
 name: ops-jira-integration
-description: Use when creating, updating, or transitioning Jira issues, adding comments or attachments, running JQL searches, extracting testable requirements from a ticket, or reading/updating Confluence pages on the standalone (Server/DC) instances. NOT needed for a plain ticket read — use `jira-get 'issue/KEY-123?fields=summary,status'` or `ops-agent --tool jira_get_issue '{"ticket_id":"KEY-123"}'` directly, without loading this skill. Likewise NOT needed for a single comment or transition — prefer `ops-agent --tool jira_comment` / `jira_transition`; this skill earns its load for issue creation, JQL, attachments, multi-step write workflows, and Confluence.
+description: Use when creating, updating, or transitioning Jira issues, adding comments or attachments, running JQL searches, or extracting testable requirements from a ticket on the standalone (Server/DC) instance. For Confluence pages, attachments, or images use the ops-confluence skill instead. NOT needed for a plain ticket read — use `jira-get 'issue/KEY-123?fields=summary,status'` or `ops-agent --tool jira_get_issue '{"ticket_id":"KEY-123"}'` directly, without loading this skill. Likewise NOT needed for a single comment or transition — prefer `ops-agent --tool jira_comment` / `jira_transition`; this skill earns its load for issue creation, JQL, attachments, and multi-step write workflows.
 origin: ECC
 ---
 
@@ -28,7 +28,13 @@ Both are cataloged in `~/.config/instructions/agent-reference.md`. The same
 goes for a **single comment or transition** — `ops-agent --tool jira_comment`
 / `jira_transition` handles those without loading this skill. This skill
 earns its load for **issue creation, JQL, attachments, multi-step write
-workflows, Confluence, and analysis**.
+workflows, and analysis**.
+
+**Confluence work belongs to the ops-confluence skill**, which owns pages,
+attachments, images, and the Confluence pitfall list, backed by the
+`confluence-get` / `confluence-page` helpers. Load that one instead when the
+task is a Confluence read or write; stay here for Jira, and for linking a
+ticket to an RFC page.
 
 ## Standalone, Not Cloud
 

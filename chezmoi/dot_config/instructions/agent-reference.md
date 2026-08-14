@@ -178,6 +178,16 @@ the nix-config repo.
   bodies are HTML. Use it instead of hand-rolling a `confluence_curl()`
   function per session. Example:
   `confluence-get 'content/123456?expand=body.storage'`.
+- **`confluence-page <subcommand>`** — The write side: `read`, `children`,
+  `create`, `update`, `attach`, `attachments`, `embed`. Subcommands encode the
+  destructive Confluence traps as safe defaults — `update` re-fetches the live
+  page so an omitted body cannot blank it and the version is always current+1,
+  re-parenting goes through `ancestors` (the `/move` endpoint 404s on this DC
+  version), and `attach` routes an existing filename to
+  `/child/attachment/{id}/data` instead of the 400 that a plain re-POST returns.
+  Deletion is deliberately absent. `--dry-run` on every write. Full pitfall list
+  in the **ops-confluence** skill. Example:
+  `confluence-page update 123456 --title 'New' --minor`.
 - **`cache-scan`** — Scan the agent log dir for recent activity. **Terse by
   default** (token-lean, since an agent reads it): a one-line-per-session
   overview plus the commands that hit stderr or were interrupted.
