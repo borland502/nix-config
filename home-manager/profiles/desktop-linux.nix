@@ -56,8 +56,11 @@
     obsidian
 
     # Graphics and design
+    #
+    # inkscape was dropped: it lands as a source build here rather than a cache
+    # hit, which is slow enough to dominate a switch on the weaker hosts. Add it
+    # back per-host, or reach for the distro/flatpak build, if it is needed.
     gimp
-    inkscape
 
     # GUI tools
     # kitty and zoom-us are GPU-dependent and live in nixosOnlyPackages below.
