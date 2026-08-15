@@ -82,8 +82,8 @@ for _pkg in "${_conflicting_packages[@]}"; do
 done
 
 echo "==> Applying configuration via go-task..."
-echo "    (sops secrets are skipped on first switch — they are unlocked after"
-echo "     the age key is provisioned in step 7 and re-applied in step 8)"
+echo "    (the age key does not exist yet, so sops secrets cannot decrypt on this"
+echo "     first switch — it is provisioned in step 7 and re-applied in step 8)"
 cd "$SCRIPT_DIR"
 
 # On a NixOS-WSL host the system rebuild switches wsl.defaultUser to the target
@@ -144,12 +144,47 @@ EOF
 	exit 0
 fi
 
-nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -euo pipefail -c '
+# This first switch is best-effort, and sops is the reason.
+#
+# home-manager/modules/sops.nix enables secrets unconditionally, so sops-nix
+# tries to decrypt during activation. On a fresh host the age key does not exist
+# yet — provision-secrets.sh writes it in step 7 — so sops-nix.service fails and
+# takes the whole home-manager activation down with it. Aborting here would mean
+# the installer can never reach the step that fixes the very thing that stopped
+# it, which is what "the installer quits out if the sops service fails" was.
+#
+# So: report and continue. Step 8 re-switches once the key is in place and IS
+# fatal, so a genuine misconfiguration still fails the install — just after the
+# secrets have had their chance, rather than before.
+#
+# rc is captured with set +e rather than `if ! …; then rc=$?`, because inside
+# that branch $? is the status of the negation, not the command — the same trap
+# already documented in scripts/chezmoi-apply-tolerant.sh.
+set +e
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -c '
   task home-switch
 '
+_first_switch_rc=$?
+set -e
+
+if [[ "$_first_switch_rc" -ne 0 ]]; then
+	cat >&2 <<EOF
+==> First switch returned $_first_switch_rc — continuing.
+    This is expected on a fresh host: sops secrets cannot decrypt until the age
+    key exists, and that is provisioned in step 7 below. Step 8 re-runs the
+    switch afterwards and will fail loudly if anything else is wrong.
+EOF
+fi
 
 # ── 3. Allow the .envrc ───────────────────────────────────────────────────────
-direnv allow .
+# direnv comes from home-manager, so it is absent whenever the switch above did
+# not complete. Guarded for the same reason that switch is now tolerated: this
+# step must not be what stops the run from reaching secret provisioning.
+if command -v direnv >/dev/null 2>&1; then
+	direnv allow .
+else
+	echo "==> direnv not on PATH yet — skipping 'direnv allow' (step 8 re-switch installs it)."
+fi
 
 # ── 4. Source the home-manager session so this shell is fully provisioned ─────
 _hm_vars="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
