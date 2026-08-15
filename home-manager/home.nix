@@ -35,6 +35,7 @@ in {
     ./profiles/desktop-linux.nix
     ./modules/gdrive-sync.nix # daily systemd timer for sync-to-gdrive
     ./modules/vscode-profiles.nix # language profiles, shared with darwin
+    ./modules/krdp-autostart.nix # remote desktop on by default (Plasma hosts)
   ];
 
   home = {

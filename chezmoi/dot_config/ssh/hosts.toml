@@ -13,15 +13,30 @@
 # options (hostname, user, port, compression, ...), so anything that module
 # accepts can be added here without touching Nix.
 
-[hosts.graha]
-hostname = "192.168.2.113"
-user = "ansible"
+# Own hosts, reached with the dedicated remoting key (secrets/remoting-ssh.yaml,
+# materialized to ~/.ssh/id_remoting by home-manager/modules/sops.nix). These
+# hosts authorize that key only and refuse passwords, so identitiesonly keeps
+# ssh from burning MaxAuthTries=3 offering other keys first.
+#
+# Service ports on these are closed by design — reach them by forwarding, e.g.
+#   ssh -N -L 3389:localhost:3389 tifa      # KRdp
+[hosts.tifa]
+  hostname = "192.168.2.145"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "jhettenh"
+
+[hosts.cloud]
+  hostname = "192.168.2.113"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "jhettenh"
 
 [hosts.hassio]
-hostname = "192.168.2.111"
-user = "root"
+  hostname = "192.168.2.111"
+  user = "root"
 
 [hosts.hassio-root]
-hostname = "192.168.2.111"
-user = "hassio"
-port = 2222
+  hostname = "192.168.2.111"
+  port = 2222
+  user = "hassio"

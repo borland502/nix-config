@@ -1,0 +1,539 @@
+#!/usr/bin/env bash
+#
+# Provision the host-level bits that nix cannot own on non-NixOS Linux boxes:
+# distro packages that must match the running desktop's ABI, and the firewall.
+#
+# Why packages live here at all: a few are Qt/KF6 *plugins* dlopen'd by the
+# distro's own Plasma binaries. Those cannot come from nixpkgs — nixpkgs and the
+# distro ship different KF6 minor versions, and loading a nixpkgs plugin into a
+# distro process would mix two KF6 ABIs in one address space. Nix stays
+# authoritative for everything that runs as its own process; this covers only
+# the in-process-plugin exception.
+#
+# Firewall policy: ufw is installed if missing and made the *only* firewall, so
+# every non-NixOS Linux host converges on one rule surface. The NixOS hosts use
+# networking.firewall instead and are skipped outright.
+#
+# Service ports stay closed. Anything remote is reached by forwarding over ssh
+# (ssh -N -L <port>:localhost:<port> <host>), so ssh key auth is the single
+# front door rather than each service's own secret. 22 is the only open port.
+#
+# sshd is installed, hardened and started here, and the dedicated remoting key
+# is authorized for it. That key's private half is sops-encrypted in the repo
+# and materialized to ~/.ssh/id_remoting by home-manager/modules/sops.nix; the
+# NixOS hosts authorize the same public key via modules/services/sshd.nix.
+#
+# run_onchange_ (not run_once_) is keyed on this script's rendered hash, so
+# editing the tables below re-runs it, and a fresh install re-runs it too
+# because chezmoi's state DB starts empty. It does NOT notice a package removed
+# by hand afterwards — reinstall it, or touch this file to force a re-check.
+#
+# Everything here is idempotent and must stay a silent no-op — in particular it
+# must not prompt for sudo — on a host that is already provisioned.
+
+{{ if ne .chezmoi.os "linux" -}}
+exit 0
+{{ end -}}
+
+set -euo pipefail
+
+readonly TAG=provision-linux-host
+
+# The account this repo's home-manager config is written for. home.username and
+# home.homeDirectory in home-manager/home.nix are mkDefault "jhettenh" and
+# "/home/jhettenh", and homeConfigurations is keyed "jhettenh@linux" — so on a
+# host whose login account is something else (graha logs in as "ansible"),
+# `task home-switch` has no matching user to activate into. Section 2 creates
+# it so the standard workflow works after `su - jhettenh`.
+readonly REPO_USER=jhettenh
+
+# Packages every Linux host gets, by generic name — pkg_name() maps them onto
+# what each distro actually calls them. Keep the justification attached to each:
+# anything that *could* come from nixpkgs belongs in home-manager/common.nix.
+PACKAGES=(
+  # sshd. Not an ABI case — it is here because the *daemon* has to be the
+  # distro's, wired to the distro's PAM stack and systemd units. The nixpkgs
+  # openssh in the user profile is only an ssh client.
+  sshd
+
+  # The firewall this policy is built on.
+  ufw
+)
+
+# Plasma-only additions, appended below when a Plasma session is actually
+# installed. KRdp drives KWin's fake-input and screencast Wayland protocols, so
+# it is useless — and on apt hosts would drag in a pile of KDE — anywhere else.
+# Mint/Cinnamon and other non-Plasma desktops must not get this.
+PLASMA_PACKAGES=(
+  # KRdp — Plasma's RDP server for Wayland sessions. Its System Settings panel
+  # (kcm_krdpserver.so) is loaded into the distro's systemsettings process, so
+  # it has to match the distro's KF6. The NixOS host gets this from
+  # modules/desktop/krdp.nix instead.
+  krdp
+)
+
+# The remoting keypair's public half, inlined at render time from
+# chezmoi/dot_config/ssh/remoting-key.pub. Inlined rather than read from the
+# deployed copy for two reasons: no dependency on .config having been applied
+# first, and rotating the key changes this script's hash, which is what makes
+# run_onchange_ re-authorize it.
+#
+# restrict drops everything (agent, X11, user-rc, tunnels), then port-forwarding
+# and pty are added back: exactly a shell plus the -L forward KRdp needs, which
+# is the whole remit of this key.
+readonly REMOTING_KEY='restrict,port-forwarding,pty {{ trim (include "dot_config/ssh/remoting-key.pub") }}'
+
+# Extra TCP ports to open, mirroring the networking.firewall.allowedTCPPorts
+# entries the NixOS hosts get from their modules. Format: "<port> <comment>".
+#
+# Deliberately empty. Service ports are reached by forwarding over ssh rather
+# than by opening them to the LAN:
+#
+#   ssh -N -L 3389:localhost:3389 <host>    # KRdp
+#
+# That puts each service behind ssh host-key verification and key auth instead
+# of whatever single secret the service itself carries — for KRdp that would be
+# one username/password in KWallet guarding a full desktop-takeover channel.
+# krdpserver binds 0.0.0.0 with no way to narrow it, so the closed port is the
+# only thing keeping it off the network.
+#
+# Port 22 is handled separately below; it is the access path, not an exception.
+FIREWALL_TCP=()
+
+# Firewalls that must not run alongside ufw. Only units that actually exist on
+# the host are touched.
+CONFLICTING_FIREWALLS=(firewalld nftables iptables ip6tables)
+
+note() { printf '%s: %s\n' "$TAG" "$*"; }
+warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
+
+# --- applicability ----------------------------------------------------------
+
+if [ -e /etc/NIXOS ]; then
+  note "skipped    NixOS host — nix owns packages and networking.firewall"
+  exit 0
+fi
+
+# WSL has no host firewall worth configuring: traffic is NATed by the Windows
+# host, systemd may not be managing the network at all, and a default-deny ufw
+# would only break Windows<->WSL loopback forwarding. Packages are still
+# skipped here too — no WSL host in this repo runs a Plasma session.
+if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
+  note "skipped    WSL — no host firewall, no desktop session"
+  exit 0
+fi
+
+if [ "${PROVISION_HOST_SKIP:-0}" = "1" ]; then
+  note "PROVISION_HOST_SKIP=1 set — skipping"
+  exit 0
+fi
+
+# --- package manager --------------------------------------------------------
+
+if command -v pacman >/dev/null 2>&1; then
+  PM=pacman
+elif command -v apt-get >/dev/null 2>&1; then
+  PM=apt
+elif command -v dnf >/dev/null 2>&1; then
+  PM=dnf
+else
+  warn "no supported package manager (pacman/apt/dnf) — cannot provision"
+  exit 0
+fi
+
+# Generic name -> distro package name. Arch calls the ssh daemon's package
+# "openssh" and ships client and server together; Debian and Fedora split them
+# and only "openssh-server" carries sshd.
+pkg_name() {
+  case "$1" in
+  sshd)
+    case "$PM" in
+    pacman) echo openssh ;;
+    *) echo openssh-server ;;
+    esac
+    ;;
+  *) echo "$1" ;;
+  esac
+}
+
+pkg_installed() {
+  local p
+  p=$(pkg_name "$1")
+  case "$PM" in
+  pacman) pacman -Qq "$p" >/dev/null 2>&1 ;;
+  apt) dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "ok installed" ;;
+  dnf) rpm -q "$p" >/dev/null 2>&1 ;;
+  esac
+}
+
+pkg_install() {
+  local mapped=()
+  for g in "$@"; do mapped+=("$(pkg_name "$g")"); done
+
+  case "$PM" in
+  # --noconfirm / -y because this runs inside `task switch`, where an
+  # interactive package prompt would stall the whole activation.
+  pacman) $SUDO pacman -S --needed --noconfirm "${mapped[@]}" ;;
+  apt) DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y "${mapped[@]}" ;;
+  dnf) $SUDO dnf install -y "${mapped[@]}" ;;
+  esac
+}
+
+# --- root -------------------------------------------------------------------
+#
+# Resolved lazily, on first mutation only, so an already-provisioned host never
+# prompts. Mirrors run_once_provision-tifa-etc.sh.tmpl; see the longer rationale
+# there.
+
+SUDO=""
+sudo_ready=0
+sudo_failed=0
+
+ensure_root() {
+  if [ "$sudo_ready" -eq 1 ]; then
+    return 0
+  fi
+
+  # Memoized: every unmet item below calls this, and without the latch a
+  # non-interactive apply would repeat the same two-line warning once per item.
+  if [ "$sudo_failed" -eq 1 ]; then
+    return 1
+  fi
+
+  if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+  elif sudo -n true 2>/dev/null; then
+    SUDO="sudo"
+  elif [ -t 0 ]; then
+    note "changes needed — prompting for sudo"
+    SUDO="sudo"
+  else
+    warn "changes needed but sudo is unavailable and stdin is not a TTY."
+    warn "Re-run from an interactive shell, or set PROVISION_HOST_SKIP=1."
+    sudo_failed=1
+    return 1
+  fi
+
+  sudo_ready=1
+}
+
+unit_exists() { systemctl cat "$1" >/dev/null 2>&1; }
+
+# --- 1. packages ------------------------------------------------------------
+#
+# ufw is appended to the same install pass rather than handled separately, so a
+# fresh host takes one transaction and one sudo prompt for everything.
+
+wanted=("${PACKAGES[@]}")
+
+# Detected from the desktop that is installed, not from XDG_CURRENT_DESKTOP: a
+# chezmoi apply can run from a plain shell or over ssh where that is unset.
+if command -v plasmashell >/dev/null 2>&1 || command -v kwin_wayland >/dev/null 2>&1; then
+  wanted+=("${PLASMA_PACKAGES[@]}")
+else
+  note "skipped    ${PLASMA_PACKAGES[*]} (no Plasma session on this host)"
+fi
+
+missing=()
+for pkg in "${wanted[@]}"; do
+  if pkg_installed "$pkg"; then
+    note "unchanged  $pkg"
+  else
+    missing+=("$pkg")
+  fi
+done
+
+if [ "${#missing[@]}" -gt 0 ]; then
+  if ensure_root; then
+    pkg_install "${missing[@]}"
+    note "INSTALLED  ${missing[*]}"
+  else
+    warn "not installed: ${missing[*]}"
+  fi
+fi
+
+# --- 2. repo user ------------------------------------------------------------
+#
+# Created only when missing, and never modified if it already exists — this must
+# not touch the account it is running as on an established host.
+#
+# The password is deliberately left unset, so the account starts with no
+# password login at all and is reachable only by the remoting key seeded below.
+# That has two consequences worth knowing rather than discovering: sudo will
+# refuse until a password is set, and KRdp's SystemUserEnabled auth (which is
+# PAM against this very account) has nothing to authenticate against. Both are
+# fixed by one `passwd`, which the warning below spells out.
+
+# Arch and Fedora put admins in wheel; Debian and its derivatives use sudo.
+case "$PM" in
+apt) admin_group=sudo ;;
+*) admin_group=wheel ;;
+esac
+
+repo_user_home=""
+if id -u "$REPO_USER" >/dev/null 2>&1; then
+  note "unchanged  user $REPO_USER"
+  repo_user_home=$(getent passwd "$REPO_USER" | cut -d: -f6)
+elif ensure_root; then
+  # zsh is what the repo configures as the login shell, but it is not
+  # guaranteed present on a host being bootstrapped; bash keeps the account
+  # usable either way and a later switch can change it.
+  if command -v zsh >/dev/null 2>&1; then
+    login_shell=$(command -v zsh)
+  else
+    login_shell=/bin/bash
+  fi
+
+  useradd_args=(--create-home --shell "$login_shell")
+  if getent group "$admin_group" >/dev/null 2>&1; then
+    useradd_args+=(--groups "$admin_group")
+  else
+    warn "group $admin_group missing — $REPO_USER created without admin rights"
+  fi
+
+  $SUDO useradd "${useradd_args[@]}" "$REPO_USER"
+  repo_user_home=$(getent passwd "$REPO_USER" | cut -d: -f6)
+  note "CREATED    user $REPO_USER (shell $login_shell, group $admin_group)"
+
+  warn "$REPO_USER has no password yet. sudo and KRdp system-user auth both"
+  warn "need one. Set it with:  sudo passwd $REPO_USER"
+  warn "Then: su - $REPO_USER, clone this repo, and run task home-switch."
+else
+  warn "$REPO_USER does not exist and could not be created"
+fi
+
+if ! command -v ufw >/dev/null 2>&1; then
+  warn "ufw still absent — skipping firewall configuration"
+  note "done"
+  exit 0
+fi
+
+# --- 3. ufw as the only firewall --------------------------------------------
+#
+# Masked, not just disabled: firewalld in particular gets pulled back in as a
+# dependency by desktop and container packages, and a plain `disable` would let
+# it start again on the next such install and fight ufw over the same tables.
+
+for unit in "${CONFLICTING_FIREWALLS[@]}"; do
+  unit_exists "$unit.service" || continue
+
+  state=$(systemctl is-enabled "$unit.service" 2>/dev/null || true)
+  if [ "$state" = "masked" ]; then
+    note "unchanged  $unit (masked)"
+    continue
+  fi
+
+  if ensure_root; then
+    $SUDO systemctl disable --now "$unit.service" >/dev/null 2>&1 || true
+    $SUDO systemctl mask "$unit.service" >/dev/null 2>&1 || true
+    note "MASKED     $unit (was: ${state:-unknown})"
+  else
+    warn "$unit still active alongside ufw"
+  fi
+done
+
+# --- 4. ssh ------------------------------------------------------------------
+#
+# Strict ordering: authorize the key, THEN disable password auth, THEN start the
+# daemon. Any other order either opens a password-authenticating sshd to the
+# network for a window, or produces a running sshd with no way to log into it.
+
+ssh_dir="$HOME/.ssh"
+auth_keys="$ssh_dir/authorized_keys"
+
+# authorize_key <authorized_keys path> <owner> <label>
+# Owner is passed explicitly because this also writes into another account's
+# home when the apply is running as someone other than REPO_USER.
+authorize_key() {
+  local target=$1 owner=$2 label=$3 dir tmp key_body as_owner=()
+
+  dir=$(dirname "$target")
+
+  # Writing into another user's home needs root, and the result must end up
+  # owned by them or sshd ignores it (StrictModes).
+  if [ "$owner" != "$(id -un)" ]; then
+    ensure_root || {
+      warn "cannot authorize remoting key for $label"
+      return 1
+    }
+    as_owner=("$SUDO" -u "$owner")
+  fi
+
+  if [ -e "$target" ] && "${as_owner[@]}" grep -qxF "$REMOTING_KEY" "$target" 2>/dev/null; then
+    note "unchanged  authorized_keys ($label)"
+    return 0
+  fi
+
+  "${as_owner[@]}" install -d -m 0700 "$dir"
+
+  # Drop any earlier line carrying this same key with different options, so
+  # rotating the options does not leave the looser copy behind and still
+  # honoured. Comparison is on the key body, not the whole line.
+  key_body=$(printf '%s' "$REMOTING_KEY" | awk '{print $2, $3}')
+  tmp=$(mktemp)
+  if [ -e "$target" ]; then
+    "${as_owner[@]}" grep -vF "$key_body" "$target" >"$tmp" 2>/dev/null || true
+  fi
+  printf '%s\n' "$REMOTING_KEY" >>"$tmp"
+
+  "${as_owner[@]}" install -m 0600 "$tmp" "$target"
+  rm -f "$tmp"
+  note "AUTHORIZED remoting key ($label)"
+}
+
+authorize_key "$auth_keys" "$(id -un)" "$(id -un)"
+
+# On a host being bootstrapped under a different login (graha's "ansible"), the
+# account that will actually be remoted into is REPO_USER, not the one running
+# this. Authorize both: the current user so this session keeps working, and
+# REPO_USER so `ssh <host>` lands where home-manager is configured.
+if [ -n "$repo_user_home" ] && [ "$REPO_USER" != "$(id -un)" ]; then
+  authorize_key "$repo_user_home/.ssh/authorized_keys" "$REPO_USER" "$REPO_USER" || true
+fi
+
+# Password auth comes off only once a key is actually authorized — otherwise
+# this would produce a host nobody can log into. Mirrors the same derivation in
+# modules/services/sshd.nix.
+if [ -s "$auth_keys" ]; then
+  password_auth=no
+else
+  password_auth=yes
+  warn "no authorized key present — leaving PasswordAuthentication on"
+fi
+
+# 10- so it sorts ahead of the distro's own drop-ins: sshd takes the FIRST
+# value seen for most keywords, and /etc/ssh/sshd_config Includes
+# sshd_config.d/*.conf in glob order before its own directives.
+sshd_conf=/etc/ssh/sshd_config.d/10-nix-config.conf
+sshd_want=$(
+  cat <<EOF
+# Managed by chezmoi/run_onchange_provision-linux-host.sh.tmpl in the
+# nix-config repo. Mirrors modules/services/sshd.nix on the NixOS hosts.
+PermitRootLogin no
+PasswordAuthentication ${password_auth}
+KbdInteractiveAuthentication no
+
+# Required, not incidental: forwarding is how KRdp and every other closed port
+# is reached. GatewayPorts stays off so a forward cannot be re-exported.
+AllowTcpForwarding yes
+GatewayPorts no
+
+AllowAgentForwarding no
+X11Forwarding no
+
+MaxAuthTries 3
+LoginGraceTime 30
+EOF
+)
+
+# A drop-in is only read if the main config Includes the directory. Every
+# current distro does, but an older or hand-edited sshd_config may not, and the
+# failure is silent — the file sits there looking applied while sshd ignores it.
+if [ -r /etc/ssh/sshd_config ] &&
+  ! grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/' /etc/ssh/sshd_config; then
+  warn "/etc/ssh/sshd_config has no Include for sshd_config.d/ — the drop-in"
+  warn "below will be ignored. Add: Include /etc/ssh/sshd_config.d/*.conf"
+fi
+
+if [ -r "$sshd_conf" ] && [ "$(cat "$sshd_conf")" = "$sshd_want" ]; then
+  note "unchanged  $sshd_conf"
+elif ensure_root; then
+  printf '%s\n' "$sshd_want" | $SUDO install -D -m 0644 -o root -g root /dev/stdin "$sshd_conf"
+  note "INSTALLED  $sshd_conf"
+  sshd_changed=1
+else
+  warn "$sshd_conf not written — sshd keeps its distro defaults"
+fi
+
+# Arch names the unit sshd.service; Debian and its derivatives name it
+# ssh.service (older releases have no sshd.service alias at all). Resolve it
+# rather than assuming, or this silently does nothing on a Mint/Ubuntu host.
+sshd_unit=""
+for candidate in sshd.service ssh.service; do
+  if unit_exists "$candidate"; then
+    sshd_unit=$candidate
+    break
+  fi
+done
+
+if [ -n "$sshd_unit" ]; then
+  if systemctl is-active --quiet "$sshd_unit" 2>/dev/null; then
+    # Config changes need a reload; sshd keeps existing sessions across it.
+    if [ "${sshd_changed:-0}" = "1" ] && ensure_root; then
+      $SUDO systemctl reload "$sshd_unit"
+      note "RELOADED   $sshd_unit (config changed)"
+    else
+      note "unchanged  $sshd_unit (active)"
+    fi
+  elif ensure_root; then
+    $SUDO systemctl enable --now "$sshd_unit"
+    note "ENABLED    $sshd_unit"
+  else
+    warn "sshd not started"
+  fi
+else
+  warn "no sshd/ssh unit — the ssh server package may have failed to install"
+fi
+
+# --- 5. firewall rules ------------------------------------------------------
+#
+# Rules go in BEFORE ufw is enabled. Enabling ufw sets default-deny inbound, so
+# adding rules afterwards would leave a window where a remote session could be
+# cut — and on a headless box that window is permanent.
+#
+# /etc/ufw/user.rules is world-readable on Arch but 0640 on Debian; the
+# readable path keeps a provisioned host from prompting for sudo on every
+# apply, and the fallback only costs a prompt where we would likely need one.
+
+rule_present() {
+  local port=$1
+  if [ -r /etc/ufw/user.rules ]; then
+    grep -qE "^### tuple ### allow tcp ${port}\b" /etc/ufw/user.rules
+  else
+    ensure_root || return 1
+    $SUDO ufw status 2>/dev/null | grep -qE "^${port}/tcp\b"
+  fi
+}
+
+add_rule() {
+  local port=$1 comment=$2
+  if rule_present "$port"; then
+    note "unchanged  ufw allow ${port}/tcp (${comment})"
+    return 0
+  fi
+
+  if ensure_root; then
+    $SUDO ufw allow "${port}/tcp" >/dev/null
+    note "OPENED     ufw allow ${port}/tcp (${comment})"
+  else
+    warn "ufw ${port}/tcp not opened — ${comment} unreachable from the LAN"
+  fi
+}
+
+# 22 unconditionally: it is the only door in, and it must be open before ufw
+# flips to default-deny or a remote apply severs the session running it.
+add_rule 22 "sshd — tunnel endpoint"
+
+if [ "${#FIREWALL_TCP[@]}" -gt 0 ]; then
+  for entry in "${FIREWALL_TCP[@]}"; do
+    add_rule "${entry%% *}" "${entry#* }"
+  done
+fi
+
+# --- 6. enable ufw ----------------------------------------------------------
+
+if systemctl is-active --quiet ufw 2>/dev/null; then
+  note "unchanged  ufw (active)"
+else
+  if ensure_root; then
+    # --force skips the "this may disrupt existing ssh connections" prompt,
+    # which the rules above have already accounted for.
+    $SUDO ufw --force enable >/dev/null
+    $SUDO systemctl enable ufw >/dev/null 2>&1 || true
+    note "ENABLED    ufw"
+  else
+    warn "ufw installed but not enabled"
+  fi
+fi
+
+note "done"
