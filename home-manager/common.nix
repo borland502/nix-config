@@ -948,6 +948,7 @@ in {
       neovim.enable = true;
       tmux.enable = true;
       btop.enable = true;
+      lazygit.enable = true;
       # Add GUI and shell-aware targets so all profiles are themed
       kitty.enable = true;
       gtk.enable = true;
@@ -1024,6 +1025,23 @@ in {
     bat.enable = true;
     tmux.enable = true;
     neovim.enable = true;
+
+    # btop/fzf/lazygit are enabled as program modules, not just installed as
+    # packages, so Stylix has somewhere to write the palette: its targets work
+    # by setting programs.<tool>.settings, which Home Manager only renders to
+    # disk when the module itself is enabled. Installed as bare packages they
+    # kept running with stock themes while the Stylix targets read as enabled.
+    btop.enable = true;
+    lazygit.enable = true;
+
+    fzf = {
+      enable = true;
+      # zsh.nix already does `source <(fzf --zsh)` behind a command -v guard;
+      # letting the module add its own integration would bind Ctrl-R/Ctrl-T
+      # twice. Theming is unaffected — the palette rides on FZF_DEFAULT_OPTS
+      # via home.sessionVariables, which is independent of this option.
+      enableZshIntegration = false;
+    };
 
     eza = {
       enable = true;
