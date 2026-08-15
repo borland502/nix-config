@@ -352,13 +352,17 @@ in {
               # pruned. filemanager hit exactly that (no inode/directory default
               # was declared); it now has one in mimeapps/defaults.toml, and the
               # pin no longer depends on it either way.
+              # steam is deliberately absent: it is enabled only in
+              # hosts/linux/default.nix (the NixOS system config), so on a
+              # generic Linux host activating through the standalone
+              # jhettenh@linux homeConfiguration there is no steam.desktop for
+              # KService to resolve and plasmashell prunes the pin anyway.
               iconTasks.launchers = [
                 "applications:systemsettings.desktop"
                 "applications:org.kde.dolphin.desktop"
                 "applications:code.desktop"
                 "preferred://browser"
                 "applications:kitty.desktop"
-                "applications:steam.desktop"
                 "applications:org.keepassxc.KeePassXC.desktop"
                 "applications:slack.desktop"
                 "applications:discord.desktop"

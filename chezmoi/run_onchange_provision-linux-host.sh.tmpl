@@ -58,6 +58,16 @@ PACKAGES=(
 
   # The firewall this policy is built on.
   ufw
+
+  # kitty is gated out of the Nix package set on generic Linux (see
+  # profiles/desktop-linux.nix nixosOnlyPackages) because it links against
+  # Nix's own glibc and cannot safely load a host GL driver. It still needs to
+  # exist on every host, though — home-manager wires a KDE global shortcut and
+  # the default-terminal association straight to kitty.desktop, and both come
+  # up blank if that .desktop file is missing. Installing it here (rather than
+  # leaving it a manual `pkg-install kitty` step) is what actually guarantees
+  # that.
+  kitty
 )
 
 # Plasma-only additions, appended below when a Plasma session is actually
@@ -200,6 +210,37 @@ SUDO=""
 sudo_ready=0
 sudo_failed=0
 
+# Echo a usable askpass helper, or fail. Only a graphical session qualifies:
+# these helpers all open a window, so without a display they would either fail
+# outright or hang a headless run waiting on a dialog nobody can see.
+find_askpass() {
+  if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    return 1
+  fi
+
+  # An explicit setting wins — the user has already named their helper.
+  if [ -n "${SUDO_ASKPASS:-}" ] && [ -x "${SUDO_ASKPASS}" ]; then
+    printf '%s\n' "$SUDO_ASKPASS"
+    return 0
+  fi
+
+  # ksshaskpass on Plasma, the others on GNOME/Xfce and Debian's generic
+  # alternative. Ordered so the desktop's native dialog is preferred.
+  for candidate in \
+    /usr/bin/ksshaskpass \
+    /usr/bin/ssh-askpass \
+    /usr/libexec/openssh/gnome-ssh-askpass \
+    /usr/bin/lxqt-openssh-askpass \
+    /usr/lib/ssh/x11-ssh-askpass; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 ensure_root() {
   if [ "$sudo_ready" -eq 1 ]; then
     return 0
@@ -217,6 +258,29 @@ ensure_root() {
     SUDO="sudo"
   elif [ -t 0 ]; then
     note "changes needed — prompting for sudo"
+    SUDO="sudo"
+  elif askpass=$(find_askpass); then
+    # No TTY, but this is a graphical session with an askpass helper, so a
+    # password can still be collected — from a dialog instead of the terminal.
+    #
+    # Worth having because the no-TTY case is the normal one, not the odd one:
+    # `task switch` invokes chezmoi as a subprocess, and anything driving it
+    # from an editor, an agent, or a desktop launcher has no controlling
+    # terminal either. Without this the run reaches the packages it must
+    # install and then quits on a warning, which is exactly the state that
+    # left a host with no kitty and an unsandboxed browser.
+    #
+    # Caching cannot substitute for it: with no TTY, sudo keys the timestamp
+    # per process session rather than per terminal, so priming the cache in
+    # the calling shell does not carry into chezmoi's subprocess.
+    #
+    # sudo consults SUDO_ASKPASS only when passed -A, and $SUDO is used both
+    # bare and as the first element of an argument array. A function is the
+    # one form that survives both, since bash resolves it wherever the word
+    # lands in command position.
+    export SUDO_ASKPASS="$askpass"
+    sudo() { command sudo -A "$@"; }
+    note "changes needed — prompting for sudo via $askpass"
     SUDO="sudo"
   else
     warn "changes needed but sudo is unavailable and stdin is not a TTY."
@@ -269,6 +333,85 @@ if [ "${#missing[@]}" -gt 0 ]; then
   else
     warn "not installed: ${missing[*]}"
   fi
+fi
+
+# --- 1b. apparmor (unprivileged userns for Nix-built Chromium/Electron apps) -
+#
+# Chromium (and Electron, which embeds it) needs either a setuid sandbox
+# helper or an unprivileged user namespace to sandbox its renderers. The
+# setuid path is unreachable for anything built by Nix — chrome-sandbox /
+# vivaldi-sandbox live in the read-only store and can never be chmod 4755 —
+# so it depends on the namespace path working. Ubuntu/Debian default to
+# denying that to anything without an AppArmor profile that explicitly allows
+# `userns` (see kernel.apparmor_restrict_unprivileged_userns). The distro's
+# own browser profiles only attach to the apt package paths (/opt/vivaldi,
+# /usr/lib/slack, ...), so they never match a Nix store binary — the app gets
+# no sandbox path at all and aborts on launch. Confirmed crash-looping this
+# way: Vivaldi, Slack, Discord.
+#
+# One profile per app (rather than one wildcard covering all of /nix/store)
+# so this only ever grants `userns` to the specific binaries known to need
+# it, not to Nix-built software in general.
+#
+# Only relevant, and only installed, on a host where AppArmor is actually the
+# active LSM by default (Ubuntu/Debian and derivatives). Hosts running
+# something else (Arch with no LSM, Fedora with SELinux) never hit this
+# restriction and must not have an AppArmor profile forced onto them.
+#
+# name:relative-glob-under-/nix/store, one per line.
+#
+# discord is deliberately bubblewrap and not the Discord binary itself: the
+# nixpkgs build is an FHS-env wrapper that re-execs through bwrap, so bwrap is
+# the process that asks the kernel for the namespace and therefore the one the
+# profile has to attach to. Confirmed by its failure mode — "bwrap: setting up
+# uid map: Permission denied", not Chromium's own sandbox message.
+NIX_USERNS_APPS="
+vivaldi:opt/vivaldi/vivaldi-bin
+slack:lib/slack/slack
+bubblewrap:bin/bwrap
+"
+
+if [ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" = "Y" ] &&
+  command -v apparmor_parser >/dev/null 2>&1; then
+  # Heredoc, not a pipe: a pipe would run the loop in a subshell, and
+  # ensure_root's sudo_ready/sudo_failed memoization (relied on by every
+  # later section of this script) would be lost the moment the subshell exits.
+  while IFS=: read -r app relglob; do
+    [ -n "$app" ] || continue
+
+    aa_profile="/etc/apparmor.d/nix-userns-$app"
+    aa_want=$(
+      cat <<EOF
+# Managed by chezmoi/run_onchange_provision-linux-host.sh.tmpl in the
+# nix-config repo. Grants unprivileged-userns creation to $app when built by
+# Nix (the store path's hash varies by version/rebuild, hence the glob) so its
+# Chromium sandbox has a working path when the setuid helper cannot be used.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile nix-userns-$app /nix/store/*/$relglob flags=(unconfined) {
+  userns,
+}
+EOF
+    )
+
+    if [ -r "$aa_profile" ] && [ "$(cat "$aa_profile")" = "$aa_want" ]; then
+      note "unchanged  $aa_profile"
+    elif ensure_root; then
+      printf '%s\n' "$aa_want" | $SUDO install -D -m 0644 -o root -g root /dev/stdin "$aa_profile"
+      if $SUDO apparmor_parser -r "$aa_profile" 2>/dev/null; then
+        note "INSTALLED  $aa_profile"
+      else
+        warn "$aa_profile written but apparmor_parser -r failed — check syntax"
+      fi
+    else
+      warn "$aa_profile not written — $app (built by Nix) will fail its sandbox check"
+    fi
+  done <<EOF
+$NIX_USERNS_APPS
+EOF
+else
+  note "skipped    nix-userns-* apparmor profiles (AppArmor not the active LSM here)"
 fi
 
 # --- 2. repo user ------------------------------------------------------------
