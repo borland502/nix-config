@@ -86,7 +86,11 @@
   #
   # On NixOS both work normally, so they are installed from nixpkgs there.
   # On generic Linux install them from the host instead:
-  #   kitty -> `pkg-install kitty`
+  #   kitty -> installed automatically by
+  #            chezmoi/run_onchange_provision-linux-host.sh.tmpl (it has to
+  #            exist on every host: home-manager wires a KDE global shortcut
+  #            and the default-terminal association straight to
+  #            kitty.desktop, which comes up blank if the package is absent)
   #   zoom  -> `flatpak install --user flathub us.zoom.Zoom`
   # kitty keeps its chezmoi config (chezmoi/dot_config/kitty) and stylix
   # theming via stylix.targets.kitty either way — this guards only the package.
@@ -127,9 +131,53 @@
     echo "qdbus: no Qt 6 D-Bus tool on this host (looked for qdbus6, qdbus-qt6)" >&2
     exit 127
   '';
+
+  # Nix-built browsers hand their own LD_LIBRARY_PATH to every child process,
+  # and that is fatal for a child that is a *host* binary.
+  #
+  # nixpkgs wraps vivaldi with `--prefix LD_LIBRARY_PATH` pointing at Nix's
+  # glibc and friends. Chromium then spawns distro helpers by absolute path,
+  # which inherit that variable and get Nix's libc loaded by the host
+  # ld-linux. The two disagree over GLIBC_PRIVATE, so the process dies inside
+  # the dynamic loader — before main(), with a backtrace that is pure
+  # ld.so/__getrandom_early_init and names neither culprit. Verified on this
+  # host: the same command is rc=0 normally and rc=139 with the variable set.
+  #
+  # It is the same glibc-mixing hazard already described for kitty above,
+  # reached from the other direction: there a Nix binary loads host driver
+  # .so files, here a host binary loads Nix libc.
+  #
+  # Observed victims, both spawned by Vivaldi:
+  #   xdg-settings                     — the default-browser check, so Vivaldi
+  #                                      re-prompts every launch
+  #   plasma-browser-integration-host  — KDE's native-messaging bridge, so the
+  #                                      Plasma browser integration is dead
+  # Both also spammed systemd-coredump on a loop.
+  #
+  # The shim re-execs the real host binary with the variable removed. Kept off
+  # NixOS, where nothing under /usr/bin exists to defer to and the whole
+  # mismatch cannot arise.
+  hostHelperShim = name:
+    pkgs.writeShellScriptBin name ''
+      real=/usr/bin/${name}
+      if [ ! -x "$real" ]; then
+        echo "${name}: no host binary at $real" >&2
+        exit 127
+      fi
+      exec ${pkgs.coreutils}/bin/env -u LD_LIBRARY_PATH "$real" "$@"
+    '';
+
+  xdgSettingsShim = hostHelperShim "xdg-settings";
+  plasmaBrowserIntegrationShim = hostHelperShim "plasma-browser-integration-host";
 in {
   # Desktop applications
-  home.packages = availablePackages ++ lib.optional (!isNixos) qdbusShim;
+  home.packages =
+    availablePackages
+    ++ lib.optionals (!isNixos) [
+      qdbusShim
+      xdgSettingsShim
+      plasmaBrowserIntegrationShim
+    ];
   home.sessionVariables.BROWSER = "vivaldi";
 
   # Note: System monitoring tools (htop, btop, iotop) moved to platform-specific configs
@@ -194,6 +242,32 @@ in {
     mimeApps = {
       enable = true;
       inherit defaultApplications;
+    };
+
+    # Point KDE's native-messaging bridge at the LD_LIBRARY_PATH-scrubbing shim
+    # (see hostHelperShim above for why the unwrapped binary segfaults).
+    #
+    # A PATH shim is not enough on its own here: unlike xdg-settings, this
+    # helper is not looked up on PATH at all. The browser reads its absolute
+    # path out of a manifest — the distro's copy in
+    # /etc/chromium/native-messaging-hosts names /usr/bin directly. A
+    # user-level manifest takes precedence over the system one, so this
+    # redirects it without touching /etc.
+    #
+    # allowed_origins is copied verbatim from the distro manifest: those are
+    # the extension IDs of the Plasma Integration add-on, and the browser
+    # refuses the connection if the requesting extension is not listed.
+    configFile."vivaldi/NativeMessagingHosts/org.kde.plasma.browser_integration.json" = lib.mkIf (!isNixos) {
+      text = builtins.toJSON {
+        name = "org.kde.plasma.browser_integration";
+        description = "Native connector for KDE Plasma";
+        path = "${plasmaBrowserIntegrationShim}/bin/plasma-browser-integration-host";
+        type = "stdio";
+        allowed_origins = [
+          "chrome-extension://cimiefiiaegbelhefglklhhakcgmhkai/"
+          "chrome-extension://dnnckbejblnejeabhcmhklcaljjpdjeh/"
+        ];
+      };
     };
   };
 
