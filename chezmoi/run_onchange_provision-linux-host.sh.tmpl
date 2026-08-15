@@ -64,6 +64,17 @@ PACKAGES=(
 # installed. KRdp drives KWin's fake-input and screencast Wayland protocols, so
 # it is useless — and on apt hosts would drag in a pile of KDE — anywhere else.
 # Mint/Cinnamon and other non-Plasma desktops must not get this.
+#
+# The detection is done HERE, at template-render time, and baked into the line
+# below — not only at runtime. run_onchange_ fires on a change to this script's
+# rendered hash, so a purely runtime check would latch: a host with no Plasma
+# when this first ran would skip krdp, the hash would never change, and krdp
+# would never be installed even after a desktop was added. Rendering the answer
+# in means installing Plasma flips this line, which changes the hash, which
+# re-runs the script. The runtime check below still gates the actual install, so
+# a stale render can only cost a redundant re-run, never a wrong install.
+PLASMA_PRESENT={{ if or (lookPath "plasmashell") (lookPath "kwin_wayland") }}yes{{ else }}no{{ end }}
+
 PLASMA_PACKAGES=(
   # KRdp — Plasma's RDP server for Wayland sessions. Its System Settings panel
   # (kcm_krdpserver.so) is loaded into the distro's systemsettings process, so
@@ -226,12 +237,20 @@ unit_exists() { systemctl cat "$1" >/dev/null 2>&1; }
 
 wanted=("${PACKAGES[@]}")
 
-# Detected from the desktop that is installed, not from XDG_CURRENT_DESKTOP: a
+# Checked against the desktop that is installed, not XDG_CURRENT_DESKTOP: a
 # chezmoi apply can run from a plain shell or over ssh where that is unset.
-if command -v plasmashell >/dev/null 2>&1 || command -v kwin_wayland >/dev/null 2>&1; then
+#
+# Re-checked at runtime even though PLASMA_PRESENT already carries the
+# render-time answer, because the two can disagree — the render happens before
+# this same apply installs anything, and a desktop added between render and run
+# should not be missed. Either saying yes is enough; the packages are
+# no-ops when already present.
+if [ "$PLASMA_PRESENT" = "yes" ] ||
+  command -v plasmashell >/dev/null 2>&1 ||
+  command -v kwin_wayland >/dev/null 2>&1; then
   wanted+=("${PLASMA_PACKAGES[@]}")
 else
-  note "skipped    ${PLASMA_PACKAGES[*]} (no Plasma session on this host)"
+  note "skipped    ${PLASMA_PACKAGES[*]} (no Plasma on this host — will re-run if one is installed)"
 fi
 
 missing=()
