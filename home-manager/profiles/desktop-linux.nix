@@ -67,6 +67,17 @@
     flameshot
     slack
     keepassxc
+
+    # Remote desktop client. This is the other end of the KRdp server in
+    # modules/desktop/krdp.nix: those hosts keep 3389 closed and are reached by
+    # forwarding it over the ssh-only front door, e.g.
+    #   ssh -N -L 3389:localhost:3389 tifa
+    # and then pointing remmina at localhost:3389.
+    #
+    # Plain GTK/FreeRDP with no GL requirement, so unlike kitty and zoom-us it
+    # does not need nixosOnlyPackages — it runs from nixpkgs on the generic
+    # Linux hosts too.
+    remmina
   ];
 
   # GPU-dependent apps that only work when Nix also owns the graphics stack.
