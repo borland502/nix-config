@@ -56,6 +56,25 @@ in {
         sopsFile = ../../secrets/arr.yaml;
         path = "${config.home.homeDirectory}/.config/arr/prowlarr.key";
       };
+
+      # Dedicated remoting key: the single credential for reaching these hosts
+      # over ssh, and through an ssh tunnel for KRdp. It is not a general
+      # identity — no service or forge auth uses it, so it can be rotated by
+      # regenerating this one secret and the matching .pub.
+      #
+      # The public half is tracked in the clear at
+      # chezmoi/dot_config/ssh/remoting-key.pub and is what gets authorized on
+      # every host (modules/services/sshd.nix on NixOS,
+      # chezmoi/run_onchange_provision-linux-host.sh.tmpl elsewhere).
+      #
+      # mode 0600 is mandatory: ssh refuses a private key that is group- or
+      # world-readable, and sops-nix defaults to 0400 for the *owner* only,
+      # which ssh accepts but which surprises anything that tries to rewrite it.
+      "remoting/ssh_private_key" = {
+        sopsFile = ../../secrets/remoting-ssh.yaml;
+        path = "${config.home.homeDirectory}/.ssh/id_remoting";
+        mode = "0600";
+      };
     };
   };
 

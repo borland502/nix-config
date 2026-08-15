@@ -6,6 +6,8 @@
     # Include the results of the hardware scan.
     ./hardware-configuration.nix
     ../../modules/audio/pulseaudio.nix
+    ../../modules/desktop/krdp.nix
+    ../../modules/services/sshd.nix
   ];
 
   # Bootloader.
@@ -58,8 +60,7 @@
     # Enable CUPS to print documents.
     printing.enable = true;
 
-    # Enable the OpenSSH daemon.
-    openssh.enable = true;
+    # OpenSSH is configured in ../../modules/services/sshd.nix.
   };
 
   # Enable touchpad support (enabled default in most desktopManager).
