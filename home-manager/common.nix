@@ -954,7 +954,24 @@ in {
       kde.enable = true;
       vscode.enable = true;
       starship.enable = true;
-      # Keep qt disabled unless explicitly requested as the override is causing issues
+      # Keep qt disabled. The target exports QT_QPA_PLATFORMTHEME=qt5ct and
+      # QT_STYLE_OVERRIDE=kvantum session-wide, which displaces Plasma's own
+      # platform theme — and the kde target above already themes Qt/KDE apps
+      # natively by injecting stylix-kde-config into XDG_CONFIG_DIRS. Enabling
+      # both just makes them fight over the same apps for no gain; the only
+      # thing it would buy is theming Qt apps run outside a Plasma session.
+      #
+      # Not to be confused with home-manager#6565 ("any qt dependency/setting
+      # makes non-nixOS host systemd unusable"), which is why stylix gates this
+      # target behind `nixosConfig != null`. That issue is still open upstream,
+      # but was retested on CachyOS (standalone HM) 2026-08-14 and no longer
+      # reproduces: enabling qt leaves the systemd closure byte-identical (7
+      # paths before and after) and puts no systemd binaries on PATH — it adds
+      # only qt5ct, qt6ct, kvantummanager, kvantumpreview.
+      #
+      # If this is ever wanted, `stylix.targets.qt.platform = "kde"` yields
+      # platformTheme=kde / style=breeze / kvantum off, which is Plasma-
+      # consistent, at the cost of an "unsupported platform" warning.
       qt.enable = false;
       # Stylix's gnome target auto-enables on every Linux build and fetches the
       # gnome-shell source tarball from gitlab.gnome.org at eval time to derive
