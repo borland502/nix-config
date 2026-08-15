@@ -164,6 +164,7 @@ in {
   imports = [
     ./common.nix # Import common configuration
     ./modules/gdrive-sync.nix # daily launchd agent for sync-to-gdrive
+    ./modules/vscode-profiles.nix # language profiles, shared with Linux
     # Homebrew is reserved for macOS-only GUI apps and formulae without a clean Nix path.
   ];
 
@@ -417,12 +418,10 @@ in {
     '';
   };
 
-  # VSCode configuration with Stylix theming
-  programs.vscode = {
-    enable = true;
-    # Extensions and other VSCode config can be added here
-    # Stylix will automatically handle theming
-  };
+  # VS Code is not configured here. common.nix enables it and owns the shared
+  # userSettings; modules/vscode-profiles.nix (imported above) owns the profile
+  # layout and is shared with Linux, so the two hosts cannot drift. Adding a
+  # local `programs.vscode` block here is what let darwin fall behind before.
   # Kitty terminal configuration
   xdg.configFile."kitty/kitty.conf".text = let
     c = import ./lib/colors.nix;
