@@ -883,9 +883,18 @@ in {
   launchd.agents.kion-aws-refresh = lib.mkIf pkgs.stdenv.isDarwin {
     enable = true;
     config = {
+      # kion-aws-refresh is deployed by chezmoi, not by nix, so on a host that
+      # has not applied dotfiles yet this path does not exist and python would
+      # fail every four hours forever. launchd has no ConditionFileIsExecutable
+      # equivalent, so the guard has to be in the invocation: stand down quietly
+      # until the script is there. Same intent as the systemd units' condition.
       ProgramArguments = [
-        "${pkgs.python3}/bin/python3"
-        "${xdgBinHome}/kion-aws-refresh"
+        "/bin/sh"
+        "-c"
+        ''
+          [ -x "${xdgBinHome}/kion-aws-refresh" ] || exit 0
+          exec "${pkgs.python3}/bin/python3" "${xdgBinHome}/kion-aws-refresh"
+        ''
       ];
       StartInterval = 14400;
       StandardOutPath = "${xdgCacheHome}/kion-aws-refresh.log";
@@ -895,7 +904,16 @@ in {
 
   systemd.user = lib.mkIf pkgs.stdenv.isLinux {
     services.compress-old-cache = {
-      Unit.Description = "Compress old agent cache files with zstd";
+      Unit = {
+        Description = "Compress old agent cache files with zstd";
+        # ExecStart is a $HOME path, not a store path, so systemd has no
+        # dependency on the thing it runs and would just fail if it were
+        # missing. Home Manager's own linkGeneration deploys this one, so it is
+        # normally present — but the unit should still stand down cleanly rather
+        # than log a failure on a host mid-provision. Same guard, same reason as
+        # modules/gdrive-sync.nix.
+        ConditionFileIsExecutable = "${xdgBinHome}/ai-tools/compress-old-cache";
+      };
       Service = {
         Type = "oneshot";
         Environment = "AGENT_NAME=copilot";
