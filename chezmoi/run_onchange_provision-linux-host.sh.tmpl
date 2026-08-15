@@ -58,6 +58,16 @@ PACKAGES=(
 
   # The firewall this policy is built on.
   ufw
+
+  # kitty is gated out of the Nix package set on generic Linux (see
+  # profiles/desktop-linux.nix nixosOnlyPackages) because it links against
+  # Nix's own glibc and cannot safely load a host GL driver. It still needs to
+  # exist on every host, though — home-manager wires a KDE global shortcut and
+  # the default-terminal association straight to kitty.desktop, and both come
+  # up blank if that .desktop file is missing. Installing it here (rather than
+  # leaving it a manual `pkg-install kitty` step) is what actually guarantees
+  # that.
+  kitty
 )
 
 # Plasma-only additions, appended below when a Plasma session is actually
@@ -269,6 +279,85 @@ if [ "${#missing[@]}" -gt 0 ]; then
   else
     warn "not installed: ${missing[*]}"
   fi
+fi
+
+# --- 1b. apparmor (unprivileged userns for Nix-built Chromium/Electron apps) -
+#
+# Chromium (and Electron, which embeds it) needs either a setuid sandbox
+# helper or an unprivileged user namespace to sandbox its renderers. The
+# setuid path is unreachable for anything built by Nix — chrome-sandbox /
+# vivaldi-sandbox live in the read-only store and can never be chmod 4755 —
+# so it depends on the namespace path working. Ubuntu/Debian default to
+# denying that to anything without an AppArmor profile that explicitly allows
+# `userns` (see kernel.apparmor_restrict_unprivileged_userns). The distro's
+# own browser profiles only attach to the apt package paths (/opt/vivaldi,
+# /usr/lib/slack, ...), so they never match a Nix store binary — the app gets
+# no sandbox path at all and aborts on launch. Confirmed crash-looping this
+# way: Vivaldi, Slack, Discord.
+#
+# One profile per app (rather than one wildcard covering all of /nix/store)
+# so this only ever grants `userns` to the specific binaries known to need
+# it, not to Nix-built software in general.
+#
+# Only relevant, and only installed, on a host where AppArmor is actually the
+# active LSM by default (Ubuntu/Debian and derivatives). Hosts running
+# something else (Arch with no LSM, Fedora with SELinux) never hit this
+# restriction and must not have an AppArmor profile forced onto them.
+#
+# name:relative-glob-under-/nix/store, one per line.
+#
+# discord is deliberately bubblewrap and not the Discord binary itself: the
+# nixpkgs build is an FHS-env wrapper that re-execs through bwrap, so bwrap is
+# the process that asks the kernel for the namespace and therefore the one the
+# profile has to attach to. Confirmed by its failure mode — "bwrap: setting up
+# uid map: Permission denied", not Chromium's own sandbox message.
+NIX_USERNS_APPS="
+vivaldi:opt/vivaldi/vivaldi-bin
+slack:lib/slack/slack
+bubblewrap:bin/bwrap
+"
+
+if [ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" = "Y" ] &&
+  command -v apparmor_parser >/dev/null 2>&1; then
+  # Heredoc, not a pipe: a pipe would run the loop in a subshell, and
+  # ensure_root's sudo_ready/sudo_failed memoization (relied on by every
+  # later section of this script) would be lost the moment the subshell exits.
+  while IFS=: read -r app relglob; do
+    [ -n "$app" ] || continue
+
+    aa_profile="/etc/apparmor.d/nix-userns-$app"
+    aa_want=$(
+      cat <<EOF
+# Managed by chezmoi/run_onchange_provision-linux-host.sh.tmpl in the
+# nix-config repo. Grants unprivileged-userns creation to $app when built by
+# Nix (the store path's hash varies by version/rebuild, hence the glob) so its
+# Chromium sandbox has a working path when the setuid helper cannot be used.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile nix-userns-$app /nix/store/*/$relglob flags=(unconfined) {
+  userns,
+}
+EOF
+    )
+
+    if [ -r "$aa_profile" ] && [ "$(cat "$aa_profile")" = "$aa_want" ]; then
+      note "unchanged  $aa_profile"
+    elif ensure_root; then
+      printf '%s\n' "$aa_want" | $SUDO install -D -m 0644 -o root -g root /dev/stdin "$aa_profile"
+      if $SUDO apparmor_parser -r "$aa_profile" 2>/dev/null; then
+        note "INSTALLED  $aa_profile"
+      else
+        warn "$aa_profile written but apparmor_parser -r failed — check syntax"
+      fi
+    else
+      warn "$aa_profile not written — $app (built by Nix) will fail its sandbox check"
+    fi
+  done <<EOF
+$NIX_USERNS_APPS
+EOF
+else
+  note "skipped    nix-userns-* apparmor profiles (AppArmor not the active LSM here)"
 fi
 
 # --- 2. repo user ------------------------------------------------------------

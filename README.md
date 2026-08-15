@@ -189,9 +189,17 @@ live in `common.nix` and apply everywhere. Linux layers two profiles on top:
 **GPU-dependent packages are deliberately not Nix-managed on generic Linux.** `kitty` and `zoom-us` link
 against Nix's glibc and can't safely load a host Mesa/NVIDIA driver, so they are gated behind
 `isNixos` (set for the NixOS `linux` host, where `/run/opengl-driver` exists). Elsewhere install them
-natively — `pkg-install kitty`, `flatpak install --user flathub us.zoom.Zoom` — and Home Manager still
-owns their config and Stylix theming. Flatpak export dirs are added to `XDG_DATA_DIRS` so
-`xdg-open` can resolve Flatpak `.desktop` IDs in a non-login session.
+natively — `kitty` is installed automatically by
+`chezmoi/run_onchange_provision-linux-host.sh.tmpl` (every host needs it: home-manager wires a KDE
+global shortcut and the default-terminal association straight to `kitty.desktop`), `zoom-us` via
+`flatpak install --user flathub us.zoom.Zoom` — and Home Manager still owns their config and Stylix
+theming. Flatpak export dirs are added to `XDG_DATA_DIRS` so `xdg-open` can resolve Flatpak `.desktop`
+IDs in a non-login session.
+
+Vivaldi's Chromium sandbox needs an unprivileged user namespace since the setuid sandbox helper can
+never work from the read-only Nix store; on Ubuntu/Debian-family hosts (where AppArmor denies that by
+default to anything without an explicit profile) the same provisioning script installs a scoped
+AppArmor profile granting it, gated on AppArmor actually being the host's active LSM.
 
 ## Chezmoi dotfile management
 
@@ -485,7 +493,8 @@ task logs SERVICE=pipewire.service             # journalctl --user
 - **NixOS (`linux`)** — the only host where `isNixos = true`, which unlocks the GPU-dependent packages
   guarded in `profiles/desktop-linux.nix`.
 - **Plain Linux (non-NixOS)** — standalone Home Manager via `jhettenh@linux`; the login shell is fixed by
-  `ensure-nix-zsh-shell`, and GPU-dependent apps come from the distro (`pkg-install`) or Flatpak.
+  `ensure-nix-zsh-shell`, and GPU-dependent apps come from the distro (`kitty` auto-installed by the
+  provisioning script, others via `pkg-install`) or Flatpak.
 - **WSL** — NixOS-WSL base; `programs.nix-ld` is enabled so VS Code Remote / `.vscode-server` binaries
   run on NixOS. `install.sh` detects WSL, enables interop in `/etc/wsl.conf`, and runs the Windows
   bootstrap; `task wsl-bootstrap-windows` sets up Scoop, the Nerd Font, and Windows Terminal.
