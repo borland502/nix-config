@@ -210,6 +210,37 @@ SUDO=""
 sudo_ready=0
 sudo_failed=0
 
+# Echo a usable askpass helper, or fail. Only a graphical session qualifies:
+# these helpers all open a window, so without a display they would either fail
+# outright or hang a headless run waiting on a dialog nobody can see.
+find_askpass() {
+  if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    return 1
+  fi
+
+  # An explicit setting wins — the user has already named their helper.
+  if [ -n "${SUDO_ASKPASS:-}" ] && [ -x "${SUDO_ASKPASS}" ]; then
+    printf '%s\n' "$SUDO_ASKPASS"
+    return 0
+  fi
+
+  # ksshaskpass on Plasma, the others on GNOME/Xfce and Debian's generic
+  # alternative. Ordered so the desktop's native dialog is preferred.
+  for candidate in \
+    /usr/bin/ksshaskpass \
+    /usr/bin/ssh-askpass \
+    /usr/libexec/openssh/gnome-ssh-askpass \
+    /usr/bin/lxqt-openssh-askpass \
+    /usr/lib/ssh/x11-ssh-askpass; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 ensure_root() {
   if [ "$sudo_ready" -eq 1 ]; then
     return 0
@@ -227,6 +258,29 @@ ensure_root() {
     SUDO="sudo"
   elif [ -t 0 ]; then
     note "changes needed — prompting for sudo"
+    SUDO="sudo"
+  elif askpass=$(find_askpass); then
+    # No TTY, but this is a graphical session with an askpass helper, so a
+    # password can still be collected — from a dialog instead of the terminal.
+    #
+    # Worth having because the no-TTY case is the normal one, not the odd one:
+    # `task switch` invokes chezmoi as a subprocess, and anything driving it
+    # from an editor, an agent, or a desktop launcher has no controlling
+    # terminal either. Without this the run reaches the packages it must
+    # install and then quits on a warning, which is exactly the state that
+    # left a host with no kitty and an unsandboxed browser.
+    #
+    # Caching cannot substitute for it: with no TTY, sudo keys the timestamp
+    # per process session rather than per terminal, so priming the cache in
+    # the calling shell does not carry into chezmoi's subprocess.
+    #
+    # sudo consults SUDO_ASKPASS only when passed -A, and $SUDO is used both
+    # bare and as the first element of an argument array. A function is the
+    # one form that survives both, since bash resolves it wherever the word
+    # lands in command position.
+    export SUDO_ASKPASS="$askpass"
+    sudo() { command sudo -A "$@"; }
+    note "changes needed — prompting for sudo via $askpass"
     SUDO="sudo"
   else
     warn "changes needed but sudo is unavailable and stdin is not a TTY."
