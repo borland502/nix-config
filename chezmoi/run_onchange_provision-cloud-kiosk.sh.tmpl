@@ -153,13 +153,21 @@ pkg_installed() {
 # has no Nix profile, and a /nix/store path in a session's Exec line would break
 # the moment that generation is garbage-collected. cage is 24.04 universe.
 
+# wayvnc is the remoting path for this host. KRdp cannot serve a cage session
+# at all — it captures a live KWin session through xdg-desktop-portal and
+# org_kde_kwin_fake_input, so when the kiosk replaced jhettenh's Plasma session
+# krdpserver lost its compositor and exited ("The Wayland connection broke...
+# There are no outputs"). wayvnc talks wlroots protocols instead, which cage
+# does provide: verified on this host's own 0.1.5 binary, which instantiates
+# wlr_screencopy_manager_v1, wlr_virtual_pointer_manager_v1,
+# wlr_virtual_keyboard_manager_v1 and wlr_xdg_output_manager_v1.
 missing=()
-for p in cage firefox; do
+for p in cage firefox wayvnc; do
   pkg_installed "$p" || missing+=("$p")
 done
 
 if [ ${#missing[@]} -eq 0 ]; then
-  note "unchanged  packages (cage firefox)"
+  note "unchanged  packages (cage firefox wayvnc)"
 else
   ensure_root
   note "installing ${missing[*]}"
@@ -371,8 +379,50 @@ while :; do
 	# second instance whose lock this could be.
 	rm -f "$PROFILE/.parentlock" "$PROFILE/lock"
 
-	# shellcheck disable=SC2086 # both are deliberate word-split argument lists
-	$inhibit cage $cage_flags -- firefox --kiosk --profile "$PROFILE" "$url"
+	# wayvnc has to run INSIDE the cage session: it is a client of the very
+	# compositor it exports, so it needs cage's WAYLAND_DISPLAY, which cage sets
+	# only for its own child. cage launches exactly one application, so that
+	# child is a shell which backgrounds wayvnc and then execs firefox -- exec
+	# so the shell does not linger as an extra process between cage and the
+	# browser, and so cage still exits when firefox does.
+	#
+	# The inner script is single-quoted: it must not expand out here. Values
+	# reach it through the environment instead, which also keeps the URL out of
+	# this process's own argument list.
+	#
+	# 127.0.0.1 is deliberate. wayvnc gets no VNC password; the access control
+	# is the same one KRdp uses on the other hosts -- the port is closed to the
+	# LAN and reached by forwarding over ssh:
+	#     ssh -N -L 5900:localhost:5900 cloud
+	# Binding to loopback is what makes that the only path. Note the residual
+	# exposure this leaves: any local account on cloud can reach 5900 and take
+	# the panel over without a credential. With only jhettenh and kiosk on the
+	# box, and the panel already visible on the wall, that is judged acceptable
+	# -- but it is weaker than KRdp's PAM check, so do not copy this pattern to
+	# a host with untrusted local users.
+	export KIOSK_URL="$url" KIOSK_PROFILE="$PROFILE" KIOSK_STATE=/var/lib/kiosk
+
+	# shellcheck disable=SC2086,SC2016 # SC2086: deliberate word-split argument
+	# lists. SC2016: the inner script must NOT expand here -- see above.
+	$inhibit cage $cage_flags -- /bin/sh -c '
+		if [ -x /usr/bin/wayvnc ]; then
+			(
+				# Retry rather than one shot: wayvnc races cage here, and a
+				# compositor that is not finished coming up refuses the
+				# connection. Bounded so a permanently broken wayvnc cannot
+				# spin. Never fatal -- the panel matters more than remoting.
+				n=0
+				while [ "$n" -lt 10 ]; do
+					/usr/bin/wayvnc 127.0.0.1 5900 \
+						>>"$KIOSK_STATE/wayvnc.log" 2>&1
+					n=$((n + 1))
+					sleep 3
+				done
+				logger -t kiosk-panel "wayvnc gave up after 10 attempts"
+			) &
+		fi
+		exec /usr/bin/firefox --kiosk --profile "$KIOSK_PROFILE" "$KIOSK_URL"
+	'
 	rc=$?
 
 	now=$(date +%s)
@@ -552,6 +602,23 @@ if command -v cage >/dev/null 2>&1; then
     warn "kiosk session, so ssh is the only way back into this machine."
     ;;
   esac
+fi
+
+if command -v wayvnc >/dev/null 2>&1; then
+  if ss -ltnH 2>/dev/null | grep -q '127.0.0.1:5900'; then
+    note "unchanged  wayvnc listening on 127.0.0.1:5900"
+  else
+    note "wayvnc installed but not yet listening — it starts with the kiosk"
+    note "session, so this is expected until the next session start."
+  fi
+
+  # The whole point of binding to loopback. If this ever answers on the LAN
+  # address, the ssh-forward model has been bypassed and the panel is exposed.
+  lan_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  if [ -n "$lan_ip" ] && timeout 2 bash -c "</dev/tcp/$lan_ip/5900" 2>/dev/null; then
+    warn "5900 answered on $lan_ip — wayvnc is NOT confined to loopback."
+    warn "Anyone on the LAN can take over the panel. Check its bind address."
+  fi
 fi
 
 if [ ! -d "$KIOSK_STATE/firefox-profile" ]; then
