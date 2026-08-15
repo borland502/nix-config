@@ -32,6 +32,12 @@
   identityfile = "~/.ssh/id_remoting"
   user = "jhettenh"
 
+[hosts.aerith]
+  hostname = "192.168.2.85"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "jhettenh"
+
 [hosts.hassio]
   hostname = "192.168.2.111"
   user = "root"
