@@ -29,7 +29,16 @@
   # editable (and readable) outside the flake. Read from the repo copy — flake
   # eval is pure, so the deployed ~/.config/ssh/hosts.toml is not reachable
   # here; chezmoi deploys that copy from this same file.
-  sshHosts = (builtins.fromTOML (builtins.readFile ../chezmoi/dot_config/ssh/hosts.toml)).hosts;
+  #
+  # Keys that hosts.toml carries for other consumers but that ssh does not know
+  # are stripped here. programs.ssh.settings is freeform, so anything left in
+  # lands in ~/.ssh/config verbatim, and one unrecognised keyword there makes
+  # *every* ssh invocation fail — not just one to the host that declared it.
+  sshHostNonSshKeys = ["desktop" "mac"];
+  sshHosts =
+    builtins.mapAttrs
+    (_name: host: builtins.removeAttrs host sshHostNonSshKeys)
+    (builtins.fromTOML (builtins.readFile ../chezmoi/dot_config/ssh/hosts.toml)).hosts;
   copilotLogBashHook = builtins.toJSON {
     version = 1;
     hooks.postToolUse = [
