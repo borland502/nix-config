@@ -1,0 +1,633 @@
+#!/usr/bin/env bash
+#
+# Provision the Home Assistant couch panel kiosk on host "cloud".
+#
+# cloud is a Dell Latitude E5470 running KDE neon 24.04 (Ubuntu noble) with no
+# entry in flake.nix, so `task switch` never touches its system config. Nix is
+# present multi-user and home-manager runs standalone, but everything below is
+# system state — a second account, a login-manager autologin, a Wayland session
+# and an /etc payload — which only this script reproduces.
+#
+# Shape of the result: plasmalogin autologs the unprivileged `kiosk` user into a
+# cage session that runs nothing but Firefox full-screen on the Lovelace panel.
+# cage is a ~200KB wlroots kiosk compositor with no panel, no launcher and no
+# session services, so there is no powerdevil to auto-suspend the panel and no
+# kscreenlocker to lock it. Sleep and screen lock are absent by construction
+# rather than configured off, which is the point: a Plasma update can quietly
+# reintroduce a power-management default, but it cannot add powerdevil to a
+# session that never starts it.
+#
+# The one automatic sleep path cage cannot close is the lid switch, which logind
+# owns, not the session. That is handled with a scoped block inhibitor held for
+# the life of the kiosk session (see the launcher) plus the logind drop-in in
+# step 7 — deliberately in preference to a global HandleLidSwitch=ignore, so
+# jhettenh's own sessions on this laptop keep normal lid behaviour.
+#
+# The panel URL is a Nabu Casa remote-access address, which is bearer-ish: it
+# names the Home Assistant instance to the whole internet. It is therefore
+# sops-encrypted at secrets/kiosk.yaml and never written to this repo, to a
+# desktop file, or to a process argument list in the clear. The ciphertext is
+# interpolated below at chezmoi render time and decrypted at run time with the
+# applying user's age key, then installed 0640 root:kiosk so only the kiosk
+# account and root can read it.
+#
+# run_onchange_ (matching provision-linux-host) keys on the rendered script's
+# hash, so this re-runs on a fresh install where chezmoi's state DB is empty and
+# whenever a payload here changes — including a re-encrypted panel URL, since
+# that changes the embedded ciphertext.
+#
+# Everything here is idempotent and self-contained: no dependency on dot_local/
+# or any other target having been deployed first.
+
+{{ if or (ne .chezmoi.hostname "cloud") (ne .chezmoi.os "linux") -}}
+exit 0
+{{ end -}}
+
+set -euo pipefail
+
+readonly TAG=provision-cloud-kiosk
+readonly KIOSK_USER=kiosk
+readonly KIOSK_STATE=/var/lib/kiosk
+readonly URL_FILE=/etc/kiosk/panel-url
+readonly LAUNCHER=/usr/local/bin/kiosk-panel
+readonly SESSION_FILE=/usr/share/wayland-sessions/kiosk-panel.desktop
+readonly DM_CONF=/etc/plasmalogin.conf
+
+note() { printf '%s: %s\n' "$TAG" "$*"; }
+warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
+
+# --- root -------------------------------------------------------------------
+#
+# Fails loudly rather than exiting 0 when it cannot elevate, for the same reason
+# the tifa script does: exiting 0 would let chezmoi record this content hash as
+# "done" without having done anything, and it would then never run again.
+# Set CLOUD_KIOSK_SKIP=1 to bypass on purpose.
+
+if [ "${CLOUD_KIOSK_SKIP:-0}" = "1" ]; then
+  note "CLOUD_KIOSK_SKIP=1 set — skipping (will re-run next apply)"
+  exit 0
+fi
+
+SUDO=""
+sudo_ready=0
+
+find_askpass() {
+  for candidate in \
+    "${SUDO_ASKPASS:-}" \
+    /usr/bin/ksshaskpass \
+    /usr/bin/ssh-askpass \
+    /usr/libexec/openssh/gnome-ssh-askpass \
+    /usr/bin/lxqt-openssh-askpass; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# Resolved lazily, on first mutation only. A run where everything is already in
+# place must stay a silent no-op and never prompt for a password.
+ensure_root() {
+  if [ "$sudo_ready" -eq 1 ]; then
+    return 0
+  fi
+
+  if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+  elif sudo -n true 2>/dev/null; then
+    SUDO="sudo"
+  elif [ -t 0 ]; then
+    note "changes needed — prompting for sudo"
+    SUDO="sudo"
+  elif askpass=$(find_askpass); then
+    # No TTY is the normal case, not the odd one: `task home-switch` invokes
+    # chezmoi as a subprocess. sudo consults SUDO_ASKPASS only when passed -A,
+    # and $SUDO is used both bare and inside argument arrays, so a function is
+    # the one form that survives both.
+    export SUDO_ASKPASS="$askpass"
+    sudo() { command sudo -A "$@"; }
+    note "changes needed — prompting for sudo via $askpass"
+    SUDO="sudo"
+  else
+    warn "changes needed but sudo is unavailable and stdin is not a TTY."
+    warn "Re-run from an interactive shell, or set CLOUD_KIOSK_SKIP=1 to let"
+    warn "the apply through without recording this script as done."
+    exit 1
+  fi
+
+  sudo_ready=1
+}
+
+# --- helpers ----------------------------------------------------------------
+
+# install_if_changed <target> <mode> [owner] [group]; content on stdin.
+# Returns 0 if it wrote, 1 if the target already matched.
+install_if_changed() {
+  local target=$1 mode=$2 owner=${3:-root} group=${4:-root} tmp
+  tmp=$(mktemp)
+  cat >"$tmp"
+
+  if [ -e "$target" ] && cmp -s "$tmp" "$target"; then
+    rm -f "$tmp"
+    note "unchanged  $target"
+    return 1
+  fi
+
+  ensure_root
+  $SUDO install -D -m "$mode" -o "$owner" -g "$group" "$tmp" "$target"
+  rm -f "$tmp"
+  note "INSTALLED  $target"
+  return 0
+}
+
+pkg_installed() {
+  dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"
+}
+
+# --- 1. packages ------------------------------------------------------------
+#
+# firefox is the neon deb from the Mozilla repo (/usr/bin/firefox), NOT a snap
+# and NOT the Nix build in jhettenh's profile. That matters: the kiosk account
+# has no Nix profile, and a /nix/store path in a session's Exec line would break
+# the moment that generation is garbage-collected. cage is 24.04 universe.
+
+# wayvnc is the remoting path for this host. KRdp cannot serve a cage session
+# at all — it captures a live KWin session through xdg-desktop-portal and
+# org_kde_kwin_fake_input, so when the kiosk replaced jhettenh's Plasma session
+# krdpserver lost its compositor and exited ("The Wayland connection broke...
+# There are no outputs"). wayvnc talks wlroots protocols instead, which cage
+# does provide: verified on this host's own 0.1.5 binary, which instantiates
+# wlr_screencopy_manager_v1, wlr_virtual_pointer_manager_v1,
+# wlr_virtual_keyboard_manager_v1 and wlr_xdg_output_manager_v1.
+missing=()
+for p in cage firefox wayvnc; do
+  pkg_installed "$p" || missing+=("$p")
+done
+
+if [ ${#missing[@]} -eq 0 ]; then
+  note "unchanged  packages (cage firefox wayvnc)"
+else
+  ensure_root
+  note "installing ${missing[*]}"
+  if ! DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y "${missing[@]}"; then
+    # Almost always a stale index on a host that has not been updated in a
+    # while. Retry once behind an update rather than failing the whole apply.
+    note "install failed — refreshing package index and retrying"
+    $SUDO apt-get update
+    DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y "${missing[@]}"
+  fi
+  note "INSTALLED  ${missing[*]}"
+fi
+
+# --- 2. the kiosk account ---------------------------------------------------
+#
+# Deliberately minimal: no admin group, locked password, /bin/bash as the shell
+# only because plasmalogin's wayland-session wrapper re-execs itself through
+# $SHELL and sources that shell's profile. A locked password does not block
+# autologin — /etc/pam.d/plasmalogin-autologin authenticates with pam_permit and
+# only consults common-account, which a "!" password hash passes.
+
+if id -u "$KIOSK_USER" >/dev/null 2>&1; then
+  note "unchanged  user $KIOSK_USER"
+else
+  ensure_root
+  $SUDO useradd --create-home --shell /bin/bash \
+    --comment "Home Assistant couch panel" "$KIOSK_USER"
+  $SUDO passwd --lock "$KIOSK_USER" >/dev/null
+  note "CREATED    user $KIOSK_USER (locked password, no admin group)"
+fi
+
+# Firefox's profile lives here rather than in the home directory so it is
+# obvious that it is machine state, and so wiping a wedged panel is one rm of a
+# known path. It must survive reboots: the Home Assistant long-lived token from
+# the one-time interactive login is kept in this profile's localStorage.
+if [ -d "$KIOSK_STATE" ]; then
+  note "unchanged  $KIOSK_STATE"
+else
+  ensure_root
+  $SUDO install -d -m 0700 -o "$KIOSK_USER" -g "$KIOSK_USER" "$KIOSK_STATE"
+  note "CREATED    $KIOSK_STATE"
+fi
+
+# --- 3. the panel URL -------------------------------------------------------
+#
+# Ciphertext from secrets/kiosk.yaml, interpolated at chezmoi render time. This
+# is safe to have sitting in the rendered script and in chezmoi's state: it is
+# the encrypted form, and the age key that opens it is not part of the payload.
+
+sops_bin=""
+for candidate in \
+  "$(command -v sops 2>/dev/null || true)" \
+  "$HOME/.nix-profile/bin/sops" \
+  /run/current-system/sw/bin/sops \
+  /usr/bin/sops; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    sops_bin="$candidate"
+    break
+  fi
+done
+
+age_key="$HOME/.config/sops/age/keys.txt"
+
+if [ -z "$sops_bin" ]; then
+  warn "no sops binary found — cannot decrypt the panel URL."
+  warn "sops ships in home-manager/common.nix; run task home-switch first."
+  exit 1
+fi
+
+if [ ! -f "$age_key" ]; then
+  warn "no age key at $age_key — cannot decrypt the panel URL."
+  warn "Run scripts/provision-secrets.sh to write it, then re-apply."
+  exit 1
+fi
+
+cipher_file=$(mktemp)
+trap 'rm -f "$cipher_file"' EXIT
+
+cat >"$cipher_file" <<'SOPS_CIPHERTEXT'
+{{ include "../secrets/kiosk.yaml" }}
+SOPS_CIPHERTEXT
+
+if ! panel_url=$(SOPS_AGE_KEY_FILE="$age_key" "$sops_bin" --decrypt \
+  --input-type yaml --extract '["kiosk"]["panel_url"]' "$cipher_file" 2>/dev/null); then
+  warn "sops could not decrypt secrets/kiosk.yaml with $age_key."
+  warn "Check that this age recipient is in .sops.yaml and that the file was"
+  warn "re-encrypted after the last 'sops updatekeys'."
+  exit 1
+fi
+
+case "$panel_url" in
+https://*) ;;
+*)
+  warn "decrypted panel URL is not https: ${panel_url:0:12}..."
+  exit 1
+  ;;
+esac
+
+# 0640 root:kiosk: readable by the panel account and root, nobody else.
+#
+# Note what this does NOT protect: the launcher passes the URL as an argument to
+# cage and firefox, and /proc/PID/cmdline is world-readable, so any local
+# account can recover it with `ps`. The 0640 mode only keeps it out of reach
+# while the panel is not running. To close that too, set the URL as
+# browser.startup.homepage in the profile's user.js (which lives under a 0700
+# directory) and launch `firefox --kiosk` with no URL argument.
+#
+# A here-string, not a pipe: the right-hand side of a pipe is a subshell, so
+# ensure_root's sudo latch would be lost and its exit-on-failure would kill only
+# that subshell. Every other caller uses a heredoc for the same reason.
+install_if_changed "$URL_FILE" 0640 root "$KIOSK_USER" <<<"$panel_url" || true
+
+# --- 4. the launcher --------------------------------------------------------
+
+install_if_changed "$LAUNCHER" 0755 <<'PAYLOAD' || true
+#!/bin/sh
+# Home Assistant couch panel: Firefox full-screen under a cage compositor.
+#
+# Run as the `kiosk` user by plasmalogin autologin, via kiosk-panel.desktop.
+#
+# Managed by chezmoi/run_onchange_provision-cloud-kiosk.sh.tmpl in the
+# nix-config repo. Edit it there, not here.
+
+set -u
+
+URL_FILE=/etc/kiosk/panel-url
+PROFILE=/var/lib/kiosk/firefox-profile
+TAG=kiosk-panel
+
+log() { logger -t "$TAG" "$*"; }
+
+url=$(cat "$URL_FILE" 2>/dev/null) || {
+	log "cannot read $URL_FILE — is this running as the kiosk user?"
+	exit 1
+}
+
+[ -n "$url" ] || {
+	log "$URL_FILE is empty"
+	exit 1
+}
+
+mkdir -p "$PROFILE"
+
+# Rewritten every start so a pref change ships with the next chezmoi apply
+# rather than needing the profile wiped. Firefox reads user.js at startup and
+# copies it over prefs.js, so this always wins over anything the running session
+# happened to persist.
+cat >"$PROFILE/user.js" <<'PREFS'
+// Managed by chezmoi/run_onchange_provision-cloud-kiosk.sh.tmpl.
+// Everything here exists to stop Firefox putting a dialog, a tour, or a
+// restore-session prompt between the panel and the wall.
+user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("browser.aboutwelcome.enabled", false);
+user_pref("browser.startup.homepage_override.mstone", "ignore");
+user_pref("startup.homepage_welcome_url", "");
+user_pref("startup.homepage_welcome_url.additional", "");
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("browser.tabs.warnOnClose", false);
+user_pref("browser.tabs.warnOnCloseOtherTabs", false);
+user_pref("full-screen-api.warning.timeout", 0);
+user_pref("full-screen-api.warning.delay", -1);
+user_pref("browser.privatebrowsing.autostart", false);
+user_pref("app.update.auto", false);
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
+user_pref("datareporting.healthreport.uploadEnabled", false);
+user_pref("toolkit.telemetry.enabled", false);
+user_pref("browser.discovery.enabled", false);
+PREFS
+
+export MOZ_ENABLE_WAYLAND=1
+
+# -s allows VT switching, which is the escape hatch off this machine: with
+# autologin there is no greeter running, so Ctrl+Alt+F3 to a text console is how
+# you get back in locally when ssh is not an option. Probed rather than assumed
+# because it is a build-time option in some cage packagings.
+#
+# Captured to a variable first, deliberately. `cage -h` prints the help and then
+# exits 1, so piping it straight into grep makes the probe report whatever cage
+# exited with the moment anything turns on pipefail. Matching against a captured
+# string depends only on the text.
+cage_help=$(cage -h 2>&1 || true)
+case "$cage_help" in
+*" -s"*) cage_flags="-s" ;;
+*)
+	cage_flags=""
+	log "this cage does not support -s: no VT switching, use ssh to get in"
+	;;
+esac
+
+# The lid is the one auto-sleep path cage cannot close, because logind owns it
+# rather than the session. A block inhibitor scoped to this session is used in
+# preference to a global HandleLidSwitch=ignore so that jhettenh's own sessions
+# on this laptop keep normal lid behaviour. It needs LidSwitchIgnoreInhibited=no
+# in logind.conf.d to be honoured — the provisioning script installs that.
+inhibit="systemd-inhibit --what=sleep:idle:handle-lid-switch --mode=block"
+inhibit="$inhibit --who=kiosk-panel --why=Home_Assistant_wall_panel"
+
+# Restart on crash, but with a budget. An unbounded loop on a compositor that
+# cannot start is a spinning machine with no way back; giving up drops the
+# session, and plasmalogin then shows the greeter, which is recoverable.
+attempts=0
+window_start=$(date +%s)
+
+while :; do
+	# A power cut leaves the profile lock behind, and Firefox then refuses to
+	# start at all — which would burn the whole crash budget below and drop a
+	# wall panel to the greeter over nothing. Safe to clear unconditionally:
+	# this loop is serial and cage runs exactly one Firefox, so there is never a
+	# second instance whose lock this could be.
+	rm -f "$PROFILE/.parentlock" "$PROFILE/lock"
+
+	# wayvnc has to run INSIDE the cage session: it is a client of the very
+	# compositor it exports, so it needs cage's WAYLAND_DISPLAY, which cage sets
+	# only for its own child. cage launches exactly one application, so that
+	# child is a shell which backgrounds wayvnc and then execs firefox -- exec
+	# so the shell does not linger as an extra process between cage and the
+	# browser, and so cage still exits when firefox does.
+	#
+	# The inner script is single-quoted: it must not expand out here. Values
+	# reach it through the environment instead, which also keeps the URL out of
+	# this process's own argument list.
+	#
+	# 127.0.0.1 is deliberate. wayvnc gets no VNC password; the access control
+	# is the same one KRdp uses on the other hosts -- the port is closed to the
+	# LAN and reached by forwarding over ssh:
+	#     ssh -N -L 5900:localhost:5900 cloud
+	# Binding to loopback is what makes that the only path. Note the residual
+	# exposure this leaves: any local account on cloud can reach 5900 and take
+	# the panel over without a credential. With only jhettenh and kiosk on the
+	# box, and the panel already visible on the wall, that is judged acceptable
+	# -- but it is weaker than KRdp's PAM check, so do not copy this pattern to
+	# a host with untrusted local users.
+	export KIOSK_URL="$url" KIOSK_PROFILE="$PROFILE" KIOSK_STATE=/var/lib/kiosk
+
+	# shellcheck disable=SC2086,SC2016 # SC2086: deliberate word-split argument
+	# lists. SC2016: the inner script must NOT expand here -- see above.
+	$inhibit cage $cage_flags -- /bin/sh -c '
+		if [ -x /usr/bin/wayvnc ]; then
+			(
+				# Retry rather than one shot: wayvnc races cage here, and a
+				# compositor that is not finished coming up refuses the
+				# connection. Bounded so a permanently broken wayvnc cannot
+				# spin. Never fatal -- the panel matters more than remoting.
+				n=0
+				while [ "$n" -lt 10 ]; do
+					/usr/bin/wayvnc 127.0.0.1 5900 \
+						>>"$KIOSK_STATE/wayvnc.log" 2>&1
+					n=$((n + 1))
+					sleep 3
+				done
+				logger -t kiosk-panel "wayvnc gave up after 10 attempts"
+			) &
+		fi
+		exec /usr/bin/firefox --kiosk --profile "$KIOSK_PROFILE" "$KIOSK_URL"
+	'
+	rc=$?
+
+	now=$(date +%s)
+	if [ $((now - window_start)) -gt 300 ]; then
+		attempts=0
+		window_start=$now
+	fi
+
+	attempts=$((attempts + 1))
+	if [ "$attempts" -ge 5 ]; then
+		log "cage exited $rc 5 times in under 5 min — giving up, falling back to the greeter"
+		exit "$rc"
+	fi
+
+	log "cage exited $rc — restarting (attempt $attempts)"
+	sleep 3
+done
+PAYLOAD
+
+# --- 5. the session -------------------------------------------------------
+#
+# /usr/share/wayland-sessions rather than /usr/local/share: plasmalogin inherits
+# SDDM's session scanning and /usr/share is the path its shipped plasma.desktop
+# already uses, so it is the one directory known to be searched here.
+
+install_if_changed "$SESSION_FILE" 0644 <<'PAYLOAD' || true
+[Desktop Entry]
+Name=Home Assistant Panel
+Comment=Full-screen Firefox kiosk under cage
+Exec=/usr/local/bin/kiosk-panel
+Type=Application
+DesktopNames=cage
+# Managed by chezmoi/run_onchange_provision-cloud-kiosk.sh.tmpl (nix-config).
+PAYLOAD
+
+# --- 6. autologin -----------------------------------------------------------
+#
+# /etc/plasmalogin.conf is the whole config: this build ships no conf.d, and the
+# path is confirmed by the KCM's own auth helper
+# (/usr/lib/x86_64-linux-gnu/libexec/kf6/kauth/kcmplasmalogin_authhelper), which
+# writes exactly this file. So it is managed whole rather than as a drop-in.
+#
+# No Relogin=true. SDDM has that key, but this plasmalogin build shows no sign
+# of it, and relying on it would be actively wrong here: it would re-autologin
+# the kiosk after a deliberate `loginctl terminate-user kiosk`, which is exactly
+# how you reach the greeter to log in as jhettenh. The launcher's own restart
+# loop covers the crash case that Relogin would otherwise handle.
+
+if [ -f "$DM_CONF" ] && [ ! -e "$DM_CONF.orig" ]; then
+  ensure_root
+  $SUDO cp -a "$DM_CONF" "$DM_CONF.orig"
+  note "SAVED      $DM_CONF.orig (neon's original, before kiosk autologin)"
+fi
+
+# Session= is the BARE desktop-file name, not a path. This is load-bearing and
+# contradicts the file neon ships, which has
+# Session=/usr/share/wayland-sessions/plasma.desktop — an absolute path that
+# works only because stock neon sets no Autologin User, so the autologin lookup
+# never runs. Autologin resolves the name against its own session dirs and an
+# absolute path matches nothing:
+#   plasmalogin[1041]: Unable to find autologin session entry
+#                      "/usr/share/wayland-sessions/kiosk-panel.desktop"
+# and it silently falls through to the greeter. Confusingly, the greeter's own
+# path DOES take an absolute path ("Session ... selected" logs one), so copying
+# the shipped file's style is exactly the wrong instinct here. Verified on
+# plasmalogin 6.7.4: with the bare name it logs "Session started true" and cage
+# comes up as kiosk.
+install_if_changed "$DM_CONF" 0644 <<'PAYLOAD' || true
+# Managed by chezmoi/run_onchange_provision-cloud-kiosk.sh.tmpl (nix-config).
+# neon's original is preserved at /etc/plasmalogin.conf.orig.
+# Session= must be the bare .desktop name — an absolute path breaks autologin.
+[Autologin]
+User=kiosk
+Session=kiosk-panel.desktop
+PAYLOAD
+
+# --- 7. let the session's lid inhibitor count -------------------------------
+#
+# logind defaults LidSwitchIgnoreInhibited=yes, which means lid-close suspends
+# the machine even when something holds a handle-lid-switch block inhibitor —
+# so without this, the launcher's inhibitor is silently a no-op for the lid.
+#
+# Only the "are inhibitors honoured" policy is changed, not the lid action
+# itself: with no kiosk session running, this laptop still suspends on lid close
+# for jhettenh exactly as before.
+
+logind_changed=0
+if install_if_changed /etc/systemd/logind.conf.d/10-kiosk-panel.conf 0644 <<'PAYLOAD'; then
+# Managed by chezmoi/run_onchange_provision-cloud-kiosk.sh.tmpl (nix-config).
+# See step 7 of that script for why this is a policy flip and not
+# HandleLidSwitch=ignore.
+[Login]
+LidSwitchIgnoreInhibited=no
+PAYLOAD
+  logind_changed=1
+fi
+
+# Deliberately NOT restarting systemd-logind. A restart drops every active
+# session's tracking, which on this host means killing jhettenh's running Plasma
+# session out from under whoever is applying this. The setting is read at logind
+# start, so a reboot picks it up — and a reboot is the natural next step after
+# provisioning autologin anyway.
+if [ "$logind_changed" -eq 1 ]; then
+  note "logind config changed — takes effect on the next reboot"
+fi
+
+# --- 8. disable the damaged built-in panel ----------------------------------
+#
+# This Latitude's built-in eDP-1 is physically damaged, so the panel has to live
+# on the external HDMI output alone. cage cannot be aimed at a particular
+# output — its -m flag offers only extend|last, and "last" depends on
+# enumeration order, which is not something to bet a wall panel on. Disabling
+# the dead connector in the kernel leaves exactly one usable output, so the
+# kiosk lands on the external by construction rather than by configuration.
+#
+# It also fixes the failure mode that is otherwise invisible: with eDP alive,
+# the greeter and any fallback session can be drawn on the broken screen, so a
+# kiosk that dies looks identical to a machine that is simply off.
+#
+# A grub.d drop-in rather than an edit to /etc/default/grub: grub-mkconfig
+# sources /etc/default/grub.d/*.cfg after the main file, so this appends without
+# rewriting a distro-owned file, and undoing it is one rm plus update-grub.
+
+grub_changed=0
+if install_if_changed /etc/default/grub.d/99-kiosk-disable-edp.cfg 0644 <<'PAYLOAD'; then
+# Managed by chezmoi/run_onchange_provision-cloud-kiosk.sh.tmpl (nix-config).
+# The built-in panel is damaged; see step 8 of that script.
+# Remove this file and run update-grub to undo.
+GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT video=eDP-1:d"
+PAYLOAD
+  grub_changed=1
+fi
+
+if [ "$grub_changed" -eq 1 ]; then
+  ensure_root
+  $SUDO update-grub
+  note "REBOOT REQUIRED for video=eDP-1:d to take effect"
+fi
+
+# Runtime equivalent, so a fresh provision does not have to wait for a reboot to
+# get a usable panel. Forcing the connector's status to "off" is what the kernel
+# parameter does at boot; a compositor restart then re-enumerates outputs. The
+# card number is globbed rather than hardcoded — it is not stable across kernels.
+for edp_status in /sys/class/drm/card*-eDP-1/status; do
+  [ -e "$edp_status" ] || continue
+  if [ "$(cat "$edp_status" 2>/dev/null)" = "connected" ]; then
+    ensure_root
+    printf 'off\n' | $SUDO tee "$edp_status" >/dev/null
+    note "forced $(basename "$(dirname "$edp_status")") off for this boot"
+  else
+    note "unchanged  $(basename "$(dirname "$edp_status")") already off"
+  fi
+done
+
+# --- drift checks -----------------------------------------------------------
+#
+# Non-fatal. These catch the ways this silently rots into a blank screen.
+
+if ! grep -q '^User=kiosk$' "$DM_CONF" 2>/dev/null; then
+  warn "$DM_CONF has no 'User=kiosk' — autologin will not fire."
+fi
+
+if [ ! -s "$URL_FILE" ]; then
+  warn "$URL_FILE is missing or empty — the panel has nothing to open."
+fi
+
+# Same capture-then-match as the launcher, and for the same reason: `cage -h`
+# exits 1 after printing its help, and this script runs under pipefail, so
+# `cage -h | grep -q` reports cage's exit status rather than grep's. Piping it
+# here reported "no -s flag" against a cage whose help plainly lists -s.
+if command -v cage >/dev/null 2>&1; then
+  cage_help=$(cage -h 2>&1 || true)
+  case "$cage_help" in
+  *" -s"*) ;;
+  *)
+    warn "this cage build has no -s flag: VT switching is unavailable from the"
+    warn "kiosk session, so ssh is the only way back into this machine."
+    ;;
+  esac
+fi
+
+if command -v wayvnc >/dev/null 2>&1; then
+  if ss -ltnH 2>/dev/null | grep -q '127.0.0.1:5900'; then
+    note "unchanged  wayvnc listening on 127.0.0.1:5900"
+  else
+    note "wayvnc installed but not yet listening — it starts with the kiosk"
+    note "session, so this is expected until the next session start."
+  fi
+
+  # The whole point of binding to loopback. If this ever answers on the LAN
+  # address, the ssh-forward model has been bypassed and the panel is exposed.
+  lan_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  if [ -n "$lan_ip" ] && timeout 2 bash -c "</dev/tcp/$lan_ip/5900" 2>/dev/null; then
+    warn "5900 answered on $lan_ip — wayvnc is NOT confined to loopback."
+    warn "Anyone on the LAN can take over the panel. Check its bind address."
+  fi
+fi
+
+if [ ! -d "$KIOSK_STATE/firefox-profile" ]; then
+  note "the panel has not run yet — Home Assistant will show a login page on"
+  note "first boot. Sign in ONCE at the machine; the token persists in"
+  note "$KIOSK_STATE/firefox-profile across reboots."
+fi
+
+note "done — reboot to hand the display over to the kiosk session"
+note "one-off desktop:  ssh cloud && sudo loginctl terminate-user kiosk"
+note "local console:    Ctrl+Alt+F3 from the panel (cage -s)"
+note "full rollback:    sudo cp -a $DM_CONF.orig $DM_CONF && sudo reboot"
