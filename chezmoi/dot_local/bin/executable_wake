@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+#
+# Wake a host from hosts.toml with a Wake-on-LAN magic packet.
+#
+# The receiving half is configured elsewhere — modules/networking/wake-on-lan.nix
+# on the NixOS host, section 7 of run_onchange_provision-linux-host.sh.tmpl on
+# the others. This is only the sender.
+#
+# Why the MAC has to be in hosts.toml rather than looked up: the packet is
+# addressed to a host that is powered off. There is nothing to ARP, nothing to
+# resolve, and no service to ask. An address that was not written down while the
+# host was up cannot be recovered once it is down, which is the one moment you
+# want it. `--list` prints the line to paste for any host still missing one.
+#
+# Unprivileged by design. This broadcasts a UDP datagram to port 9 rather than
+# forging an ethernet frame, so it needs no root and no raw socket — hence
+# wakeonlan(1) rather than etherwake(8). The trade-off is that the packet is
+# confined to the local broadcast domain, which is where these hosts are.
+#
+# Managed by chezmoi (chezmoi/dot_local/bin/executable_wake).
+
+set -euo pipefail
+
+readonly HOSTS_TOML="${HOSTS_TOML:-$HOME/.config/ssh/hosts.toml}"
+
+readonly TAG=wake
+
+note() { printf '%s: %s\n' "$TAG" "$*"; }
+warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
+die() {
+	printf '%s: %s\n' "$TAG" "$*" >&2
+	exit 1
+}
+
+usage() {
+	cat <<'EOF'
+Usage:
+  wake <host> [--wait]   send a magic packet to <host>
+  wake --list            show every host, its MAC, and whether it is up
+  wake --help
+
+Hosts come from ~/.config/ssh/hosts.toml. A host needs a `mac` key to be
+wakeable; --list names the ones that are missing it and prints the line to add.
+
+--wait polls ssh until the host answers (up to 2 minutes) instead of returning
+as soon as the packet is away.
+EOF
+}
+
+need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required but not on PATH"; }
+
+hosts_json() {
+	[ -r "$HOSTS_TOML" ] || die "cannot read $HOSTS_TOML"
+	taplo get -f "$HOSTS_TOML" -o json 'hosts'
+}
+
+host_names() { hosts_json | jq -r 'keys[]'; }
+host_field() { hosts_json | jq -r --arg h "$1" --arg f "$2" '.[$h][$f] // empty'; }
+host_known() { host_names | grep -qx "$1"; }
+
+# hosts.toml keys are hostnames, so a key matching this machine means "self".
+is_self() { [ "$1" = "$(hostname -s 2>/dev/null || hostname)" ]; }
+
+# Cheap liveness probe. ICMP rather than ssh: a host mid-boot answers ping well
+# before sshd is listening, and for "did the packet work" that is the question.
+is_up() { ping -c 1 -W 1 "$1" >/dev/null 2>&1; }
+
+# The WIRED MAC of a host, asked of the host itself over ssh, for the --list
+# nag. Only answerable while the host is up — which is the point being made.
+#
+# Deliberately not the ARP cache. ARP returns whatever answered that IP, and on
+# a wifi-only host that is the wireless MAC: a plausible-looking address that no
+# magic packet can ever reach, since the receiving config is wired-only and a
+# powered-off card is not associated to anything. Suggesting it would send you
+# hunting through BIOS for a setting that was never the problem. aerith is
+# exactly this case, which is how the ARP version got caught.
+#
+# Wireless devices have a `wireless` directory; virtual ones (docker0, veth,
+# bridges) have no `device` symlink. What is left is a real wired NIC.
+#
+# Exit 2 means the host could not be reached over ssh at all, which must NOT
+# read as "has no wired NIC" — the same distinction remote-desktop draws for its
+# port probe. hassio makes it concrete: it refuses the remoting key, and
+# reporting that as "no wired NIC" on a Pi that is plainly on ethernet sends you
+# off to fix the wrong thing entirely. `|| true` on the remote side is what
+# makes the status meaningful: without it a host that simply has no wired NIC
+# exits non-zero too, and the two become indistinguishable again.
+wired_mac() {
+	local out rc
+	out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$1" '
+		{ for d in /sys/class/net/*/; do
+			n=${d%/}; n=${n##*/}
+			[ "$n" = lo ] && continue
+			[ -e "$d/wireless" ] && continue
+			[ -e "$d/device" ] || continue
+			cat "$d/address"
+		done; } || true
+	' 2>/dev/null)
+	rc=$?
+
+	printf '%s' "$out" | head -1
+	[ "$rc" -eq 255 ] && return 2
+	return 0
+}
+
+do_list() {
+	printf '%-12s %-18s %-18s %s\n' HOST ADDRESS MAC STATE
+	local h addr mac state
+	while IFS= read -r h; do
+		addr=$(host_field "$h" hostname)
+		mac=$(host_field "$h" mac)
+		if is_self "$h"; then
+			state="this machine"
+		elif is_up "$addr"; then
+			state=up
+		else
+			state=down
+		fi
+		printf '%-12s %-18s %-18s %s\n' "$h" "${addr:-?}" "${mac:--}" "$state"
+	done < <(host_names)
+
+	# Nag only where it can still be acted on, and only for the hosts whose
+	# receiving side this repo actually configures — the ones carrying
+	# `desktop`, i.e. our own machines with a screen that get powered off.
+	# hassio is an always-on appliance nobody wakes, and it appears twice in the
+	# inventory at one address, so nagging for it would be permanent noise.
+	# A host that is down cannot have its address read either, so there is
+	# nothing useful to say about that one here.
+	local suggestion rc
+	while IFS= read -r h; do
+		[ -n "$(host_field "$h" mac)" ] && continue
+		[ -n "$(host_field "$h" desktop)" ] || continue
+		is_self "$h" && continue
+		addr=$(host_field "$h" hostname)
+		is_up "$addr" || continue
+		printf '\n'
+		suggestion=$(wired_mac "$h") && rc=0 || rc=$?
+		if [ "$rc" -eq 2 ]; then
+			warn "$h is up but could not be reached over ssh to read its MAC."
+			warn "Check it directly to see the real error:  ssh $h true"
+		elif [ -n "$suggestion" ]; then
+			note "$h is up but has no mac — add to [hosts.$h] in hosts.toml:"
+			note "    mac = \"$suggestion\""
+		else
+			# Said plainly rather than left blank: "no wired NIC" is a permanent
+			# answer, not a missing one, and the difference decides whether
+			# there is anything to do about it.
+			warn "$h has no wired NIC — Wake-on-LAN cannot reach it, and no mac"
+			warn "belongs in hosts.toml for it. Wired-only is deliberate: a"
+			warn "powered-off wifi card is not associated to anything, so there"
+			warn "is nothing for a magic packet to arrive on."
+		fi
+	done < <(host_names)
+}
+
+do_wake() {
+	local host=$1 wait=${2:-}
+	host_known "$host" || die "unknown host '$host'. Known: $(host_names | tr '\n' ' ')"
+	! is_self "$host" || die "$host is this machine — it is already awake"
+
+	local mac addr
+	mac=$(host_field "$host" mac)
+	addr=$(host_field "$host" hostname)
+
+	if [ -z "$mac" ]; then
+		warn "$host has no mac in $HOSTS_TOML, so there is no address to send to."
+		warn "A magic packet cannot be addressed to a host that is off unless its"
+		warn "MAC was recorded while it was up."
+
+		# If it is up right now, answer the obvious next question here rather
+		# than sending the user to --list to ask it.
+		local found rc
+		if ! is_up "$addr"; then
+			warn "Boot it once by hand, then \`wake --list\` prints the line to add."
+			exit 1
+		fi
+
+		found=$(wired_mac "$host") && rc=0 || rc=$?
+		if [ "$rc" -eq 2 ]; then
+			warn "It is up now, but ssh to it failed, so its MAC could not be read."
+			warn "Check it directly to see the real error:  ssh $host true"
+		elif [ -n "$found" ]; then
+			warn "It is up now — add to [hosts.$host] in hosts.toml:"
+			warn "    mac = \"$found\""
+		else
+			warn "It is up now, and has no wired NIC: Wake-on-LAN cannot reach it"
+			warn "at all, and no mac belongs in hosts.toml for it. A wifi card that"
+			warn "is powered off is not associated to anything, so there is nothing"
+			warn "for the packet to arrive on."
+		fi
+		exit 1
+	fi
+
+	if is_up "$addr"; then
+		note "$host is already up ($addr)"
+		return 0
+	fi
+
+	# Checked here rather than up front so the diagnostics that need no sender at
+	# all — unknown host, this machine, no mac recorded — still print on a host
+	# where wakeonlan is missing.
+	need wakeonlan
+
+	# Broadcast rather than unicast-to-$addr: the host is off, so the ARP entry
+	# mapping that IP to the MAC has long since expired and a unicast packet
+	# would have nowhere to go.
+	wakeonlan "$mac" >/dev/null
+	note "magic packet sent to $host ($mac)"
+
+	if [ "$wait" != "--wait" ]; then
+		note "give it a minute; \`wake $host --wait\` polls instead."
+		return 0
+	fi
+
+	# Bounded rather than open-ended: a host whose firmware drops NIC power at
+	# S5 never answers, and an unbounded wait would just hang instead of saying
+	# so. 120s covers POST plus boot on these machines with room to spare.
+	local waited=0
+	while [ "$waited" -lt 120 ]; do
+		sleep 5
+		waited=$((waited + 5))
+		if is_up "$addr"; then
+			note "$host is up after ${waited}s"
+			return 0
+		fi
+	done
+
+	warn "$host did not come up within ${waited}s."
+	warn "If it never wakes from a full power-off but does from suspend, the"
+	warn "firmware is cutting NIC power — look for \"Wake on PCIe/LAN\" and"
+	warn "ErP/Deep Sleep in its BIOS setup, which no host config can override."
+	exit 1
+}
+
+main() {
+	need taplo
+	need jq
+
+	case "${1:---list}" in
+	-h | --help)
+		usage
+		;;
+	-l | --list)
+		do_list
+		;;
+	-*)
+		usage >&2
+		exit 1
+		;;
+	*)
+		do_wake "$1" "${2:-}"
+		;;
+	esac
+}
+
+main "$@"

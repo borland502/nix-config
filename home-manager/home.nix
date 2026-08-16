@@ -16,6 +16,12 @@
     pciutils
     usbutils
     dbus
+
+    # Sender half of Wake-on-LAN; the `wake` helper shells out to it. Linux-only
+    # in nixpkgs despite being a plain perl script, so it stays in this list.
+    # Unprivileged: it broadcasts UDP/9 rather than forging an ethernet frame,
+    # which is why this and not etherwake.
+    wakeonlan
   ];
 
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;

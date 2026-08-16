@@ -7,6 +7,7 @@
     ./hardware-configuration.nix
     ../../modules/audio/pulseaudio.nix
     ../../modules/desktop/krdp.nix
+    ../../modules/networking/wake-on-lan.nix
     ../../modules/services/sshd.nix
   ];
 
