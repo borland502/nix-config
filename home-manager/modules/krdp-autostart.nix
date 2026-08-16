@@ -5,10 +5,12 @@
 # touched it. A fresh Plasma host comes up with remote desktop already enabled;
 # a host where it has been deliberately turned off stays off.
 #
-# The whole module no-ops unless krdpserver is on PATH, so it is inert on the
+# The whole module no-ops unless krdpserver is installed, so it is inert on the
 # Linux hosts that do not run Plasma (KRdp needs KWin's fake-input and
 # screencast Wayland protocols — it does not work on other compositors, and
-# not on X11 at all).
+# not on X11 at all). "Installed" is deliberately checked against the real
+# install locations rather than the activation PATH; see krdpSearchPath below
+# for why the obvious version of that check was wrong on every host.
 #
 # What makes this declarable at all is SystemUserEnabled: KRdp 6.7+ can
 # authenticate against the system account through PAM (service "login", present
@@ -30,6 +32,31 @@
   # the panel and this module agree on one switch rather than racing two.
   unit = "app-org.kde.krdpserver.service";
 
+  # Where to look for krdpserver, and why this is not just "$PATH".
+  #
+  # Home Manager runs activation under a hermetic PATH -- bash, coreutils,
+  # diffutils, findutils, gettext, gnugrep, gnused, jq, ncurses, and the nix-env
+  # directory. /usr/bin is NOT on it, and neither is /run/current-system/sw/bin.
+  #
+  # krdp is never in the *user* profile on any host here: NixOS installs it via
+  # environment.systemPackages in modules/desktop/krdp.nix, and every other
+  # Linux host gets the distro package from
+  # chezmoi/run_onchange_provision-linux-host.sh.tmpl. So a bare
+  # `command -v krdpserver` found nothing anywhere, and this whole module
+  # silently no-opped on every host it was written for -- verified on both tifa
+  # (CachyOS) and aerith (neon), where it left no krdpserverrc and no
+  # certificate at all.
+  #
+  # Searching the install locations explicitly is what makes the guard mean
+  # "krdp is installed" rather than "krdp happens to be in Home Manager's
+  # activation PATH", which it never is.
+  krdpSearchPath = lib.concatStringsSep ":" [
+    "${config.home.profileDirectory}/bin"
+    "/run/current-system/sw/bin"
+    "/usr/local/bin"
+    "/usr/bin"
+  ];
+
   coreutils = "${pkgs.coreutils}/bin";
   gnugrep = "${pkgs.gnugrep}/bin";
   gawk = "${pkgs.gawk}/bin";
@@ -39,7 +66,7 @@ in {
   # activation and silently skip every step ordered after this one. The
   # applicability check is therefore a wrapping conditional, not a guard clause.
   home.activation.seedKrdp = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    if PATH="${config.home.profileDirectory}/bin:$PATH" command -v krdpserver >/dev/null 2>&1; then
+    if PATH="${krdpSearchPath}:$PATH" command -v krdpserver >/dev/null 2>&1; then
 
       # TLS is mandatory for RDP; krdpserver refuses to start without a cert.
       # Self-signed is what the panel's own "generate" button produces too, so
