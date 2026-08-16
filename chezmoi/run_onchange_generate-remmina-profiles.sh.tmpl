@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+#
+# Generate Remmina connection profiles from hosts.toml, so every host with a
+# desktop is a double-click in the Remmina GUI and not only a `remote-desktop`
+# invocation in a terminal.
+#
+# Why the GUI needs its own copy at all: Remmina's ssh tunnel is libssh, not
+# OpenSSH, and it does not read ~/.ssh/config. The host aliases home-manager
+# renders there are invisible to it, so a profile has to carry the address,
+# login and key itself. That is exactly the inventory hosts.toml already holds,
+# which is what this reads.
+#
+# The tunnel is Remmina's own, not a wrapper around the remote-desktop script.
+# Remmina forwards the desktop port over ssh natively (ssh_tunnel_*), so a GUI
+# connection lands in the same place as the CLI one — nothing bound to the LAN,
+# ssh host-key verification and the remoting key as the only front door — while
+# still being one click. ssh_tunnel_loopback is the load-bearing part: without
+# it the remote sshd forwards to the host's *own LAN address*, which is the
+# address ufw is there to refuse. With it the forward terminates at 127.0.0.1
+# on the far side, which is the same thing `ssh -L 3389:localhost:3389` does.
+#
+# Protocol comes from the `desktop` key in hosts.toml rather than from probing:
+# these files are read by Remmina long before a connection is attempted, so
+# there is nothing to ask at the time the answer is needed. remote-desktop still
+# detects it live and ignores the key.
+#
+# Hand edits are not lost wholesale. Only the keys this owns (identity: name,
+# group, protocol, server, login, tunnel) are rewritten; anything else Remmina
+# or the user has put in the profile — resolution, scaling, audio, window
+# geometry, Remmina's own last_success bookkeeping — is read back and kept.
+#
+# run_onchange_ is keyed on this script's rendered hash, and hosts.toml is
+# rendered into it below, so this re-runs when the inventory changes and stays
+# quiet the rest of the time. Deleting a host's `desktop` key (or the host)
+# removes its profile on the next run.
+
+{{ if ne .chezmoi.os "linux" -}}
+exit 0
+{{ end -}}
+
+set -euo pipefail
+
+readonly TAG=remmina-profiles
+
+note() { printf '%s: %s\n' "$TAG" "$*"; }
+warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
+
+readonly DEST="${XDG_DATA_HOME:-$HOME/.local/share}/remmina"
+
+# Filename prefix marks a profile as ours. Remmina keys display off the `name`
+# field and does not care about filenames, so this is free to be a marker — and
+# it has to be one, because stale-profile cleanup below must never reach a
+# profile the user created by hand in the GUI.
+readonly PREFIX=hosts-toml-
+
+# Keep in step with modules/desktop/krdp.nix (3389), the wayvnc block in
+# run_onchange_provision-cloud-kiosk.sh.tmpl (5900), and remote-desktop.
+readonly RDP_PORT=3389
+readonly VNC_PORT=5900
+
+# The keys this script owns. Everything else found in an existing profile is
+# preserved verbatim; see the header.
+readonly MANAGED='name|group|protocol|server|username|ssh_tunnel_enabled|ssh_tunnel_loopback|ssh_tunnel_server|ssh_tunnel_username|ssh_tunnel_auth|ssh_tunnel_privatekey|ssh_tunnel_stricthostkeycheck'
+
+# Remmina's colordepth for RDP is not a colour setting, it is the *graphics
+# pipeline* selector. 66 is "GFX AVC420 (32 bpp)"; 99 is "GFX AVC444".
+#
+# It has to be pinned at all because KRdp speaks only the RDPGFX pipeline with
+# H.264 — it implements no legacy bitmap or RemoteFX path. Left at Remmina's
+# automatic negotiation the two can settle on something KRdp never sends, and
+# the session then opens, authenticates and displays nothing, with no error on
+# either side because at the protocol level nothing went wrong.
+#
+# 420 rather than 444 by measurement, not preference. AVC444 carries chroma at
+# full resolution by encoding a SECOND H.264 stream for the auxiliary plane, so
+# it roughly doubles both the encode load on the host's iGPU and the decode load
+# on the client. The only thing it buys is sharper coloured text, and the only
+# thing it costs is latency — bandwidth was never the constraint here (aerith
+# measured 313 Mbit/s of real throughput through the ssh tunnel). Tried both on
+# aerith over wifi: 444 was reported as noticeably less snappy, 420 is the
+# default. Switch this to 99 on a host where crisp coloured text matters more
+# than responsiveness.
+readonly RDP_COLORDEPTH=66
+
+# Rendered from chezmoi/dot_config/ssh/hosts.toml at apply time: one
+# tab-separated record per host that declares a desktop.
+#
+# `index` rather than `$h.key` throughout — chezmoi renders with
+# missingkey=error, so a plain field lookup is a hard failure on the first host
+# that omits an optional key (port, identityfile) or omits desktop entirely,
+# which is most of them.
+#
+# This machine is skipped, the same way remote-desktop refuses to connect to
+# itself: hosts.toml table names are hostnames, so a matching name is the local
+# desktop, and a profile for it would only ever open a window onto the session
+# it was launched from.
+hosts=(
+{{- range $name, $h := (fromToml (include "dot_config/ssh/hosts.toml")).hosts }}
+{{- if and (index $h "desktop") (ne $name $.chezmoi.hostname) }}
+	"{{ $name }}	{{ index $h "desktop" }}	{{ index $h "hostname" }}	{{ index $h "user" | default "" }}	{{ index $h "port" | default 22 }}	{{ index $h "identityfile" | default "" }}"
+{{- end }}
+{{- end }}
+)
+
+mkdir -p "$DEST"
+
+declare -A wanted=()
+changed=0
+
+for record in ${hosts[@]+"${hosts[@]}"}; do
+	IFS=$'\t' read -r name proto addr user sshport keyfile <<<"$record"
+
+	case "$proto" in
+	rdp) plugin=RDP dport=$RDP_PORT ;;
+	vnc) plugin=VNC dport=$VNC_PORT ;;
+	*)
+		warn "$name: unknown desktop protocol '$proto' (expected rdp or vnc) — no profile written"
+		continue
+		;;
+	esac
+
+	# colordepth is owned on RDP only. There it selects the graphics pipeline and
+	# the connection does not render without it; on VNC it really is a colour
+	# depth, which is the user's to choose and stays preserved like any other
+	# unmanaged key. Owning it unconditionally would strip that; owning it
+	# nowhere would leave a stale RDP value beside the emitted one, and a
+	# duplicated key in a GKeyFile resolves unpredictably.
+	managed=$MANAGED
+	if [ "$plugin" = RDP ]; then
+		managed="$MANAGED|colordepth"
+	fi
+
+	# hosts.toml writes the key the way ssh_config does; libssh does not expand
+	# a leading ~, so it has to be a real path by the time Remmina reads it.
+	keyfile=${keyfile/#\~/$HOME}
+
+	file="$DEST/$PREFIX$name.remmina"
+	wanted["$file"]=1
+
+	# Written beside the target and renamed, so an interrupted run cannot leave
+	# Remmina with a half-written profile. The suffix keeps the temp file out of
+	# Remmina's own *.remmina glob while it exists.
+	tmp=$(mktemp "$file.XXXXXX")
+
+	{
+		printf '[remmina]\n'
+		printf 'name=%s (%s over SSH)\n' "$name" "$plugin"
+		printf 'group=hosts.toml\n'
+		printf 'protocol=%s\n' "$plugin"
+		printf 'server=%s:%s\n' "$addr" "$dport"
+
+		# KRdp with SystemUserEnabled authenticates the system account through
+		# PAM, so the ssh login is also the right RDP login to offer. wayvnc has
+		# no credential at all, so a VNC profile has no username to carry.
+		if [ "$plugin" = RDP ] && [ -n "$user" ]; then
+			printf 'username=%s\n' "$user"
+		fi
+
+		if [ "$plugin" = RDP ]; then
+			printf 'colordepth=%s\n' "$RDP_COLORDEPTH"
+		fi
+
+		printf 'ssh_tunnel_enabled=1\n'
+		printf 'ssh_tunnel_loopback=1\n'
+		printf 'ssh_tunnel_server=%s:%s\n' "$addr" "$sshport"
+		if [ -n "$user" ]; then
+			printf 'ssh_tunnel_username=%s\n' "$user"
+		fi
+
+		# 1 = "SSH identity file", 3 = "Public key (automatic)". A host with no
+		# identityfile in hosts.toml has no one key to name, so let libssh try
+		# the defaults rather than point it at a path that may not exist.
+		if [ -n "$keyfile" ]; then
+			printf 'ssh_tunnel_auth=1\n'
+			printf 'ssh_tunnel_privatekey=%s\n' "$keyfile"
+		else
+			printf 'ssh_tunnel_auth=3\n'
+		fi
+
+		# Host-key verification is the entire security argument for tunnelling
+		# these ports instead of opening them. Off (Remmina's default) means
+		# trust-on-first-use with no prompt, which would accept a changed key
+		# silently — the one failure this setup exists to catch.
+		printf 'ssh_tunnel_stricthostkeycheck=1\n'
+
+		# Everything the user or Remmina added: display, quality, geometry,
+		# last_success. Blank lines and the section header are dropped so the
+		# output is canonical and the comparison below stays stable.
+		if [ -f "$file" ]; then
+			grep -vE "^[[:space:]]*$|^\[remmina\]$|^($managed)=" "$file" || true
+		fi
+	} >"$tmp"
+
+	if cmp -s "$tmp" "$file" 2>/dev/null; then
+		rm -f "$tmp"
+		continue
+	fi
+
+	chmod 600 "$tmp"
+	mv "$tmp" "$file"
+	changed=1
+	note "wrote $name — $plugin to $addr:$dport over ssh to $addr:$sshport"
+done
+
+# Only ever prefixed files, so a profile created in the GUI is never touched.
+shopt -s nullglob
+for file in "$DEST/$PREFIX"*.remmina; do
+	[ -n "${wanted[$file]:-}" ] && continue
+	rm -f "$file"
+	changed=1
+	note "removed $(basename "$file") — hosts.toml no longer generates it here"
+done
+
+if [ "$changed" -eq 0 ]; then
+	note "unchanged  ${#wanted[@]} profile(s) in $DEST"
+fi
+
+exit 0

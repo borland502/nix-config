@@ -13,12 +13,18 @@
 # the whole dance: detect what the host serves, forward it on a free local port,
 # launch remmina at it, and tear the tunnel down afterwards.
 #
-# Protocol is DETECTED, not configured. hosts.toml cannot carry the answer:
-# home-manager/common.nix feeds that file straight into programs.ssh.settings,
-# so any key that is not an ssh option breaks flake evaluation. A static table
-# in here would be a second inventory to forget to update. Asking the host what
-# it is listening on has neither problem and picks up a newly-provisioned host
-# for free.
+# Protocol is DETECTED here, not read from hosts.toml. That file does carry a
+# `desktop` key now, but it exists for the Remmina GUI profiles, which are
+# written at chezmoi-apply time and have no host in front of them to ask. This
+# script does, and a live answer beats a recorded one both ways round: a newly
+# provisioned host works before anyone updates the inventory, and a host that
+# has changed what it serves is never reported wrong.
+#
+# The same connections are also a double-click:
+# chezmoi/run_onchange_generate-remmina-profiles.sh renders one Remmina profile
+# per desktop host from the same hosts.toml, tunnelled the same way over
+# Remmina's own ssh support. This stays the terminal path, and the only one
+# that discovers what a host is really serving.
 #
 # Managed by chezmoi (chezmoi/dot_local/bin/executable_remote-desktop).
 
