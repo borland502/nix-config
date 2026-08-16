@@ -684,17 +684,39 @@ fi
 
 # --- 6. enable ufw ----------------------------------------------------------
 
-if systemctl is-active --quiet ufw 2>/dev/null; then
-  note "unchanged  ufw (active)"
+# Whether ufw is ENFORCING, which is not what `systemctl is-active ufw` answers.
+#
+# The unit reports active whenever it has been started, including when ufw's own
+# ENABLED flag is "no" -- the unit's job is to restore saved state at boot, and
+# restoring "off" is a successful run. `ufw enable` flips ENABLED in
+# /etc/ufw/ufw.conf, and that flag is what decides whether rules are loaded.
+#
+# Checking the unit therefore reported a working firewall on hosts that had
+# none: both neon hosts (cloud, aerith) sat at ENABLED=no with the unit active
+# and this script printing "unchanged ufw (active)" on every run. That matters
+# more here than a normal bug, because the closed port IS the security model --
+# krdpserver binds 0.0.0.0:3389 with no bind-address setting, so an unenforced
+# ufw silently publishes a full desktop-takeover channel to the LAN. Confirmed
+# on aerith: 3389 answered from two other hosts until ufw was actually enabled.
+#
+# /etc/ufw/ufw.conf is world-readable (0644), so this stays a root-free check
+# and an already-provisioned host still never prompts for sudo.
+ufw_enforcing() {
+  grep -qE '^ENABLED=yes[[:space:]]*$' /etc/ufw/ufw.conf 2>/dev/null
+}
+
+if ufw_enforcing; then
+  note "unchanged  ufw (enforcing)"
 else
   if ensure_root; then
     # --force skips the "this may disrupt existing ssh connections" prompt,
     # which the rules above have already accounted for.
     $SUDO ufw --force enable >/dev/null
     $SUDO systemctl enable ufw >/dev/null 2>&1 || true
-    note "ENABLED    ufw"
+    note "ENABLED    ufw (was installed but not enforcing)"
   else
-    warn "ufw installed but not enabled"
+    warn "ufw is NOT enforcing and could not be enabled — service ports are"
+    warn "exposed to the LAN, which this repo's remoting model assumes they are not"
   fi
 fi
 
