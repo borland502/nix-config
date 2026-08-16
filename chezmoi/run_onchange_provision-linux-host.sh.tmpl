@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Provision the host-level bits that nix cannot own on non-NixOS Linux boxes:
-# distro packages that must match the running desktop's ABI, and the firewall.
+# distro packages that must match the running desktop's ABI, the firewall, and
+# Wake-on-LAN.
 #
 # Why packages live here at all: a few are Qt/KF6 *plugins* dlopen'd by the
 # distro's own Plasma binaries. Those cannot come from nixpkgs — nixpkgs and the
@@ -124,6 +125,43 @@ FIREWALL_TCP=()
 # Firewalls that must not run alongside ufw. Only units that actually exist on
 # the host are touched.
 CONFLICTING_FIREWALLS=(firewalld nftables iptables ip6tables)
+
+# Hosts reached over WIFI rather than ethernet, by hostname.
+#
+# Opt-in per host, and deliberately not derived from "is a laptop": tifa, cloud
+# and aerith all report a chassis with a battery, so that test would sweep in
+# the cloud kiosk — a wall panel whose entire job is to stay awake — and put it
+# to sleep. Only aerith actually needs this: it has no wired NIC at all, so
+# neither the wake path in section 7 nor a wired link is available to it.
+#
+# Membership carries THREE changes:
+#
+#   * WoWLAN is armed on the wifi connection.
+#   * The power button suspends instead of shutting down, on AC.
+#   * Wifi power-save is turned off.
+#
+# The first two are inseparable: WoWLAN works only from suspend, where the card
+# stays powered and associated to the AP; from a full power-off it is dead and
+# associated to nothing. A host that reaches "off" can never use the wake path
+# it was just given.
+#
+# The third is about interactive latency, and it is the difference between a
+# usable remote desktop and an unusable one. Measured on aerith with power-save
+# on, on an otherwise excellent link (5 GHz, -42 dBm, 1.9 Gb/s negotiated,
+# 313 Mbit/s of real throughput through the ssh tunnel):
+#
+#     idle:      min 1.9ms   avg 53-60ms   jitter 30-43ms
+#     saturated: min 3.1ms   avg 25.6ms
+#
+# Average latency HALVING under saturation is the tell — load normally raises
+# it. The radio is parking between beacons and only draining the queue when
+# traffic forces it awake, so every keystroke and mouse move in an RDP session
+# waits on a beacon. Bandwidth was never the problem; the 28x gap between the
+# 1.9ms floor and the 53ms average was.
+#
+# The cost is battery, which is why this is scoped to hosts that are remoted
+# into and expected to sit on AC rather than applied to every laptop.
+WIFI_REMOTE_HOSTS=(aerith)
 
 note() { printf '%s: %s\n' "$TAG" "$*"; }
 warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
@@ -488,6 +526,48 @@ else
   note "skipped    steam 32-bit runtime (steam not installed here)"
 fi
 
+# --- 1d. KRdp's H.264 encoder (Intel, apt hosts) ----------------------------
+#
+# KRdp can only send video as H.264 over RDPGFX — it implements no legacy bitmap
+# or RemoteFX path — so with no working H.264 *encoder* it accepts the
+# connection, authenticates it, and then transmits nothing. The client shows a
+# blank white surface and neither side logs an error, because at the protocol
+# level nothing failed. That is the entire symptom, and it is worth writing down
+# because it looks like a network or a permissions problem and is neither.
+#
+# Ubuntu/neon's default intel-media-va-driver is the FREE build, which has the
+# hardware encode entrypoints compiled out. The driver therefore loads happily
+# and then reports no encoder, which is worse than being absent: KRdp's
+# openh264 CPU fallback is for when no VA driver can be opened at all, so a
+# driver that opens and offers nothing lands in neither path. Confirmed on
+# aerith, whose journal repeats
+#     VAAPI: entrypoint 6 of profile 6 is not supported by ... renderD128
+# for every H.264 profile it probes (entrypoint 6 is VAEntrypointEncSlice).
+#
+# The non-free build carries the same version with encode enabled and Conflicts/
+# Replaces the free one, so apt swaps them in place.
+#
+# Intel-only and apt-only by construction: this is a packaging split specific to
+# Debian/Ubuntu's handling of Intel's media driver. AMD and NVIDIA hosts encode
+# through entirely different stacks and must not be touched.
+
+if [ "$PM" = apt ] && [ "$PLASMA_PRESENT" = "yes" ] &&
+  grep -qx 0x8086 /sys/class/drm/card*/device/vendor 2>/dev/null; then
+  if pkg_installed intel-media-va-driver-non-free; then
+    note "unchanged  intel-media-va-driver-non-free (KRdp H.264 encode)"
+  elif ! apt-cache policy intel-media-va-driver-non-free 2>/dev/null | grep -q 'Candidate: [0-9]'; then
+    # multiverse is where this lives; without it there is nothing to install
+    # and saying so beats a bare apt failure.
+    warn "intel-media-va-driver-non-free is unavailable — enable the multiverse"
+    warn "component, or KRdp will connect and show a blank screen (no H.264 encoder)"
+  elif ensure_root; then
+    DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y intel-media-va-driver-non-free
+    note "INSTALLED  intel-media-va-driver-non-free — restart krdpserver or re-login"
+  else
+    warn "intel-media-va-driver-non-free not installed — KRdp will show a blank screen"
+  fi
+fi
+
 # --- 2. repo user ------------------------------------------------------------
 #
 # Created only when missing, and never modified if it already exists — this must
@@ -791,6 +871,254 @@ else
   else
     warn "ufw is NOT enforcing and could not be enabled — service ports are"
     warn "exposed to the LAN, which this repo's remoting model assumes they are not"
+  fi
+fi
+
+# --- 7. wake-on-lan ---------------------------------------------------------
+#
+# Arm the wired NIC to power the machine back on from a magic packet. Same
+# policy and same shape as modules/networking/wake-on-lan.nix on the NixOS host
+# — keep the two in step.
+#
+# A NetworkManager connection default rather than a per-interface ethtool unit:
+# it matches on device *type*, so it covers whatever wired NIC is present
+# without an interface name written down anywhere, and NetworkManager re-applies
+# it on every activation, which is what re-arms it at each boot. Nothing clears
+# it at poweroff (connection.down-on-poweroff is off by default), so the flag is
+# still set in the NIC at S5, which is the point.
+#
+# Wired only. WoWLAN is a separate feature with its own flags, and a sleeping
+# card that has dropped its association has nothing to receive the packet on.
+#
+# No firewall rule is needed and none is added: while the host is off the packet
+# is consumed by the NIC and the OS never sees it, and while the host is up
+# there is nothing to wake. ufw dropping UDP/9 is the correct outcome.
+#
+# Firmware still has the last word. A board with "Wake on PCIe/LAN" disabled, or
+# ErP/Deep Sleep enabled, cuts NIC power at S5 and nothing here survives it. A
+# host that wakes from suspend but not from a full power-off has that setting to
+# fix, not this script.
+
+readonly WOL_CONF=/etc/NetworkManager/conf.d/wake-on-lan.conf
+
+wol_conf() {
+  cat <<'EOF'
+# Managed by chezmoi (run_onchange_provision-linux-host.sh.tmpl) — edits are
+# overwritten. NixOS equivalent: modules/networking/wake-on-lan.nix.
+[connection-wake-on-lan]
+match-device=type:ethernet
+ethernet.wake-on-lan=magic
+EOF
+}
+
+# Root-free: conf.d files are 0644, and nmcli reads device status without
+# privilege. ethtool's Wake-on line does need root, so it is only consulted on
+# the mutating path below — an already-provisioned host must never prompt.
+wired_devices() {
+  nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2 == "ethernet" { print $1 }'
+}
+
+if ! command -v nmcli >/dev/null 2>&1; then
+  warn "NetworkManager not present — wake-on-lan not configured"
+elif wol_conf | cmp -s - "$WOL_CONF" 2>/dev/null; then
+  note "unchanged  wake-on-lan (NetworkManager default, wired)"
+elif ensure_root; then
+  wol_conf | $SUDO tee "$WOL_CONF" >/dev/null
+  $SUDO chmod 644 "$WOL_CONF"
+
+  # Re-reads NetworkManager.conf without touching any connection. Deliberately
+  # NOT `nmcli con up`: that would bounce the link, and this script is run over
+  # ssh on the headless hosts, where dropping the link severs the session
+  # running it. The new default therefore takes effect at the next activation,
+  # and ethtool below covers the gap until then.
+  $SUDO nmcli general reload conf 2>/dev/null || true
+
+  note "WROTE      $WOL_CONF (wired NICs wake on magic packet)"
+
+  for dev in $(wired_devices); do
+    supports=$($SUDO ethtool "$dev" 2>/dev/null | sed -n 's/^[[:space:]]*Supports Wake-on:[[:space:]]*//p')
+    case "$supports" in
+    *g*)
+      # Applied live so the host is wakeable now rather than after its next
+      # reboot — which, for a host you are configuring precisely because you
+      # keep having to walk over to it, is the whole difference.
+      if $SUDO ethtool -s "$dev" wol g 2>/dev/null; then
+        note "ARMED      $dev wol g"
+      else
+        warn "$dev: ethtool could not set wol g"
+      fi
+      ;;
+    "")
+      warn "$dev: could not read Wake-on support from ethtool"
+      ;;
+    *)
+      # pumbg is the usual full set; a NIC without 'g' cannot do magic packets
+      # at all and no amount of configuration will wake it.
+      warn "$dev: NIC does not support magic-packet wake (Supports Wake-on: $supports)"
+      ;;
+    esac
+  done
+else
+  warn "wake-on-lan not configured — this host will not answer a magic packet"
+fi
+
+# A magic packet is addressed to a MAC and is sent to a host that is off, so
+# nothing can discover the address at send time. It has to be recorded while the
+# host is up or it cannot be recorded at all — which is exactly how aerith ended
+# up unwakeable. Only nags for a host already in the inventory, and stops as
+# soon as the line is added.
+wol_toml="/home/$REPO_USER/.config/ssh/hosts.toml"
+if [ -r "$wol_toml" ] && grep -q "^\[hosts\.$(hostname -s)\]" "$wol_toml" 2>/dev/null; then
+  for dev in $(wired_devices); do
+    mac=$(cat "/sys/class/net/$dev/address" 2>/dev/null) || continue
+    [ -n "$mac" ] || continue
+    if ! grep -qi "$mac" "$wol_toml"; then
+      note "hosts.toml has no mac for this host — add to [hosts.$(hostname -s)]:"
+      note "    mac = \"$mac\"          # $dev"
+    fi
+  done
+fi
+
+# --- 8. wifi remoting policy (opt-in hosts only) ----------------------------
+#
+# For a host with no wired NIC, section 7 can never apply. WoWLAN is the only
+# remaining wake path, and it carries a hard constraint that shapes this whole
+# section: it works from SUSPEND ONLY. A suspended card stays powered and stays
+# associated to the AP, so it can still see a frame addressed to it. A card in
+# S5 is unpowered and associated to nothing — there is no wireless equivalent of
+# the wired NIC's standby listening.
+#
+# Three settings, none of which is much use alone: arm WoWLAN, make the power
+# button suspend rather than shut down on AC, and turn wifi power-save off so
+# the session is actually usable once connected. See WIFI_REMOTE_HOSTS at the
+# top for the measurements behind the last one and why membership is per-host.
+
+if printf '%s\n' "${WIFI_REMOTE_HOSTS[@]}" | grep -qx "$(hostname -s)"; then
+  WOWLAN_CONF=/etc/NetworkManager/conf.d/wake-on-wlan.conf
+
+  wowlan_conf() {
+    cat <<'EOF'
+# Managed by chezmoi (run_onchange_provision-linux-host.sh.tmpl) — edits are
+# overwritten. Wireless sibling of wake-on-lan.conf; works from suspend only.
+[connection-wake-on-wlan]
+match-device=type:wifi
+wifi.wake-on-wlan=magic
+EOF
+  }
+
+  if ! command -v nmcli >/dev/null 2>&1; then
+    warn "NetworkManager not present — wake-on-wlan not configured"
+  elif wowlan_conf | cmp -s - "$WOWLAN_CONF" 2>/dev/null; then
+    note "unchanged  wake-on-wlan (NetworkManager default, wifi)"
+  elif ensure_root; then
+    wowlan_conf | $SUDO tee "$WOWLAN_CONF" >/dev/null
+    $SUDO chmod 644 "$WOWLAN_CONF"
+    $SUDO nmcli general reload conf 2>/dev/null || true
+    note "WROTE      $WOWLAN_CONF (wifi wakes on magic packet, from suspend)"
+
+    # Capability check, not an assumption. iwlwifi advertises
+    # WIPHY_WOWLAN_MAGIC_PKT on most cards but it is firmware-dependent, and a
+    # card that cannot do it would otherwise fail silently at the one moment it
+    # matters — with the host asleep and unreachable, which is the worst
+    # possible place to find out.
+    if command -v iw >/dev/null 2>&1; then
+      if iw phy0 info 2>/dev/null | grep -qi "magic-packet"; then
+        note "SUPPORTED  phy0 advertises WoWLAN magic-packet"
+      else
+        warn "phy0 does NOT advertise WoWLAN magic-packet — this host cannot be"
+        warn "woken over wifi regardless of the setting just written"
+      fi
+    else
+      note "install iw to verify:  iw phy0 info | grep -i magic-packet"
+    fi
+  else
+    warn "wake-on-wlan not configured — this host cannot be woken over wifi"
+  fi
+
+  # Wifi power-save off — the interactive-latency fix. See WIFI_REMOTE_HOSTS.
+  #
+  # The filename must sort AFTER the distro's own
+  # /etc/NetworkManager/conf.d/default-wifi-powersave-on.conf, which sets
+  # wifi.powersave = 3 in the same [connection] section: NM reads conf.d in
+  # alphabetical order and later files win for the same key. A numeric prefix
+  # would be WRONG here — digits sort before letters, so 99-*.conf would lose
+  # to default-*.conf. Hence "zz-".
+  #
+  # 2 is "disable", 3 is "enable" in NM's powersave enum.
+  WIFI_PS_CONF=/etc/NetworkManager/conf.d/zz-wifi-powersave-off.conf
+
+  wifi_ps_conf() {
+    cat <<'EOF'
+# Managed by chezmoi (run_onchange_provision-linux-host.sh.tmpl) — edits are
+# overwritten. Overrides default-wifi-powersave-on.conf; must sort after it.
+[connection]
+wifi.powersave = 2
+EOF
+  }
+
+  if ! command -v nmcli >/dev/null 2>&1; then
+    : # already warned above
+  elif wifi_ps_conf | cmp -s - "$WIFI_PS_CONF" 2>/dev/null; then
+    note "unchanged  wifi power-save disabled"
+  elif ensure_root; then
+    wifi_ps_conf | $SUDO tee "$WIFI_PS_CONF" >/dev/null
+    $SUDO chmod 644 "$WIFI_PS_CONF"
+    $SUDO nmcli general reload conf 2>/dev/null || true
+    note "WROTE      $WIFI_PS_CONF"
+
+    # Applied live as well: NM sets powersave when it ACTIVATES a connection, so
+    # a config reload alone leaves the current session exactly as slow as it was
+    # — and bouncing the connection to fix that would sever the ssh running this.
+    for wdev in $(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2 == "wifi" { print $1 }'); do
+      if command -v iw >/dev/null 2>&1; then
+        $SUDO iw dev "$wdev" set power_save off 2>/dev/null || true
+      elif command -v iwconfig >/dev/null 2>&1; then
+        $SUDO iwconfig "$wdev" power off 2>/dev/null || true
+      fi
+
+      # Verified, not assumed. The conf.d ordering above is the fragile part of
+      # this — a rename of the distro file, or NM changing precedence, would
+      # silently restore the 28x latency penalty with nothing to show for it.
+      if iwconfig "$wdev" 2>/dev/null | grep -qi "power management:off"; then
+        note "OFF        $wdev power-save (latency fix applied)"
+      else
+        warn "$wdev power-save is still ON — check that $WIFI_PS_CONF still sorts"
+        warn "after default-wifi-powersave-on.conf in /etc/NetworkManager/conf.d"
+      fi
+    done
+  else
+    warn "wifi power-save left on — remote desktop latency will stay poor"
+  fi
+
+  # Power-button policy. PowerDevil, not logind: on a Plasma session PowerDevil
+  # holds a *block* inhibitor on handle-power-key and handle-lid-switch, so
+  # logind's HandlePowerKey is overridden and editing it would be a silent
+  # no-op. Verified on aerith with `systemd-inhibit --list`.
+  #
+  # kwriteconfig6 rather than writing powerdevilrc directly, so every other
+  # profile and key in that file survives — it merges one key in place. Runs as
+  # the user; this is per-user config and needs no root.
+  #
+  # 1 is "sleep to RAM" and 8 is "shut down" in PowerDevil's SuspendType enum
+  # (aerith was at 8 on battery, unset on AC). Only [AC] is touched: on battery
+  # shutting down is the right answer, and a WoWLAN card held powered by a
+  # suspend nobody will wake it from is pure drain.
+  if command -v kwriteconfig6 >/dev/null 2>&1; then
+    pd_now=$(kreadconfig6 --file powerdevilrc --group AC --group SuspendAndShutdown --key PowerButtonAction 2>/dev/null || true)
+    if [ "$pd_now" = "1" ]; then
+      note "unchanged  power button sleeps on AC"
+    else
+      kwriteconfig6 --file powerdevilrc --group AC --group SuspendAndShutdown --key PowerButtonAction 1
+      note "SET        power button sleeps on AC (was: ${pd_now:-unset})"
+
+      # PowerDevil reloads on this call; without it the change waits for the
+      # next login.
+      qdbus org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement \
+        org.kde.Solid.PowerManagement.refreshStatus >/dev/null 2>&1 || true
+    fi
+  else
+    warn "kwriteconfig6 missing — power-button policy unchanged, so this host may"
+    warn "still be shut down rather than suspended and become unwakeable"
   fi
 fi
 
