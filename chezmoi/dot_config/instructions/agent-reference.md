@@ -197,6 +197,18 @@ the nix-config repo.
   `--classify`), `--date YYYY-MM-DD`, `--session ID`, `--limit N`.
   De-duplicates the `~/.cache/claude` symlink. Prefer this over hand-rolled
   `rg` sweeps of the log dir.
+- **`remote-desktop [host] [rdp|vnc]`** — Open a remote desktop to a host from
+  `~/.config/ssh/hosts.toml`, tunnelled over ssh. No desktop port is ever open
+  to the LAN, so this forwards one to a free local port, launches remmina at
+  it, and closes the tunnel on Ctrl+C. Protocol is **detected**, not
+  configured: `hosts.toml` is fed straight into `programs.ssh.settings`, so a
+  non-ssh key there breaks flake eval, and a static table here would be a
+  second inventory to forget. `--list` shows every host with what it serves,
+  distinguishing "serves nothing" from "unreachable over ssh" — a changed host
+  key must not read as a dead remoting service. Prefers RDP when a host offers
+  both, because KRdp authenticates against the system account through PAM
+  while wayvnc on the cloud kiosk has no credential at all. Deps: `remmina`,
+  `taplo`, `jq`, `ss`.
 - **`sync-to-gdrive`** — Back up `~/.config` and `~/.local` to Google Drive
   (`gdrive:42245/dotfiles`) with rclone, on a daily scheduled agent
   (`home-manager/modules/gdrive-sync.nix`). Secrets (sops, sops-nix's decrypted

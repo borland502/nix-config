@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+#
+# Open a remote desktop to a host from hosts.toml, over the ssh-only front door.
+#
+# The remoting policy in this repo is that no desktop port is ever open to the
+# LAN: KRdp binds 0.0.0.0:3389 and wayvnc binds 127.0.0.1:5900, and both are
+# reached by forwarding over ssh instead:
+#
+#     ssh -N -L 3389:localhost:3389 tifa    # then point a client at localhost
+#
+# That is three commands and two windows every time, which is exactly the kind
+# of friction that ends with someone opening the port "just for now". This wraps
+# the whole dance: detect what the host serves, forward it on a free local port,
+# launch remmina at it, and tear the tunnel down afterwards.
+#
+# Protocol is DETECTED, not configured. hosts.toml cannot carry the answer:
+# home-manager/common.nix feeds that file straight into programs.ssh.settings,
+# so any key that is not an ssh option breaks flake evaluation. A static table
+# in here would be a second inventory to forget to update. Asking the host what
+# it is listening on has neither problem and picks up a newly-provisioned host
+# for free.
+#
+# Managed by chezmoi (chezmoi/dot_local/bin/executable_remote-desktop).
+
+set -euo pipefail
+
+readonly HOSTS_TOML="${HOSTS_TOML:-$HOME/.config/ssh/hosts.toml}"
+
+# Remote port -> protocol. Keep in step with modules/desktop/krdp.nix (3389) and
+# the wayvnc block in chezmoi/run_onchange_provision-cloud-kiosk.sh.tmpl (5900).
+readonly RDP_PORT=3389
+readonly VNC_PORT=5900
+
+readonly TAG=remote-desktop
+
+note() { printf '%s: %s\n' "$TAG" "$*"; }
+warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
+die() {
+	printf '%s: %s\n' "$TAG" "$*" >&2
+	exit 1
+}
+
+usage() {
+	cat <<'EOF'
+Usage:
+  remote-desktop <host> [rdp|vnc]   connect to <host> (protocol auto-detected)
+  remote-desktop --list             show every host and what it serves
+  remote-desktop --help
+
+Hosts come from ~/.config/ssh/hosts.toml. The connection is tunnelled over ssh;
+nothing is exposed to the LAN. Close the tunnel with Ctrl+C when finished.
+EOF
+}
+
+need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required but not on PATH"; }
+
+hosts_json() {
+	[ -r "$HOSTS_TOML" ] || die "cannot read $HOSTS_TOML"
+	taplo get -f "$HOSTS_TOML" -o json 'hosts'
+}
+
+host_names() { hosts_json | jq -r 'keys[]'; }
+
+host_user() { hosts_json | jq -r --arg h "$1" '.[$h].user // empty'; }
+
+host_known() { host_names | grep -qx "$1"; }
+
+# Ports the host is actually listening on, restricted to the two we care about.
+# One ssh round trip, and a host that is down simply yields nothing rather than
+# stalling: BatchMode keeps it from prompting and ConnectTimeout bounds it.
+#
+# -n is load-bearing, not decoration. do_list calls this inside a `while read`
+# loop; without it ssh inherits and drains the loop's stdin, so the listing
+# stops dead after the first host.
+#
+# hosts.toml keys are hostnames, so a key matching this machine means "self".
+# That case must not go through ssh at all: a host almost never has its own key
+# in known_hosts, so `ssh tifa` from tifa fails verification and the host is
+# reported as serving nothing while it is plainly listening.
+is_self() { [ "$1" = "$(hostname -s 2>/dev/null || hostname)" ]; }
+
+detect_ports() {
+	local filter="grep -oE ':($RDP_PORT|$VNC_PORT)[[:space:]]'"
+
+	if is_self "$1"; then
+		ss -ltnH 2>/dev/null | eval "$filter" | tr -d ':[:space:]' | sort -u || true
+		return 0
+	fi
+
+	# `|| true` on the REMOTE side is what makes the exit status meaningful:
+	# without it grep returns 1 whenever the host serves nothing, which is
+	# indistinguishable from ssh failing to connect at all. With it, the only
+	# non-zero left is ssh's own 255 — unknown host key, refused auth, no route.
+	# Reporting those two as the same thing sends you debugging a remoting
+	# service on a host you never actually reached.
+	local out rc
+	out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$1" \
+		"{ ss -ltnH 2>/dev/null | $filter | tr -d ':[:space:]' | sort -u; } || true" \
+		2>/dev/null)
+	rc=$?
+
+	printf '%s' "$out"
+	[ "$rc" -eq 255 ] && return 2
+	return 0
+}
+
+# First free local port at or above $1. The forward is bound locally, so a
+# second concurrent session (or anything else already on 13389) must not make
+# this fail -- ExitOnForwardFailure would abort the whole thing.
+free_local_port() {
+	local p=$1
+	while ss -ltnH 2>/dev/null | grep -qE ":${p}[[:space:]]"; do
+		p=$((p + 1))
+	done
+	printf '%s' "$p"
+}
+
+do_list() {
+	printf '%-12s %-18s %s\n' HOST ADDRESS SERVES
+	local h addr ports desc rc
+	while IFS= read -r h; do
+		addr=$(hosts_json | jq -r --arg h "$h" '.[$h].hostname // "?"')
+		ports=$(detect_ports "$h") && rc=0 || rc=$?
+		if [ "$rc" -eq 2 ]; then
+			printf '%-12s %-18s %s\n' "$h" "$addr" "(unreachable over ssh)"
+			continue
+		fi
+		desc=""
+		case "$ports" in
+		*"$RDP_PORT"*) desc="rdp ($RDP_PORT)" ;;
+		esac
+		case "$ports" in
+		*"$VNC_PORT"*) desc="${desc:+$desc, }vnc ($VNC_PORT)" ;;
+		esac
+		printf '%-12s %-18s %s\n' "$h" "$addr" "${desc:-—}"
+	done < <(host_names)
+}
+
+do_connect() {
+	local host=$1 want=${2:-}
+	host_known "$host" || die "unknown host '$host'. Known: $(host_names | tr '\n' ' ')"
+	! is_self "$host" || die "$host is this machine — you are already at its desktop"
+
+	local ports proto rport rc
+	ports=$(detect_ports "$host") && rc=0 || rc=$?
+
+	if [ "$rc" -eq 2 ]; then
+		warn "cannot reach $host over ssh — this is not a remoting problem."
+		warn "Check it directly to see the real error:"
+		warn "  ssh $host true"
+		warn "A changed or unknown host key is the usual cause."
+		exit 1
+	fi
+
+	if [ -z "$ports" ]; then
+		warn "$host is not serving $RDP_PORT or $VNC_PORT."
+		warn "Either it is unreachable, or its remoting service is not running:"
+		warn "  KRdp   systemctl --user status app-org.kde.krdpserver.service"
+		warn "  wayvnc runs inside the kiosk session on cloud"
+		exit 1
+	fi
+
+	# An explicit choice wins, but only if the host actually offers it --
+	# otherwise this silently forwards a dead port and remmina just hangs.
+	case "$want" in
+	rdp) case "$ports" in *"$RDP_PORT"*) proto=rdp ;; *) die "$host is not serving RDP on $RDP_PORT" ;; esac ;;
+	vnc) case "$ports" in *"$VNC_PORT"*) proto=vnc ;; *) die "$host is not serving VNC on $VNC_PORT" ;; esac ;;
+	"")
+		# Prefer RDP: it is the authenticated one (KRdp checks the system
+		# account through PAM), whereas wayvnc here has no credential at all.
+		case "$ports" in
+		*"$RDP_PORT"*) proto=rdp ;;
+		*) proto=vnc ;;
+		esac
+		;;
+	*) die "unknown protocol '$want' (expected rdp or vnc)" ;;
+	esac
+
+	local lport uri user
+	if [ "$proto" = rdp ]; then
+		rport=$RDP_PORT
+		lport=$(free_local_port 13389)
+		# KRdp with SystemUserEnabled authenticates the system account, so the
+		# ssh user from hosts.toml is the right login to offer.
+		user=$(host_user "$host")
+		uri="rdp://${user:+$user@}localhost:$lport"
+	else
+		rport=$VNC_PORT
+		lport=$(free_local_port 15900)
+		uri="vnc://localhost:$lport"
+	fi
+
+	# A control socket makes teardown deterministic: -O exit closes exactly this
+	# forward, rather than pkill-ing something that matched a pattern.
+	local ctl
+	ctl=$(mktemp -u "${XDG_RUNTIME_DIR:-/tmp}/remote-desktop-$host-XXXXXX")
+
+	# ExitOnForwardFailure: without it ssh happily connects with no forward and
+	# the client fails later with a confusing "connection refused" against a
+	# port that was never bound.
+	ssh -o BatchMode=yes -o ExitOnForwardFailure=yes \
+		-M -S "$ctl" -f -N -L "$lport:localhost:$rport" "$host" ||
+		die "could not open the ssh tunnel to $host"
+
+	# shellcheck disable=SC2064 # expand $ctl and $host now, not at trap time
+	trap "ssh -S '$ctl' -O exit '$host' >/dev/null 2>&1 || true" EXIT INT TERM
+
+	note "$host: $proto over ssh, localhost:$lport -> $host:$rport"
+
+	if [ "$proto" = vnc ]; then
+		warn "wayvnc offers no VNC password — the tunnel is the only access control."
+	fi
+
+	# Backgrounded deliberately, and its exit is NOT used to tear the tunnel
+	# down. remmina is single-instance: if a copy is already running, this one
+	# hands the URI over and returns immediately, which would otherwise close
+	# the tunnel out from under the connection that just opened.
+	remmina -c "$uri" >/dev/null 2>&1 &
+
+	note "remmina launched. Press Ctrl+C here when you are done to close the tunnel."
+
+	# Hold the tunnel open until interrupted, but stop early if it dies on its
+	# own (host rebooted, network dropped) rather than pretending it is up.
+	while ssh -S "$ctl" -O check "$host" >/dev/null 2>&1; do
+		sleep 2
+	done
+
+	note "tunnel closed."
+}
+
+main() {
+	need ssh
+	need taplo
+	need jq
+
+	case "${1:---list}" in
+	-h | --help)
+		usage
+		;;
+	-l | --list)
+		need ss
+		do_list
+		;;
+	-*)
+		usage >&2
+		exit 1
+		;;
+	*)
+		need remmina
+		need ss
+		do_connect "$1" "${2:-}"
+		;;
+	esac
+}
+
+main "$@"
