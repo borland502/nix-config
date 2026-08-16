@@ -414,6 +414,80 @@ else
   note "skipped    nix-userns-* apparmor profiles (AppArmor not the active LSM here)"
 fi
 
+# --- 1c. steam's 32-bit runtime ---------------------------------------------
+#
+# Steam is a 32-bit application. On a Debian/Ubuntu host that means i386 has to
+# be a registered foreign architecture before apt can resolve any :i386
+# dependency at all — without it dpkg does not even recognise the suffix, and
+# every 32-bit package "cannot be found". That is the whole of the "missing 32
+# bit libraries" complaint Steam shows on a fresh neon install.
+#
+# Gated on Steam actually being installed, so this stays off hosts that will
+# never want it (the cloud kiosk, servers) rather than adding a second
+# architecture and a mesa/llvm i386 stack to every apt box.
+#
+# The package list is deliberately explicit rather than delegated to Steam's own
+# /usr/bin/steamdeps helper, for two independent reasons:
+#
+#   1. steamdeps only runs at Steam launch, and prompts interactively for root.
+#      A host provisioned by this script should already be able to play.
+#   2. steamdeps is broken for the repo user on any host where Nix is on PATH.
+#      Its shebang is `#!/usr/bin/env python3`, so it resolves python3 through
+#      PATH and gets ~/.nix-profile/bin/python3, which has no `apt` module:
+#          Couldn't import apt, please install python3-apt
+#      even though python3-apt is installed for the system interpreter. This is
+#      the PATH-shadowing cousin of the LD_LIBRARY_PATH hazard documented in
+#      home-manager/profiles/desktop-linux.nix. Pre-installing the libraries
+#      makes that failure cosmetic instead of load-bearing.
+#
+# The list is what steamdeps itself asks for on noble (verified by running it
+# under /usr/bin/python3 until it fell silent), plus the mesa 32-bit stack the
+# GL side needs. steam-libs-* come from Valve's own repo, which is already
+# configured wherever steam-launcher came from.
+
+if [ "$PM" = apt ] && (pkg_installed steam-launcher || pkg_installed steam || pkg_installed steam-installer); then
+  steam_i386_pkgs=(
+    libc6:i386
+    libegl1:i386
+    libgl1:i386
+    libgl1-mesa-dri:i386
+    libdrm2:i386
+    steam-libs-amd64
+    steam-libs-i386
+  )
+
+  if ! dpkg --print-foreign-architectures 2>/dev/null | grep -qx i386; then
+    if ensure_root; then
+      $SUDO dpkg --add-architecture i386
+      # Mandatory: the i386 package lists do not exist until an update runs
+      # after the architecture is registered, so a bare install would fail.
+      $SUDO apt-get update
+      note "ENABLED    i386 foreign architecture (steam is installed)"
+    else
+      warn "steam is installed but i386 could not be enabled — 32-bit libraries will stay missing"
+    fi
+  else
+    note "unchanged  i386 foreign architecture"
+  fi
+
+  steam_missing=()
+  for p in "${steam_i386_pkgs[@]}"; do
+    dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "ok installed" ||
+      steam_missing+=("$p")
+  done
+
+  if [ "${#steam_missing[@]}" -eq 0 ]; then
+    note "unchanged  steam 32-bit runtime"
+  elif ensure_root; then
+    DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y "${steam_missing[@]}"
+    note "INSTALLED  ${steam_missing[*]}"
+  else
+    warn "steam 32-bit runtime not installed: ${steam_missing[*]}"
+  fi
+else
+  note "skipped    steam 32-bit runtime (steam not installed here)"
+fi
+
 # --- 2. repo user ------------------------------------------------------------
 #
 # Created only when missing, and never modified if it already exists — this must
