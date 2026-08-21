@@ -30,3 +30,19 @@ Development/**
 # Terminal config read by home-manager (darwin appends theme colors); chezmoi source is the base only.
 .config/kitty/kitty.conf
 {{ end -}}
+{{ if ne .chezmoi.os "linux" -}}
+# CDEmu mounts disc images on a virtual SCSI optical drive provided by the vhba
+# kernel module, so the helper is Linux-only. macOS mounts bin/cue natively via
+# hdiutil and Windows has its own virtual-drive support; neither needs this.
+.local/bin/cdemu-mount
+# steam-add-game writes Steam's shortcuts.vdf and CompatToolMapping, which only
+# the Linux client keeps at these paths.
+.local/bin/steam-add-game
+{{ end -}}
+{{ if not (lookPath "dolphin") -}}
+# The CDEmu service menu is a KIO context-menu provider and does nothing
+# without Dolphin to read it — deploy it only where Dolphin is installed,
+# rather than creating a stray ~/.local/share/kio on every host.
+.local/share/kio
+.local/share/kio/**
+{{ end -}}

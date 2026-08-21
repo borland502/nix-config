@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+# cdemu-mount — mount a bin/cue (or any libmirage-supported disc image) on a
+# CDEmu virtual optical drive, and unmount it again. Wired to Dolphin's
+# right-click menu by .local/share/kio/servicemenus/cdemu.desktop.
+#
+# Why CDEmu rather than a loop mount: the .bin of a bin/cue pair is raw
+# 2352-byte CD sectors — a sync pattern, a header and ECC wrapped around each
+# 2048-byte payload — and the kernel's iso9660 driver expects bare 2048-byte
+# sectors. `mount -o loop` therefore fails on every real bin/cue, succeeding
+# only on the occasional image that is an ISO under a .bin name. CDEmu presents
+# a genuine SCSI optical device through the vhba kernel module, so the kernel
+# does the de-framing and udisks auto-mounts the result exactly like a physical
+# disc. That also keeps audio and multi-track discs intact, which converting to
+# ISO with bchunk would not.
+#
+# Why this wrapper rather than `cdemu load 0 %f` and `cdemu unload 0` straight
+# from the service menu — three things the bare client gets wrong here:
+#
+#   * Device 0 is only free the first time. A second image loaded while the
+#     first is still mounted fails with a D-Bus error Dolphin shows nowhere.
+#   * An unload action starting from a .cue path has no way to know which
+#     device is holding that file; the daemon has to be asked.
+#   * `cdemu unload` exits 0 without doing anything when the disc's filesystem
+#     is still mounted, so the menu's Unmount action would claim success and
+#     leave the drive loaded. See unload_image.
+#
+# Always point this at the .cue, never the .bin — the cue sheet is what
+# describes the track layout.
+set -euo pipefail
+
+usage() {
+	cat <<'EOF'
+Usage: cdemu-mount <image.cue>       load onto the first free virtual drive
+       cdemu-mount -u <image.cue>    unload the drive holding that image
+       cdemu-mount -u                unload every loaded virtual drive
+
+Any format libmirage reads works (cue, iso, mds/mdf, ccd, nrg, toc).
+EOF
+}
+
+# Dolphin runs service-menu actions with no terminal attached, so a message on
+# stderr alone goes somewhere no user will ever look. Notify on the desktop
+# when there is one, and always mirror to stderr for command-line use.
+notify() {
+	if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v notify-send >/dev/null 2>&1; then
+		notify-send -a CDEmu -i media-optical "$1" "${2-}" || true
+	fi
+	printf 'cdemu-mount: %s%s\n' "$1" "${2:+ — $2}" >&2
+}
+
+# Devices are probed by trying them rather than by parsing `cdemu status`,
+# whose column layout has changed between releases. The daemon starts with one
+# device and grows on demand, so a sweep that finds every slot busy is a cue to
+# add one and sweep again.
+readonly DEVICES=(0 1 2 3 4 5 6 7)
+
+# Resolved by preflight: the cdemu client, and the $PATH it has to run under.
+CLIENT=
+CLIENT_PATH=
+
+# Every call to the client goes through here rather than through a bare `cdemu`.
+#
+# The distro's client is a Python script with a `#!/usr/bin/env python3`
+# shebang, and it needs PyGObject — the `gi` module — which is installed only
+# for the distro's own python3. This user's $PATH puts a Nix python3 first, so
+# `env python3` selected an interpreter with no `gi` and the client died on its
+# import line before it ever reached the daemon: every `cdemu load` failed, and
+# the only visible symptom was Dolphin's "Failed to mount". Pinning $PATH to the
+# system directories for the duration of the call hands the script back the
+# interpreter its own package was built against. Any pyenv/conda/virtualenv
+# python3 earlier on $PATH breaks it the same way.
+run_client() {
+	PATH="$CLIENT_PATH" "$CLIENT" "$@"
+}
+
+preflight() {
+	# type -P searches $PATH only, so it keeps working once run_client exists;
+	# `command -v` would start reporting shell functions.
+	CLIENT=$(type -P cdemu || true)
+	if [ -z "$CLIENT" ]; then
+		notify "CDEmu is not installed" "Run: chezmoi apply (provisions it), or pkg-install cdemu-client cdemu-daemon"
+		exit 1
+	fi
+
+	# Only a system-installed client needs the interpreter correction. A client
+	# from Nix already carries an absolute store path to a python that has gi,
+	# and rewriting $PATH under it would hide the rest of its closure.
+	case $CLIENT in
+	/usr/*) CLIENT_PATH=/usr/local/bin:/usr/bin:/bin ;;
+	*) CLIENT_PATH=$PATH ;;
+	esac
+
+	# The daemon talks to the vhba kernel module through this control device.
+	# Missing means the module is not loaded; present but unwritable means the
+	# session predates the group membership that grants access, which is a
+	# genuinely confusing failure without this message.
+	if [ ! -e /dev/vhba_ctl ]; then
+		notify "The vhba kernel module is not loaded" "sudo modprobe vhba"
+		exit 1
+	fi
+	if [ ! -w /dev/vhba_ctl ]; then
+		notify "No permission for /dev/vhba_ctl" "Log out and back in to pick up the new group"
+		exit 1
+	fi
+}
+
+load_image() {
+	local file=$1 dev attempt line err="" this_err=""
+
+	if [ ! -r "$file" ]; then
+		notify "Cannot read image" "$file"
+		exit 1
+	fi
+
+	# Nothing stops the daemon loading one image onto two drives, so a second
+	# click on Dolphin's Mount entry would quietly consume another slot and
+	# leave two identical discs in the file manager. Point at the existing one.
+	line=$(run_client status 2>/dev/null | grep -F -- "$file" | head -1 || true)
+	if [ -n "$line" ]; then
+		dev=$(printf '%s' "$line" | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p')
+		notify "Already mounted on virtual drive $dev" "$(basename -- "$file")"
+		return 0
+	fi
+
+	for attempt in 1 2; do
+		for dev in "${DEVICES[@]}"; do
+			if this_err=$(run_client load "$dev" "$file" 2>&1 >/dev/null); then
+				notify "Mounted on virtual drive $dev" "$(basename -- "$file")"
+				return 0
+			fi
+
+			# Probing past the last device the daemon actually has yields
+			# "Invalid device number", which says nothing about the image and
+			# would otherwise be the error left standing at the end of the
+			# sweep — burying the parse failure or busy-device message that is
+			# the one worth reporting.
+			case $this_err in
+			*"Invalid device number"*) ;;
+			*) err=$this_err ;;
+			esac
+		done
+
+		# Every existing device was busy (or there was only one). Grow the pool
+		# once, then retry; a second failure is a real failure.
+		[ "$attempt" = 1 ] && run_client add-device >/dev/null 2>&1 || true
+	done
+
+	# Carry the client's own last line into the notification. A broken
+	# interpreter, a daemon that will not start and an image libmirage cannot
+	# parse are indistinguishable without it — which is precisely how the
+	# `import gi` failure above stayed invisible for so long.
+	notify "Failed to mount" "$(basename -- "$file")${err:+ — ${err##*$'\n'}}"
+	exit 1
+}
+
+# CDEmu device N is SCSI target N on the vhba platform host, so its block node
+# is the one sysfs files under that target — a stable mapping that does not
+# assume device N is /dev/srN (physical drives can take the low numbers).
+block_node_for() {
+	local dev=$1 p
+	for p in /sys/devices/platform/vhba/host*/target*:0:"$dev"/*:0:"$dev":0/block/*; do
+		if [ -e "$p" ]; then
+			printf '/dev/%s\n' "${p##*/}"
+			return 0
+		fi
+	done
+}
+
+# The daemon will not eject a device whose filesystem is still mounted, and the
+# client does not relay that refusal — `cdemu unload` just exits 0 having done
+# nothing. udisks auto-mounts every disc this script loads, so by the time
+# anyone clicks Unmount that refusal is the normal case, not the edge case.
+release_mounts() {
+	local node=$1
+	[ -n "$node" ] || return 0
+	command -v udisksctl >/dev/null 2>&1 || return 0
+	# Nothing mounted is not an error — udisksctl says so and we carry on.
+	udisksctl unmount -b "$node" >/dev/null 2>&1 || true
+}
+
+# An unload is neither immediate nor reliably reported. `cdemu unload` exits 0
+# whether the daemon ejected the disc or refused because the device was busy,
+# and even an accepted eject lands a moment after the call returns. So the only
+# trustworthy signal is the daemon's own status — reissue and re-read it for a
+# couple of seconds before concluding the drive is stuck.
+unload_confirmed() {
+	local dev=$1 pattern=$2 attempt
+
+	for attempt in 1 2 3 4 5 6 7 8 9 10; do
+		release_mounts "$(block_node_for "$dev")"
+		run_client unload "$dev" >/dev/null 2>&1 || true
+		if ! run_client status 2>/dev/null | grep -F -q -- "$pattern"; then
+			return 0
+		fi
+		sleep 0.2
+	done
+
+	return 1
+}
+
+unload_image() {
+	local file=${1-} line dev attempt stuck=0
+
+	if [ -z "$file" ]; then
+		# Same reissue-and-recheck rhythm as unload_confirmed, for the same
+		# reason: a sweep that unloads everything once and then reads status
+		# can read it before the last eject has landed.
+		for attempt in 1 2 3; do
+			for dev in "${DEVICES[@]}"; do
+				release_mounts "$(block_node_for "$dev")"
+				run_client unload "$dev" >/dev/null 2>&1 || true
+			done
+			# The LOADED column is the only place `cdemu status` prints a bare
+			# "True", so counting it is layout-independent in a way that
+			# reading fields by position is not. A path containing that word
+			# would inflate the count — a spurious warning, nothing worse.
+			stuck=$(run_client status 2>/dev/null | grep -cw True || true)
+			if [ "$stuck" -eq 0 ]; then
+				notify "All virtual drives unloaded"
+				return 0
+			fi
+			sleep 0.2
+		done
+
+		notify "$stuck virtual drive(s) still in use" "Close anything reading them, then retry"
+		exit 1
+	fi
+
+	# `cdemu status` prints one row per device with the loaded filename on it.
+	# Match the path with grep -F, then take the row's leading integer as the
+	# device number: the surrounding columns have shifted between releases, the
+	# leading device index has not.
+	line=$(run_client status 2>/dev/null | grep -F -- "$file" | head -1 || true)
+	dev=$(printf '%s' "$line" | sed -n 's/^[^0-9]*\([0-9][0-9]*\).*/\1/p')
+
+	if [ -z "$dev" ]; then
+		notify "Not mounted" "$(basename -- "$file")"
+		return 0
+	fi
+
+	if ! unload_confirmed "$dev" "$file"; then
+		notify "Virtual drive $dev is still in use" "Close anything reading $(basename -- "$file"), then retry"
+		exit 1
+	fi
+
+	notify "Unmounted virtual drive $dev" "$(basename -- "$file")"
+}
+
+case "${1-}" in
+-h | --help)
+	usage
+	exit 0
+	;;
+-u | --unload)
+	preflight
+	unload_image "${2-}"
+	;;
+"")
+	usage >&2
+	exit 2
+	;;
+*)
+	preflight
+	load_image "$1"
+	;;
+esac

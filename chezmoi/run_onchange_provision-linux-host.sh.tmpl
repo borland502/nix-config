@@ -69,6 +69,27 @@ PACKAGES=(
   # leaving it a manual `pkg-install kitty` step) is what actually guarantees
   # that.
   kitty
+
+  # ksshaskpass — the graphical sudo/ssh password dialog find_askpass() prefers.
+  #
+  # This is what makes the no-TTY path above work rather than warn. `task
+  # switch` runs chezmoi as a subprocess, and anything driving it from an
+  # editor, an agent or a desktop launcher has no controlling terminal either,
+  # so without an askpass helper every such run reaches the packages it must
+  # install and quits on a warning. That is exactly the failure that left this
+  # host unprovisioned.
+  #
+  # Chicken-and-egg, and unavoidable: installing it needs the sudo it exists to
+  # supply, so the FIRST run on a new host still has to come from an
+  # interactive shell. Every run after that gets the dialog.
+  #
+  # In PACKAGES rather than PLASMA_PACKAGES by request, so every Linux host has
+  # it. On an apt host with no Plasma that pulls in a slice of KF6 for one
+  # dialog — if that ever matters more than the convenience, move this one line
+  # down into PLASMA_PACKAGES. Named identically on pacman, apt and dnf, and
+  # installs to /usr/bin/ksshaskpass on all three, which is find_askpass()'s
+  # first candidate.
+  ksshaskpass
 )
 
 # Plasma-only additions, appended below when a Plasma session is actually
@@ -209,6 +230,20 @@ pkg_name() {
     case "$PM" in
     pacman) echo openssh ;;
     *) echo openssh-server ;;
+    esac
+    ;;
+  vhba)
+    # The vhba kernel module must be built against the running kernel, so every
+    # distro ships it as a source/DKMS package under its own name.
+    #
+    # Arch's prebuilt "vhba-module" is deliberately NOT used: it Depends On the
+    # stock `linux` package, so on a CachyOS, Zen or LTS kernel it would both
+    # drag in a kernel the host does not boot and install a module compiled for
+    # that other kernel, which will not load into the running one.
+    case "$PM" in
+    pacman) echo vhba-module-dkms ;;
+    apt) echo vhba-dkms ;;
+    dnf) echo akmod-vhba ;;
     esac
     ;;
   *) echo "$1" ;;
@@ -565,6 +600,116 @@ if [ "$PM" = apt ] && [ "$PLASMA_PRESENT" = "yes" ] &&
     note "INSTALLED  intel-media-va-driver-non-free — restart krdpserver or re-login"
   else
     warn "intel-media-va-driver-non-free not installed — KRdp will show a blank screen"
+  fi
+fi
+
+# --- 1e. CDEmu virtual optical drive (bin/cue in Dolphin) -------------------
+#
+# bin/cue cannot be loop-mounted. The .bin holds raw 2352-byte CD sectors — a
+# sync pattern, a header and ECC wrapped around each 2048-byte payload — while
+# the kernel's iso9660 driver expects bare 2048-byte sectors, so `mount -o loop`
+# fails on every genuine bin/cue and succeeds only on images that are really an
+# ISO under a .bin name. The .cue beside it is a text sheet describing the track
+# layout, not something the kernel reads at all.
+#
+# CDEmu solves that by being a real optical drive: the vhba module registers a
+# virtual SCSI host, the daemon feeds it de-framed sectors via libmirage, and
+# the kernel and udisks then treat the result exactly like a physical disc — so
+# Dolphin auto-mounts it, and audio and multi-track discs survive, which
+# converting to ISO with bchunk would not. .local/bin/cdemu-mount and the
+# Dolphin service menu beside it are the front end; this section is what makes
+# them work.
+#
+# Plasma-gated for the same reason as PLASMA_PACKAGES: the payoff is the Dolphin
+# right-click, and a headless host has no business building a DKMS module for a
+# virtual CD drive it will never open. The render-time PLASMA_PRESENT answer is
+# re-checked at runtime for the same reason as section 1.
+#
+# Kept out of the section 1 install pass on purpose. pkg_install sends every
+# missing package in one transaction, and akmod-vhba lives in RPM Fusion rather
+# than Fedora proper — one unavailable package there would fail the transaction
+# and take sshd, ufw and kitty down with it.
+
+if [ "$PLASMA_PRESENT" = "yes" ] ||
+  command -v plasmashell >/dev/null 2>&1 ||
+  command -v kwin_wayland >/dev/null 2>&1; then
+
+  CDEMU_PACKAGES=(cdemu-client cdemu-daemon vhba)
+
+  # libmirage is a hard dependency of cdemu-daemon on all three distros and is
+  # left to the package manager rather than named here.
+  cdemu_missing=()
+  for pkg in "${CDEMU_PACKAGES[@]}"; do
+    if pkg_installed "$pkg"; then
+      note "unchanged  $(pkg_name "$pkg")"
+    else
+      cdemu_missing+=("$pkg")
+    fi
+  done
+
+  if [ "${#cdemu_missing[@]}" -gt 0 ]; then
+    if [ "$PM" = dnf ] && ! dnf list --available akmod-vhba >/dev/null 2>&1; then
+      # RPM Fusion free is where this lives; without it there is nothing to
+      # install and saying so beats a bare dnf failure.
+      warn "akmod-vhba is unavailable — enable the RPM Fusion free repository,"
+      warn "or disc images will have to be converted with bchunk instead"
+      cdemu_missing=()
+    elif ensure_root; then
+      pkg_install "${cdemu_missing[@]}"
+      note "INSTALLED  ${cdemu_missing[*]} (CDEmu virtual optical drive)"
+    else
+      warn "not installed: ${cdemu_missing[*]} — bin/cue will not mount"
+      cdemu_missing=()
+    fi
+  fi
+
+  # vhba has no autoload trigger — nothing probes for a virtual SCSI adapter —
+  # so without this the first cdemu call after every reboot fails on a missing
+  # /dev/vhba_ctl.
+  VHBA_CONF=/etc/modules-load.d/vhba.conf
+  if [ -f "$VHBA_CONF" ] && grep -qx vhba "$VHBA_CONF" 2>/dev/null; then
+    note "unchanged  $VHBA_CONF"
+  elif ensure_root; then
+    printf 'vhba\n' | $SUDO tee "$VHBA_CONF" >/dev/null
+    note "WROTE      $VHBA_CONF (load the virtual SCSI adapter at boot)"
+  else
+    warn "$VHBA_CONF not written — vhba will need a manual modprobe each boot"
+  fi
+
+  # Load it now too, so this works without a reboot. Skipped when the module is
+  # not built yet: a DKMS package installed seconds ago in this same run may
+  # still be compiling, and a failed modprobe here would be noise, not news.
+  if [ -e /dev/vhba_ctl ]; then
+    note "unchanged  vhba module loaded"
+  elif modinfo vhba >/dev/null 2>&1 && ensure_root; then
+    if $SUDO modprobe vhba 2>/dev/null; then
+      note "LOADED     vhba"
+    else
+      warn "modprobe vhba failed — if DKMS just built it, reboot and re-check"
+    fi
+  fi
+
+  # /dev/vhba_ctl is root-owned with a group taken from the module's own udev
+  # rule, and that group differs by distro (Arch has no `cdrom` group at all —
+  # it uses `optical`). Read it out of the rule rather than guessing, so this
+  # stays correct wherever it runs.
+  vhba_group=$(sed -n 's/.*GROUP="\([^"]*\)".*/\1/p' \
+    /usr/lib/udev/rules.d/*vhba*.rules /lib/udev/rules.d/*vhba*.rules \
+    /etc/udev/rules.d/*vhba*.rules 2>/dev/null | head -1 || true)
+
+  if [ -n "$vhba_group" ] && getent group "$vhba_group" >/dev/null 2>&1; then
+    cdemu_user=$(id -un)
+    if id -nG "$cdemu_user" 2>/dev/null | tr ' ' '\n' | grep -qx "$vhba_group"; then
+      note "unchanged  $cdemu_user in group $vhba_group"
+    elif ensure_root; then
+      $SUDO usermod -aG "$vhba_group" "$cdemu_user"
+      # Group membership is established at login, so the running session cannot
+      # see it. Without this line the next cdemu call fails on a permission
+      # error that looks like a broken install rather than a stale session.
+      note "ADDED      $cdemu_user to group $vhba_group — log out and back in"
+    else
+      warn "$cdemu_user is not in group $vhba_group — /dev/vhba_ctl will be unwritable"
+    fi
   fi
 fi
 

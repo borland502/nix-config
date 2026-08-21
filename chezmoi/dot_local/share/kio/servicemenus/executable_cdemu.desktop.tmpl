@@ -1,0 +1,38 @@
+# Dolphin right-click actions for disc images, backed by CDEmu.
+#
+# Plasma 6 reads service menus from ~/.local/share/kio/servicemenus and ignores
+# any file there that is not executable — hence the executable_ prefix on the
+# chezmoi source name. Run `kbuildsycoca6 --noincremental` if a change does not
+# show up straight away.
+#
+# The Exec lines are absolute rather than a bare `cdemu-mount`. Dolphin
+# launches these through the session's environment, which does not reliably
+# carry ~/.local/bin on $PATH; when it does not, a relative Exec fails silently
+# and the menu entry looks broken rather than missing.
+#
+# Type is not checked by KIO for files in this directory — Application and
+# Service behave identically — and NoDisplay is not consulted either. An earlier
+# revision set NoDisplay=true to keep this out of the application launcher; that
+# was unnecessary, because the launcher only scans applications/ directories and
+# never kio/servicemenus.
+#
+# Do not add X-KDE-Submenu here. See the note in steam-add-game.desktop beside
+# this file: on Plasma 6.7 that key makes the entry vanish from the context menu
+# entirely rather than nesting it.
+[Desktop Entry]
+Type=Application
+Name=CDEmu
+Icon=media-optical
+MimeType=application/x-cue;application/x-cd-image;application/x-raw-disk-image;
+Actions=cdemuMount;cdemuUnmount;
+X-KDE-Priority=TopLevel
+
+[Desktop Action cdemuMount]
+Name=Mount with CDEmu
+Icon=media-optical
+Exec={{ .chezmoi.homeDir }}/.local/bin/cdemu-mount %f
+
+[Desktop Action cdemuUnmount]
+Name=Unmount CDEmu drive
+Icon=media-eject
+Exec={{ .chezmoi.homeDir }}/.local/bin/cdemu-mount -u %f
