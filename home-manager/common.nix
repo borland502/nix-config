@@ -7,6 +7,13 @@
   # Set per host: true where the distro already ships a python at least as new
   # as nixpkgs', so the nix one must not take `python3` on $PATH. See the
   # comment on home.packages below.
+  #
+  # Every entry point that imports this file must define it in _module.args --
+  # home.nix, home-wsl.nix and home-darwin.nix all do. The `? false` below reads
+  # like a fallback and is not one: the module system maps over functionArgs and
+  # resolves each name through config._module.args, so a name missing there is an
+  # eval error ("attribute 'preferSystemPython' missing") rather than a default.
+  # isWsl above carries the same requirement.
   preferSystemPython ? false,
   ...
 }: let

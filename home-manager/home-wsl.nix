@@ -80,6 +80,12 @@
 in {
   _module.args.isWsl = true;
 
+  # False: the WSL distros here (Debian, Ubuntu) ship an older python3 than
+  # nixpkgs does, so the nix interpreter is the better one to own `python3` on
+  # $PATH. If a distro overtakes nixpkgs the provisioning script says so -- its
+  # drift check runs ahead of the WSL early-exit for exactly this case.
+  _module.args.preferSystemPython = false;
+
   imports = [
     ./common.nix
     ./profiles/development-linux.nix
