@@ -187,6 +187,39 @@ WIFI_REMOTE_HOSTS=(aerith)
 note() { printf '%s: %s\n' "$TAG" "$*"; }
 warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
 
+# --- python shadowing policy ------------------------------------------------
+
+# nixpkgs' python3, once it is in the profile, owns `python3` on $PATH ahead of
+# /usr/bin and so becomes the interpreter behind every `#!/usr/bin/env python3`
+# on the host — distro scripts included, whose modules live in the distro
+# python's site-packages and are unreachable from the nix one. That is what
+# broke the CDEmu client: it died on `import gi` before reaching its daemon.
+#
+# Shadowing only buys anything while the nix interpreter is genuinely newer, so
+# home-manager keeps it out of the profile on hosts where the distro is level or
+# ahead — see preferSystemPython in home-manager/common.nix. That flag is chosen
+# during flake evaluation, which cannot see what the distro ships; this is the
+# check that notices once it has gone stale. It runs ahead of the NixOS and WSL
+# exits below because those hosts drift the same way.
+nix_py=$HOME/.nix-profile/bin/python3
+if [ -x "$nix_py" ] && [ -x /usr/bin/python3 ]; then
+  py_ver() { "$1" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null; }
+  nix_ver=$(py_ver "$nix_py") || true
+  sys_ver=$(py_ver /usr/bin/python3) || true
+
+  # sort -V puts the lower version first, so the nix one sorting first means the
+  # distro is ahead; equal versions sort to the same string and land here too,
+  # which is right — a tie still leaves every distro module on the distro side.
+  if [ -n "$nix_ver" ] && [ -n "$sys_ver" ] &&
+    [ "$(printf '%s\n%s\n' "$nix_ver" "$sys_ver" | sort -V | head -1)" = "$nix_ver" ]; then
+    warn "nixpkgs python $nix_ver is shadowing the distro's $sys_ver on \$PATH."
+    warn "Set _module.args.preferSystemPython = true for this host, so distro"
+    warn "scripts with an 'env python3' shebang resolve their own modules."
+  else
+    note "unchanged  python shadowing (nix $nix_ver newer than distro $sys_ver)"
+  fi
+fi
+
 # --- applicability ----------------------------------------------------------
 
 if [ -e /etc/NIXOS ]; then
