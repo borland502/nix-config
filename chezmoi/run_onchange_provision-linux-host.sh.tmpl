@@ -918,6 +918,13 @@ wired_devices() {
   nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2 == "ethernet" { print $1 }'
 }
 
+# ethtool comes from the nix user profile (home-manager/home.nix), and sudo
+# resets PATH to its compiled-in secure_path, which contains no nix profile. A
+# bare `$SUDO ethtool` is therefore "command not found" on every host here, not
+# just the ones without ethtool. Resolve it in the caller's PATH and hand sudo
+# the absolute path instead. Empty means genuinely absent.
+ETHTOOL=$(command -v ethtool 2>/dev/null || true)
+
 if ! command -v nmcli >/dev/null 2>&1; then
   warn "NetworkManager not present — wake-on-lan not configured"
 elif wol_conf | cmp -s - "$WOL_CONF" 2>/dev/null; then
@@ -936,13 +943,23 @@ elif ensure_root; then
   note "WROTE      $WOL_CONF (wired NICs wake on magic packet)"
 
   for dev in $(wired_devices); do
-    supports=$($SUDO ethtool "$dev" 2>/dev/null | sed -n 's/^[[:space:]]*Supports Wake-on:[[:space:]]*//p')
+    if [ -z "$ETHTOOL" ]; then
+      warn "$dev: ethtool not found — armed at the next NetworkManager activation, not now"
+      continue
+    fi
+
+    # `|| true` is load-bearing: under `set -o pipefail` a failing ethtool makes
+    # the whole pipeline non-zero, which makes this assignment non-zero, which
+    # errexit turns into a silent abort of the entire script — before the empty
+    # arm below can report anything. That is what killed the run that first hit
+    # `sudo ethtool` not being on secure_path.
+    supports=$($SUDO "$ETHTOOL" "$dev" 2>/dev/null | sed -n 's/^[[:space:]]*Supports Wake-on:[[:space:]]*//p' || true)
     case "$supports" in
     *g*)
       # Applied live so the host is wakeable now rather than after its next
       # reboot — which, for a host you are configuring precisely because you
       # keep having to walk over to it, is the whole difference.
-      if $SUDO ethtool -s "$dev" wol g 2>/dev/null; then
+      if $SUDO "$ETHTOOL" -s "$dev" wol g 2>/dev/null; then
         note "ARMED      $dev wol g"
       else
         warn "$dev: ethtool could not set wol g"
