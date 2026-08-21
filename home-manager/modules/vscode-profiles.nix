@@ -51,6 +51,21 @@
     }
   ];
 
+  # The worktree extension actually in use on the default profile. Declared
+  # separately from gitWorktreeManager above so the language profiles keep
+  # jackiotyu and the default profile gets this one; previously the default
+  # profile had no worktree extension at all and this was hand-installed from
+  # the marketplace, which does not survive a switch once any non-default
+  # profile is declared (see the note at the bottom of this file).
+  gitWorktrees = pkgs.vscode-utils.extensionsFromVscodeMarketplace [
+    {
+      name = "git-worktrees";
+      publisher = "GitWorktrees";
+      version = "2.16.0";
+      sha256 = "sha256-wCGXBsQwfdCCZfuSFO9hPKWVbJyXgI/5wHuC2F/noD8=";
+    }
+  ];
+
   # Baseline every *language* profile gets on top of its language tooling.
   # Deliberately not applied to the default profile, which stays as-is.
   languageProfileBase =
@@ -263,7 +278,8 @@ in {
             # Config formats
             tamasfe.even-better-toml
           ])
-          ++ sublimeKeymap;
+          ++ sublimeKeymap
+          ++ gitWorktrees;
       }
       // languageProfiles;
     # Never declared here, and no longer present after a switch either: the
