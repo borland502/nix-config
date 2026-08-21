@@ -175,6 +175,23 @@ Common patterns it finds:
 - `exit code` — abnormal termination clues
 - `untracked`, `uncommitted` — git tracking issues
 
+`cache-scan --classify` buckets these into named categories across the whole
+window. Categories that are **not** nix problems have their own owners — route
+there rather than debugging the build:
+
+| Category | Skill |
+|---|---|
+| `nix-build` | this skill |
+| `zsh-nullglob`, `zsh-word-split`, `stat-dialect`, `quoting-heredoc`, `jq-non-json-input` | [shell-pitfalls](../shell-pitfalls/SKILL.md) |
+| `gh-graphql-jq` | [gh-graphql-jq-pipelines](../gh-graphql-jq-pipelines/SKILL.md) |
+| `stale-aws-creds` | [sec-credentials](../sec-credentials/SKILL.md) |
+| `git-workflow` | [git-troubleshooting](../git-troubleshooting/SKILL.md) |
+
+A nix error can also *be* a shell error in disguise: a stripped `PATH` in a
+subshell, or `local PATH=…` dropping its export, surfaces as a missing
+interpreter rather than an evaluation failure. See
+[shell-pitfalls](../shell-pitfalls/SKILL.md) before assuming the flake is wrong.
+
 ---
 
 ## Quick Checklist Before `task switch`

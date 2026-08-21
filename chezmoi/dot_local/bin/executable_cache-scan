@@ -179,6 +179,10 @@ CATS = [
     ("stale-aws-creds", r"ExpiredToken|security token included in the request is expired|InvalidClientTokenId|Unable to locate credentials|could not be found.*profile|ExpiredTokenException"),
     ("stat-dialect", r"stat: illegal option|cannot read file system information for .%|stat: option .* requires|unrecognized option '--format"),
     ("zsh-nullglob", r"no matches found|zsh: no matches"),
+    # zsh does not word-split unquoted expansions (`set -- $pair`), so field 2
+    # arrives empty and field 1 carries both values. Must precede git-workflow,
+    # whose bare `fatal:` would otherwise swallow it. See the shell-pitfalls skill.
+    ("zsh-word-split", r"ambiguous argument '[^' ]+ [^']+'|empty string is not a valid pathspec"),
     ("gh-graphql-jq", r"is not defined|declared but not used|Unexpected .*RCURLY|GraphQL: |jq: error|jq: syntax error|Requires authentication|Could not resolve to a"),
     ("jq-non-json-input", r"jq: parse error"),
     ("quoting-heredoc", r"parse error near|unexpected EOF|bad substitution|unmatched .|unexpected end of file|`\\?'.*unexpected"),

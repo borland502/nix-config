@@ -48,6 +48,12 @@
     vlc
     mpv
 
+    # Game streaming. moonlight-qt decodes in hardware, so it needs working
+    # GLX/EGL. If it aborts on a non-NixOS host the way zoom-us does, move it
+    # to nixosOnlyPackages below and install the Flathub build there instead
+    # (`flatpak install --user flathub com.moonlight_stream.Moonlight`).
+    moonlight-qt
+
     # Communication
     discord
 
