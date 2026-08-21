@@ -220,6 +220,15 @@ git worktree prune  # Self-healing: clean up any stale registrations
 - **Problem:** Accidentally delete work
 - **Fix:** Require typed "discard" confirmation
 
+**Treating a git error as a workflow decision**
+- **Problem:** `bad object`, `ambiguous argument`, `pathspec did not match`, or a
+  repo stuck mid-rebase blocks the finish step, and the response is to pick a
+  different integration option rather than fix the cause
+- **Fix:** Diagnose first with
+  [git-troubleshooting](../git-troubleshooting/SKILL.md), then return here. Note
+  that `<op> --abort` deletes files staged during the conflicted operation
+  without warning — move them out before aborting a stuck finish.
+
 ## Red Flags
 
 **Never:**

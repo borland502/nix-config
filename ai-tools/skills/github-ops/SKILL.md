@@ -23,6 +23,16 @@ Manage GitHub repositories with a focus on community health, CI reliability, and
 - **gh CLI** for all GitHub API operations
 - Repository access configured via `gh auth login`
 
+**Companion skills — load before composing the call, not after it fails:**
+
+- [gh-graphql-jq-pipelines](../gh-graphql-jq-pipelines/SKILL.md) — REQUIRED before
+  any `gh api graphql` call or any `jq` filter over ~200 chars. File-backed
+  `.graphql` + `.jq` is the only sanctioned shape.
+- [shell-pitfalls](../shell-pitfalls/SKILL.md) — quote every `gh api` path
+  containing `?`, `*`, or `[`. An unquoted query string is a zsh glob:
+  `gh api repos/O/R/contents/f.ts?ref=prod` aborts with
+  `no matches found: repos/O/R/contents/f.ts?ref=prod` before `gh` ever runs.
+
 ## Issue Triage
 
 Classify each issue by type and priority:

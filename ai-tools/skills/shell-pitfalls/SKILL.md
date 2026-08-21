@@ -1,6 +1,6 @@
 ---
 name: shell-pitfalls
-description: Use when a shell command fails with a confusing error, an alias is interfering, a zsh wrapper script has a subtle bug, or a heavily-quoted inline `zsh -c` is failing repeatedly. Consolidates the shell anti-patterns this repo has been bitten by — alias escaping, the zsh `status` read-only trap, zsh `local` silently dropping a variable's export attribute, when to switch from inline commands to a script file, and the wrapped-capture permission-denied workaround.
+description: Use when a shell command fails with a confusing error, an alias is interfering, a zsh wrapper script has a subtle bug, or a heavily-quoted inline `zsh -c` is failing repeatedly. Also use BEFORE writing any command that loops over multi-field strings, globs a path, or passes a URL/query string as an argument. Triggering errors include "no matches found", "ambiguous argument 'A B...'", "empty string is not a valid pathspec", "read-only variable", "cannot read file system information for '%'", "jq: parse error", and a bash snippet that behaves differently under zsh.
 ---
 
 # Shell Pitfalls
@@ -105,6 +105,11 @@ For the specific case of `gh api graphql` calls and long/nested `jq` filters —
 ## AWS / Kion credential safety
 
 When the local environment uses Kion, load temporary AWS credentials with `source ~/.local/bin/kac ensure` (or read `~/.cache/kion-aws-cache/`) rather than the frequently-stale `~/.aws/credentials` / `AWS_PROFILE`. Treat any value read from a credentials file as a secret — never echo it into command output or a summary.
+
+`ExpiredToken` / `InvalidClientTokenId` / `Unable to locate credentials` is a
+credential-lifecycle failure, not a shell one — go to
+[sec-credentials](../sec-credentials/SKILL.md) for the full lookup precedence
+(sops → XDG config → legacy paths) instead of debugging the command.
 
 ## `stat`: GNU shadows BSD, even on macOS
 
@@ -234,6 +239,90 @@ committed zsh scripts add `setopt nullglob` (or the `(N)` qualifier per-glob).
 Bash behaves differently (passes the literal pattern through), which is why a
 snippet tested in bash breaks under zsh.
 
+**How far the abort reaches** depends on the separator, and the pipeline case is
+the quiet one:
+
+```zsh
+zsh -c 'echo A && ls nope*glob && echo B'   # A, error — B never runs
+zsh -c 'ls nope*glob | wc -l'               # error, then prints 0 (!)
+```
+
+In a pipeline the globbing command is skipped but the rest still runs, so
+`wc -l` reports `0` — indistinguishable from a real "zero matches" answer.
+
+### `?` and `[` are glob characters too — quote URLs
+
+The same abort fires on characters that don't look like globs at all. A `gh api`
+path with a query string is the recurring case:
+
+```bash
+# Aborts: "(eval):1: no matches found: repos/OWNER/REPO/contents/f.ts?ref=prod"
+gh api repos/OWNER/REPO/contents/f.ts?ref=prod -q .content
+
+# Right: quote the whole path
+gh api 'repos/OWNER/REPO/contents/f.ts?ref=prod' -q .content
+```
+
+This hit four separate sessions on `contents/…?ref=<branch>` fetches. The `*`
+examples above read as "file globbing," so a URL doesn't register as in scope —
+it is. **Quote every argument containing `?`, `*`, `[`, or `~`**, including URLs,
+`curl` query strings, and regex passed positionally.
+
+## zsh does not word-split unquoted expansions
+
+The most expensive trap in this file, because nothing errors at the point of the
+mistake. Bash splits an unquoted `$var` on `$IFS`; **zsh does not** (no
+`SH_WORD_SPLIT` by default). Every bash idiom that relies on implicit splitting
+silently yields *one* word:
+
+```zsh
+p="a b"; set -- $p; echo $#        # zsh -> 1    bash -> 2
+l="x y z"; for w in $l; do …; done # zsh -> 1 iteration   bash -> 3
+arr=($var)                         # zsh -> one element   bash -> n elements
+```
+
+The damage lands downstream, disguised as a bug in whatever consumed the value:
+
+```zsh
+# Wrong: $1 becomes the entire pair, $2 is empty
+for pair in "origin/main origin/dev6" "origin/dev6 HEAD"; do
+  set -- $pair
+  git merge-base $1 $2
+done
+# fatal: ambiguous argument 'origin/main origin/dev6...': unknown revision…
+# fatal: empty string is not a valid pathspec
+```
+
+Two separate sessions wrote exactly this loop and burned ~20 git invocations
+before the cause was clear — the errors name *git* revisions, so they read as a
+bad ref, not a shell problem.
+
+**Fixes, in order of preference:**
+
+```zsh
+# 1. Use a real array — portable, no splitting needed
+pairs=("origin/main origin/dev6" "origin/dev6 HEAD")
+for pair in "${pairs[@]}"; do
+  a="${pair%% *}"; b="${pair##* }"     # parameter expansion, not splitting
+  git merge-base "$a" "$b"
+done
+
+# 2. Restructure so each field is its own loop variable
+for a b in origin/main origin/dev6  origin/dev6 HEAD; do …; done   # zsh-only
+
+# 3. Ask zsh for the split explicitly
+set -- ${=pair}                        # =  forces word splitting
+```
+
+**Signature to memorize:** an error quoting *two space-separated values inside
+one set of quotes* (`'origin/main origin/dev6...'`, `'mdpmdd-879 e6f6e07…'`)
+means an unquoted expansion didn't split. Paired with a second error about an
+*empty* argument (`'^{tree}'`, `empty string is not a valid pathspec`) from the
+variable that should have held field 2, it is conclusive.
+
+Do not "fix" this with `setopt SH_WORD_SPLIT` — it changes expansion semantics
+for the whole script and breaks correctly-quoted code elsewhere in it.
+
 ## Piping non-JSON into `jq`
 
 `jq: parse error: Invalid numeric literal` almost never means malformed JSON —
@@ -280,7 +369,7 @@ If you've reached this skill but none of the above patterns match, the problem p
 - Is the working directory what you expect? Shell history and IDE harnesses can confuse `cwd`.
 - Is the file mode actually executable? `stat -c '%A %n' <file>` — GNU syntax on every host here, including macOS (see the `stat` section above; BSD `-f` syntax breaks).
 
-After ruling those out, check [ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md) for nix-specific traps that surface as shell errors.
+After ruling those out, check [ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md) for nix-specific traps that surface as shell errors, or [git-troubleshooting](../git-troubleshooting/SKILL.md) when the failing command is `git` and the argument reached it intact.
 
 ## Quick checklist
 
@@ -293,6 +382,10 @@ After ruling those out, check [ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md) f
 - Subshells launched with `-l` / explicit `PATH` when nix-profile tools are needed.
 - Any `local` on an exported variable (`local PATH=…`) followed by `export` so zsh children still inherit it.
 - zsh globs guarded (`(N)`, `fd`, or `setopt nullglob`) so no-match doesn't abort.
+- Every argument containing `?`, `*`, `[`, or `~` quoted — URLs and `gh api`
+  paths with `?ref=…` included.
+- No reliance on implicit word splitting (`set -- $var`, `for x in $list`,
+  `arr=($var)`) — zsh yields one word; use an array or `${=var}`.
 
 ## References
 

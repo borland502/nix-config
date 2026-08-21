@@ -46,8 +46,9 @@ This is *not* something a session needs to wire up — if the host has had `home
 - `--classify` aggregate failure categories across the window (`--days`
   defaults to 21 here), including the `.zst` archives: buckets each record's
   output into named categories (`stale-aws-creds`, `stat-dialect`,
-  `zsh-nullglob`, `gh-graphql-jq`, `jq-non-json-input`, …) and prints counts
-  plus example commands. Use for trend triage ("what keeps failing?"), not
+  `zsh-nullglob`, `zsh-word-split`, `gh-graphql-jq`, `jq-non-json-input`, …)
+  and prints counts plus example commands. Use for trend triage ("what keeps
+  failing?"), not
   single-session debugging. Heuristic — the log has no exit codes; records
   whose command is itself a log sweep are excluded, but real output quoting a
   marker still counts. Treat counts as leads. Needs `python3`.

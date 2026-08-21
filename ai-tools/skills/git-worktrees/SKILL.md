@@ -299,6 +299,18 @@ Ready to implement <feature-name>
 - **Problem:** Can't distinguish new bugs from pre-existing issues
 - **Fix:** Report failures, get explicit permission to proceed
 
+### Committing in a detached worktree
+
+- **Problem:** Worktrees are frequently created detached (`git worktree list`
+  shows `(detached HEAD)` — the most common state in this repo's session logs).
+  Commits made there belong to no branch and are invisible to `git branch` and
+  `git log <branch>`.
+- **Fix:** `git -C "$WT" symbolic-ref -q HEAD || git -C "$WT" branch <name> HEAD`
+  *before* any further checkout. See
+  [git-troubleshooting](../git-troubleshooting/SKILL.md) for recovery when the
+  commits are already unreferenced, and for `bad object` / `not a git
+  repository` errors caused by running git against the wrong worktree.
+
 ## Red Flags
 
 **Never:**
