@@ -3,9 +3,12 @@
 # Reprovision the root-level fixes that live outside this repo on host "tifa".
 #
 # tifa is a CachyOS (Arch) box with no entry in flake.nix, so `task switch`
-# never touches its system config. These four fixes were hand-applied to /etc
+# never touches its system config. These six fixes were hand-applied to /etc
 # and would be silently lost on a reinstall. This script is the only thing that
 # reproduces them.
+#
+# Sections 3 and 6 also touch the boot path (initramfs and the Limine kernel
+# cmdline respectively), so both require a reboot to take effect.
 #
 # run_once_ (not run_onchange_) is deliberate: chezmoi keys it on the rendered
 # script's hash in its own state DB, so it fires again on a fresh install where
@@ -42,7 +45,7 @@ fi
 SUDO=""
 sudo_ready=0
 
-# Resolved lazily, on first mutation only. A run where all four fixes are
+# Resolved lazily, on first mutation only. A run where all six fixes are
 # already in place must stay a silent no-op and never prompt for a password.
 ensure_root() {
   if [ "$sudo_ready" -eq 1 ]; then
@@ -94,6 +97,7 @@ install_if_changed() {
 # directive lines from before and after.
 nvidia_opts() {
   cat /etc/modprobe.d/nvidia-power.conf \
+    /etc/modprobe.d/nvidia-s0ix.conf \
     /etc/modprobe.d/zz-nvidia-rtd3-off.conf 2>/dev/null |
     grep -Ev '^[[:space:]]*(#|$)' | sort
 }
@@ -140,12 +144,43 @@ install_if_changed /etc/modprobe.d/zz-nvidia-rtd3-off.conf 0644 <<'PAYLOAD' || t
 options nvidia NVreg_DynamicPowerManagement=0x00
 PAYLOAD
 
+# --- 3. disable NVIDIA S0ix power management --------------------------------
+
+install_if_changed /etc/modprobe.d/nvidia-s0ix.conf 0644 <<'PAYLOAD' || true
+# Disable NVIDIA S0ix (suspend-to-idle) power management.
+#
+# Was =1 from 2026-08-03 until 2026-08-19. With
+# S0ixPowerManagementVideoMemoryThreshold at 256 MB against 4096 MB of VRAM,
+# =1 routes the dGPU's video memory through save/restore on EVERY s2idle
+# cycle. That is the exact path that emits, ~0.2s after
+# "PM: suspend entry (s2idle)":
+#
+#   NVRM: Check failed: Out of memory [NV_ERR_NO_MEMORY]
+#         returned from _memdescAllocInternal(pMemDesc) @ mem_desc.c:1338
+#
+# Set to 0 on 2026-08-19 after a third hard lock (14:31:47), which ruled out
+# the RTD3-off fix in section 2 -- DynamicPowerManagement=0 was verified
+# effective in /proc/driver/nvidia/params and the box locked anyway.
+#
+# This file was MISSED by the 2026-08-10 and 2026-08-12 triage rounds because
+# only /etc/modprobe.d/nvidia-*.conf files known to this script were checked.
+# When theorizing about nvidia parameters, always enumerate BOTH
+# /etc/modprobe.d/nvidia* AND /usr/lib/modprobe.d/nvidia*.
+#
+# Note this leaves S0ix PM off while PreserveVideoMemoryAllocations (section 1)
+# stays on -- section 1 handles the VRAM save that the resume freeze needs, and
+# does not depend on S0ix.
+#
+# Managed by chezmoi/run_once_provision-tifa-etc.sh.tmpl in the nix-config repo.
+options nvidia NVreg_EnableS0ixPowerManagement=0
+PAYLOAD
+
 initramfs_stale=0
 if [ "$opts_before" != "$(nvidia_opts)" ]; then
   initramfs_stale=1
 fi
 
-# --- 3. clean BLE HID disconnect before suspend -----------------------------
+# --- 4. clean BLE HID disconnect before suspend -----------------------------
 
 install_if_changed /etc/systemd/system-sleep/50-bt-le-hid-clean-disconnect 0755 <<'PAYLOAD' || true
 #!/usr/bin/env bash
@@ -229,7 +264,7 @@ esac
 exit 0
 PAYLOAD
 
-# --- 4. disable NVIDIA Dynamic Boost ----------------------------------------
+# --- 5. disable NVIDIA Dynamic Boost ----------------------------------------
 #
 # nvidia-powerd raised the RTX A2000 ceiling from its 80 W default to 86-91 W,
 # and the Dell EC paid for it by asserting ACPI _PPC against the i9-11950H.
@@ -269,6 +304,62 @@ else
   note "unchanged  initramfs (no modprobe.d change)"
 fi
 
+# --- 6. fix pstore crash capture (kernel cmdline) ---------------------------
+#
+# /sys/module/pstore/parameters/backend read "(null)" and no "pstore: Registered"
+# line ever appeared in dmesg, so NOTHING was captured for any of the three hard
+# locks. Root cause: the cmdline carried
+#
+#   efivars.pstore_disable=0
+#
+# but efi_pstore is BUILT IN here (modinfo says "filename: (builtin)") and its
+# parameter namespace is "efi_pstore", not "efivars". "efivars." is the old
+# pre-v3.9 spelling; the kernel silently ignores an unrecognized prefix rather
+# than complaining. Meanwhile CONFIG_EFI_VARS_PSTORE_DEFAULT_DISABLE=y makes the
+# default disabled, so the backend never registered and the intended override
+# never applied.
+#
+# Verify after reboot:
+#   cat /sys/module/efi_pstore/parameters/pstore_disable   # want N (was Y)
+#   cat /sys/module/pstore/parameters/backend              # want efi (was (null))
+#   ls /sys/fs/pstore/                                     # populated after a panic
+#
+# CAVEAT: pstore only captures on panic/oops. The 2026-08-19 lock never
+# panicked -- the NMI watchdog never fired despite hardlockup_panic=1, so the
+# hang was invisible to it, which is consistent with a GPU/PCIe-level hang
+# rather than a CPU deadlock. This fix covers the oops/panic case only. For a
+# silent hang, netconsole to another host on the LAN is the capture path that
+# actually works.
+
+readonly LIMINE_DEFAULTS=/etc/default/limine
+limine_stale=0
+
+if [ ! -f "$LIMINE_DEFAULTS" ]; then
+  warn "$LIMINE_DEFAULTS not found — cannot fix the pstore cmdline."
+elif grep -q 'efi_pstore\.pstore_disable=0' "$LIMINE_DEFAULTS"; then
+  note "unchanged  $LIMINE_DEFAULTS (efi_pstore.pstore_disable=0 already set)"
+elif grep -q 'efivars\.pstore_disable=' "$LIMINE_DEFAULTS"; then
+  ensure_root
+  # Bootloader config: keep a timestamped copy before touching it. limine-update
+  # also rotates $ESP_PATH/limine.conf.old, but that is the generated file, not
+  # this source of truth.
+  $SUDO cp -a "$LIMINE_DEFAULTS" "${LIMINE_DEFAULTS}.bak.$(date +%Y%m%d-%H%M%S)"
+  $SUDO sed -i 's/efivars\.pstore_disable=[01]/efi_pstore.pstore_disable=0/g' \
+    "$LIMINE_DEFAULTS"
+  note "PATCHED    $LIMINE_DEFAULTS (efivars. -> efi_pstore.)"
+  limine_stale=1
+else
+  warn "$LIMINE_DEFAULTS carries no *.pstore_disable= parameter to correct."
+  warn "Append 'efi_pstore.pstore_disable=0' to KERNEL_CMDLINE[default] by hand."
+fi
+
+if [ "$limine_stale" -eq 1 ]; then
+  note "cmdline changed — regenerating limine.conf (limine-update)"
+  ensure_root
+  $SUDO limine-update
+  note "REBOOT REQUIRED for the pstore cmdline to take effect"
+fi
+
 # --- drift checks -----------------------------------------------------------
 #
 # Non-fatal. These catch the two ways this script rots silently.
@@ -294,7 +385,33 @@ if command -v modprobe >/dev/null 2>&1; then
       warn "/proc/driver/nvidia/params, NOT /sys/module/nvidia/parameters/."
       ;;
     esac
+
+    case "$effective" in
+    *NVreg_EnableS0ixPowerManagement=1*)
+      warn "effective nvidia options still carry EnableS0ixPowerManagement=1:"
+      warn "  $effective"
+      warn "Something sorts after nvidia-s0ix.conf and re-enables it. Confirm"
+      warn "with: grep S0ix /proc/driver/nvidia/params  (want 0)"
+      ;;
+    esac
   fi
+fi
+
+# pstore: only meaningful once the machine has rebooted into the patched
+# cmdline, so report rather than fail. "(null)" means nothing will be captured.
+if [ -r /sys/module/pstore/parameters/backend ]; then
+  backend=$(cat /sys/module/pstore/parameters/backend 2>/dev/null || true)
+  case "$backend" in
+  "(null)" | "")
+    warn "pstore has no registered backend — crash capture is still dead."
+    warn "Expected until the next reboot. If it persists after rebooting, check"
+    warn "  grep pstore /proc/cmdline                              (want efi_pstore.)"
+    warn "  cat /sys/module/efi_pstore/parameters/pstore_disable   (want N)"
+    ;;
+  *)
+    note "ok         pstore backend=$backend"
+    ;;
+  esac
 fi
 
 note "done"
