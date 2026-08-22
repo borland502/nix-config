@@ -1,0 +1,363 @@
+#!/usr/bin/env zsh
+# rclone-mount — expose an rclone remote as a real directory, for file managers.
+#
+# Backend-neutral: the remote is named with --remote, so one script serves both
+# the Google Drive mount and the caitsith (Batocera) SMB share. Anything
+# backend-specific belongs in the caller, not here.
+#
+# Two things this exists to work around, both cases where the desktop's own
+# native access is broken or absent:
+#
+#   gdrive:   Dolphin has a native gdrive:/ KIO worker, and it does not work.
+#             kaccounts-providers ships a google.provider whose OAuth scope list
+#             contains NO Drive scope at all (userinfo/calendar/tasks/contacts/
+#             youtube.upload only), and google-drive.service declares no scope of
+#             its own. KAccounts therefore mints a token that authenticates fine
+#             and then gets 403 from the Drive API, which Dolphin renders as
+#             "Access denied to .". Enabling the Drive service or re-adding the
+#             account cannot fix it — the same scopeless token comes back. So is
+#             patching the provider XML: it is root-owned, pacman overwrites it
+#             on upgrade, and /auth/drive is a Google *restricted* scope the
+#             shared KDE client is not verified for. The rclone remote works
+#             because it uses OUR OAuth client (secrets/rclone-gdrive.json,
+#             scope=drive), which is authorized for Drive.
+#
+#   caitsith: Dolphin can reach smb://192.168.2.80/share natively, but only as a
+#             KIO URL — no real path, so non-KDE apps cannot open anything on it.
+#             SMB rather than SFTP because it is measurably faster where a file
+#             manager actually spends its time: listing roms/mame (5641 files)
+#             took 0.11s over SMB vs 0.23-0.32s over SFTP, and a stat-heavy
+#             recursive listing 0.24s vs 0.89s. Bulk throughput is a tie — both
+#             saturate gigabit at ~100 MiB/s. NOTE this couples the mount to the
+#             share being guest-readable; if system.security.enabled is ever set
+#             in batocera.conf, switch this remote to sftp (the host already
+#             has gesftpserver, and the remoting key already authenticates).
+#
+#   alisaie:  the Synology NAS. Mounted at the SERVER root, not a share: the
+#             rclone smb backend exposes shares as top-level directories, so a
+#             pathless mount puts all of /volume1 under one directory — which is
+#             the point here, where caitsith deliberately pins its single share.
+#             NFS is not an option for this mount and the choice was not close:
+#             rclone has no nfs backend at all (`rclone help backends` lists
+#             smb/sftp/ftp/webdav and no nfs — `rclone serve nfs` is the other
+#             direction), and DSM exports only /volume1/{automation,autoplex,
+#             squishy_saves,homes} to 192.168.2.0/24 against 16 shares over SMB,
+#             so NFS cannot reach most of the volume regardless of speed.
+#             Measured over SMB from tifa: 6702-file flat listing of roms/mame
+#             in 2.38s, 2 GiB sequential read in 27.1s (~75 MiB/s).
+#             The `home` share is NOT usable — DSM denies it to this account
+#             (NT_STATUS_ACCESS_DENIED) and there is no homes/jhettenh dir.
+#
+# Requires the named remote to exist. gdrive: comes from setup-gdrive-remote;
+# caitsith: is secret-free and can be recreated with
+#   rclone config create caitsith smb host=192.168.2.80 user=guest
+# alisaie: needs the sops credential, so it is recreated with
+#   u=$(sops -d secrets/alisaie.yaml | yq -r .alisaie.smb_user)
+#   p=$(sops -d secrets/alisaie.yaml | yq -r .alisaie.smb_password)
+#   rclone config create alisaie smb host=192.168.2.223 user="$u" \
+#     pass="$(rclone obscure "$p")"
+set -uo pipefail
+
+# No default remote: mounting the wrong tree over a directory is the one
+# mistake this script cannot undo for you, so the caller must always say which.
+remote_name=""
+remote_path=""
+mountpoint=""
+
+usage() {
+	cat <<'USAGE'
+Usage: rclone-mount --remote NAME [options]
+
+Mounts an rclone remote as a normal directory (default ~/NAME).
+Runs in the foreground by default, so systemd can supervise it directly and an
+interactive run can be stopped with Ctrl-C.
+
+Options:
+  --remote NAME      Remote to mount, e.g. gdrive, caitsith or alisaie (required)
+  --path SUBPATH     Mount only this subpath of the remote, e.g. share
+  --mountpoint DIR   Mount here instead of ~/NAME
+  --daemon           Background the mount and return immediately
+  --unmount          Unmount and exit
+  --status           Report whether the mountpoint is currently mounted
+  --check-auth       Exit 0 only if the remote exists and still authenticates
+  --read-only        Mount without write access
+  -h, --help         Show this help
+USAGE
+}
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+daemon=0
+do_unmount=0
+do_status=0
+do_check_auth=0
+read_only=0
+while (($#)); do
+	case "$1" in
+	--remote)
+		if [[ -z "${2:-}" ]]; then
+			print -u2 "rclone-mount: --remote requires a name"
+			usage
+			exit 2
+		fi
+		remote_name="$2"
+		shift
+		;;
+	--remote=*) remote_name="${1#*=}" ;;
+	--path)
+		if [[ -z "${2:-}" ]]; then
+			print -u2 "rclone-mount: --path requires a subpath"
+			usage
+			exit 2
+		fi
+		remote_path="$2"
+		shift
+		;;
+	--path=*) remote_path="${1#*=}" ;;
+	--mountpoint)
+		if [[ -z "${2:-}" ]]; then
+			print -u2 "rclone-mount: --mountpoint requires a directory"
+			usage
+			exit 2
+		fi
+		mountpoint="$2"
+		shift
+		;;
+	--mountpoint=*) mountpoint="${1#*=}" ;;
+	--daemon) daemon=1 ;;
+	--unmount) do_unmount=1 ;;
+	--status) do_status=1 ;;
+	--check-auth) do_check_auth=1 ;;
+	--read-only) read_only=1 ;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*)
+		print -u2 "rclone-mount: unknown argument: $1"
+		usage
+		exit 2
+		;;
+	esac
+	shift
+done
+
+# ── Derived defaults ──────────────────────────────────────────────────────────
+if [[ -z "$remote_name" ]]; then
+	print -u2 "rclone-mount: --remote is required."
+	usage
+	exit 2
+fi
+
+# A remote name reaches fusermount3, a systemd unit name, a log filename and a
+# mountpoint path. Reject anything that would not survive all four rather than
+# discovering it as a mangled mount three layers down.
+if [[ ! "$remote_name" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+	print -u2 "rclone-mount: invalid remote name '$remote_name'"
+	print -u2 "  Expected letters, digits, dash and underscore."
+	exit 2
+fi
+
+# The source rclone is asked to mount: "remote:" or "remote:subpath".
+remote_spec="${remote_name}:${remote_path}"
+
+: "${mountpoint:=$HOME/$remote_name}"
+log_file="${XDG_CACHE_HOME:-$HOME/.cache}/rclone-mount-${remote_name}.log"
+
+# ~ and relative paths both have to survive being handed to fusermount3 and
+# systemd, so normalise to an absolute path up front.
+mountpoint="${mountpoint/#\~/$HOME}"
+[[ "$mountpoint" == /* ]] || mountpoint="$PWD/$mountpoint"
+
+# is_mounted: mountpoint(1) is not guaranteed present, and a STALE fuse mount
+# (rclone killed without unmounting) makes any stat of the directory fail with
+# ENOTCONN rather than returning cleanly — so consult the kernel mount table
+# instead of touching the path itself.
+is_mounted() {
+	grep -qs " ${mountpoint} fuse" /proc/self/mountinfo ||
+		awk -v mp="$mountpoint" '$2 == mp { found = 1 } END { exit !found }' /proc/mounts 2>/dev/null
+}
+
+unmount_it() {
+	if ! is_mounted; then
+		return 0
+	fi
+	if command -v fusermount3 >/dev/null 2>&1; then
+		fusermount3 -u "$mountpoint" && return 0
+		# A busy mount (a shell cwd'd into it, Dolphin holding a handle) refuses
+		# a plain unmount; -z detaches now and cleans up when the last user lets
+		# go, which is the right trade for a convenience mount.
+		fusermount3 -uz "$mountpoint"
+	elif command -v fusermount >/dev/null 2>&1; then
+		fusermount -u "$mountpoint" || fusermount -uz "$mountpoint"
+	else
+		umount "$mountpoint" 2>/dev/null || umount -l "$mountpoint"
+	fi
+}
+
+# ── Query / teardown modes (before any dependency checks) ─────────────────────
+if ((do_status)); then
+	if is_mounted; then
+		print "rclone-mount: ${remote_name}: is mounted at $mountpoint"
+		exit 0
+	fi
+	print "rclone-mount: nothing mounted at $mountpoint"
+	exit 1
+fi
+
+if ((do_unmount)); then
+	if ! is_mounted; then
+		print "rclone-mount: nothing mounted at $mountpoint — nothing to do."
+		exit 0
+	fi
+	unmount_it
+	if is_mounted; then
+		print -u2 "rclone-mount: failed to unmount $mountpoint"
+		exit 1
+	fi
+	print "rclone-mount: unmounted $mountpoint"
+	exit 0
+fi
+
+# ── Authentication probe ──────────────────────────────────────────────────────
+# Used as the scheduled mount's ExecCondition, which is why it must distinguish
+# "not set up" from "broken": systemd treats a non-zero ExecCondition as a
+# reason to SKIP the unit cleanly rather than fail it, so a host that has never
+# run setup-gdrive-remote stays quiet instead of logging a failed unit at every
+# login. A genuinely expired token is the same story from systemd's point of
+# view — the mount is simply not attempted until the token is renewed by hand.
+#
+# `rclone about` is one cheap API call against the remote's quota endpoint. It
+# needs a live, authorized token, so it fails on a revoked or expired one where
+# a purely local `listremotes` check would still pass.
+if ((do_check_auth)); then
+	if ! command -v rclone >/dev/null 2>&1; then
+		print -u2 "rclone-mount: rclone not found."
+		exit 1
+	fi
+	if ! rclone listremotes 2>/dev/null | grep -qx "${remote_name}:"; then
+		print -u2 "rclone-mount: remote '${remote_name}:' is not configured."
+		exit 1
+	fi
+	# Bounded: an unreachable network at login must not hang the unit.
+	if ! timeout 30 rclone about "${remote_name}:" >/dev/null 2>&1; then
+		print -u2 "rclone-mount: remote '${remote_name}:' did not authenticate."
+		print -u2 "  The credential may be expired or revoked, or the host is down."
+		# Only OAuth backends have a token to renew; suggesting `reconnect` on an
+		# smb/sftp remote sends you at a command that cannot help.
+		if [[ "$(rclone config show "${remote_name}" 2>/dev/null | grep -c 'token')" -gt 0 ]]; then
+			print -u2 "  Renew the token with:  rclone config reconnect ${remote_name}:"
+		else
+			print -u2 "  Check the host is reachable:  rclone lsd ${remote_name}: --max-depth 1"
+		fi
+		exit 1
+	fi
+	print "rclone-mount: ${remote_name}: is configured and authenticated."
+	exit 0
+fi
+
+# ── Dependency checks (fail clearly, never silently) ──────────────────────────
+if ! command -v rclone >/dev/null 2>&1; then
+	print -u2 "rclone-mount: rclone not found."
+	print -u2 "  It ships in the shared package set (home-manager/common.nix):"
+	print -u2 "  run 'task switch' (or 'task home-switch') to install it."
+	exit 1
+fi
+
+# rclone shells out to fusermount3/fusermount to mount and to unmount; without
+# one on PATH it fails deep inside the mount with a far less obvious message.
+# It comes from the distro (fuse3), not from nix.
+if ! command -v fusermount3 >/dev/null 2>&1 && ! command -v fusermount >/dev/null 2>&1; then
+	print -u2 "rclone-mount: neither fusermount3 nor fusermount is on PATH."
+	print -u2 "  Install the distro's fuse3 package (Arch/CachyOS: pacman -S fuse3)."
+	exit 1
+fi
+
+if ! rclone listremotes 2>/dev/null | grep -qx "${remote_name}:"; then
+	print -u2 "rclone-mount: rclone remote '${remote_name}:' is not configured."
+	print -u2 "  gdrive:   run setup-gdrive-remote (needs a TTY; opens a browser)."
+	print -u2 "  caitsith: rclone config create caitsith smb host=192.168.2.80 user=guest"
+	print -u2 "  alisaie:  needs the sops-managed credential — see the header of this"
+	print -u2 "            script for the two-line recreate."
+	exit 1
+fi
+
+# ── Mountpoint preparation ────────────────────────────────────────────────────
+if is_mounted; then
+	print "rclone-mount: already mounted at $mountpoint — nothing to do."
+	exit 0
+fi
+
+# A stale mount left by a killed rclone answers every stat with ENOTCONN, which
+# would make both the mkdir and the emptiness check below fail confusingly.
+# Clear it first; harmless when there is nothing to clear.
+if ! ls "$mountpoint" >/dev/null 2>&1 && [[ -e "$mountpoint" ]]; then
+	print "rclone-mount: clearing stale mount at $mountpoint"
+	unmount_it
+fi
+
+if [[ ! -d "$mountpoint" ]]; then
+	mkdir -p "$mountpoint" || {
+		print -u2 "rclone-mount: could not create $mountpoint"
+		exit 1
+	}
+fi
+
+# rclone refuses a non-empty mountpoint, and rightly so: mounting over real
+# files hides them for the life of the mount.
+if [[ -n "$(ls -A "$mountpoint" 2>/dev/null)" ]]; then
+	print -u2 "rclone-mount: $mountpoint is not empty."
+	print -u2 "  Mounting over it would hide its contents. Empty it, or pass"
+	print -u2 "  --mountpoint DIR to mount somewhere else."
+	exit 1
+fi
+
+# ── Mount ─────────────────────────────────────────────────────────────────────
+# --vfs-cache-mode writes is the floor for a file manager: without it rclone
+# only supports sequential writes, so ordinary save-in-place behaviour (open
+# read-write, seek, rewrite a header) fails outright. Drive has no partial
+# upload, so a written file is staged locally and uploaded on close either way.
+#
+# --dir-cache-time 5m with --poll-interval 1m: Drive supports change polling, so
+# edits made from another device show up within about a minute without paying
+# for a re-listing on every directory Dolphin opens.
+#
+# --umask 077 because this is a personal Drive: the mount should not be
+# world-readable just because rclone's default is 0777 minus the process umask.
+mount_args=(
+	"$remote_spec" "$mountpoint"
+	--vfs-cache-mode writes
+	--dir-cache-time 5m
+	--poll-interval 1m
+	--umask 077
+	--log-file "$log_file"
+	--log-level INFO
+)
+
+((read_only)) && mount_args+=(--read-only)
+((daemon)) && mount_args+=(--daemon)
+
+print "rclone-mount: mounting ${remote_spec} at $mountpoint"
+print "  log: $log_file"
+((daemon)) || print "  (foreground — Ctrl-C to unmount)"
+
+# Foreground runs own the mount for their whole lifetime, so tear it down on
+# exit however that happens. Backgrounded and systemd-supervised runs are
+# unmounted by --unmount instead.
+if ((!daemon)); then
+	trap 'unmount_it' INT TERM EXIT
+fi
+
+rclone mount "${mount_args[@]}"
+rc=$?
+
+if ((daemon)); then
+	if ((rc == 0)) && is_mounted; then
+		print "rclone-mount: mounted at $mountpoint"
+		print "  unmount with: rclone-mount --remote $remote_name --unmount"
+	else
+		print -u2 "rclone-mount: mount failed (exit $rc) — see $log_file"
+		exit 1
+	fi
+fi
+
+exit $rc
