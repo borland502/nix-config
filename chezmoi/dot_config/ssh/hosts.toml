@@ -139,10 +139,188 @@
   user = "root"
 
 [hosts.hassio]
-  hostname = "192.168.2.111"
+  hostname = "192.168.2.123"
   user = "root"
 
 [hosts.hassio-root]
-  hostname = "192.168.2.111"
+  hostname = "192.168.2.123"
   port = 2222
   user = "hassio"
+
+# --- Proxmox cluster (autoplex homelab), enumerated from the PVE API on
+# 2026-08-22 via the vault credential (KeePass Proxmox Servers entry). IPs are
+# authoritative from the API. DHCP guests stopped at enumeration time are omitted
+# (no stable address): excalidraw/133, apt-cacher-ng/131, dockge/113, and the two
+# passthrough VMs Win11Mk2/104 & Gaming/115 (no bridged NIC). hassio (VM 102) is
+# NOT here — it already had an entry above, whose IP this run corrected.
+# All reached with the remoting key as root, matching the other own-hosts. The key
+# was authorized on all 4 nodes and every running guest on 2026-08-22 (nodes share
+# authorized_keys via PVE cluster sync; guests seeded via pct/qm exec). hassio is
+# the exception — HAOS ignores /root/.ssh, its root ssh is the HA add-on on 2222.
+# Any guest that was stopped then needs provisioning when next started. Table names
+# are the PVE guest names; a -<vmid> suffix disambiguates duplicate names.
+
+[hosts.lyse]  # PVE cluster node
+  hostname = "192.168.2.9"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.mara]  # PVE cluster node
+  hostname = "192.168.2.14"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.minfilia]  # PVE cluster node
+  hostname = "192.168.2.15"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.salmissra]  # PVE cluster node
+  hostname = "192.168.2.12"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.caddy-101]  # lxc 101 on lyse
+  hostname = "192.168.2.70"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.npmplus]  # lxc 103 on lyse
+  hostname = "192.168.2.159"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.plex]  # lxc 105 on lyse
+  hostname = "192.168.2.62"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.watchyourlan]  # lxc 108 on lyse
+  hostname = "192.168.2.222"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.postgresql]  # lxc 110 on lyse
+  hostname = "192.168.2.8"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.apt-cacher-ng]  # lxc 111 on lyse
+  hostname = "192.168.2.68"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.autoplex]  # qemu 112 on lyse
+  hostname = "192.168.2.115"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.gitea]  # lxc 114 on lyse
+  hostname = "192.168.2.39"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.zoraxy]  # lxc 120 on lyse
+  hostname = "192.168.2.137"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.technitiumdns]  # lxc 100 on mara
+  hostname = "192.168.2.19"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.magicmirror]  # lxc 130 on mara
+  hostname = "192.168.2.106"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.runtipi]  # lxc 106 on minfilia
+  hostname = "192.168.2.82"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.pbs]  # lxc 107 on minfilia
+  hostname = "192.168.2.5"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.cloudflared]  # lxc 124 on minfilia
+  hostname = "192.168.2.152"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.nextcloudpi]  # lxc 134 on minfilia
+  hostname = "192.168.2.60"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.fenrus]  # lxc 109 on salmissra  (stopped; static IP)
+  hostname = "192.168.2.149"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.caddy-116]  # lxc 116 on salmissra  (stopped; static IP)
+  hostname = "192.168.2.52"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.influxdb]  # lxc 117 on salmissra
+  hostname = "192.168.2.227"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.dashy-118]  # lxc 118 on salmissra
+  hostname = "192.168.2.71"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.worksites-dashy]  # lxc 119 on salmissra  (stopped; static IP)
+  hostname = "192.168.2.78"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+[hosts.dashy-132]  # lxc 132 on salmissra  (stopped; static IP)
+  hostname = "192.168.2.79"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+# --- Technitium DNS cross-reference (dns.local.technohouser.com / 192.168.2.19,
+# the technitiumdns LXC above), ingested 2026-08-22. Every IP that DNS and this
+# file share AGREES — no IP conflicts. Recorded here because DNS is the naming
+# authority and its canonical names differ from the PVE guest names used as
+# table names above:
+#   technitiumdns (.19)  is  dns.local.technohouser.com
+#   npmplus       (.159) is  npm.local.technohouser.com   (+ *.npm wildcard)
+#   postgresql    (.8)   is  postgres.local.technohouser.com
+#   zoraxy        (.137) is  *.zoraxy.technohouser.com     (reverse-proxy wildcard)
+#   lyse/.9, pbs/.5, autoplex/.115  match by name too.
+# DNS knows one host this file does NOT: *.casaos.technohouser.com -> 192.168.2.18,
+# which is not a PVE guest (a separate CasaOS box). DNS coverage is otherwise
+# sparse: only ~9 hosts have A records, so most guests above resolve by IP only.
+# The forward zones served are: local / npm / zoraxy / casaos .technohouser.com.
