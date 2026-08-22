@@ -1,0 +1,123 @@
+# hosts-toml — shared inventory access and reporting helpers.
+#
+# Source this file; do not execute it:
+#   TAG=myscript
+#   source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/lib/hosts-toml"
+#
+# Set TAG before sourcing — note/warn/die prefix every line with it, so the
+# output still names the script the user actually ran.
+#
+# Extracted from wake and remote-desktop, which had grown byte-identical copies
+# of all of this. Anything here must stay useful to BOTH: script-specific
+# wording belongs in the caller, not in a shared helper that has to hedge.
+#
+# Callers inherit `set -euo pipefail` from their own preamble; this file sets no
+# shell options of its own so it cannot surprise a future caller that wants
+# different ones.
+#
+# Managed by chezmoi (chezmoi/dot_local/lib/hosts-toml).
+
+# The inventory. Overridable for testing against a scratch file.
+: "${HOSTS_TOML:="$HOME/.config/ssh/hosts.toml"}"
+
+: "${TAG:=hosts-toml}"
+
+note() { printf '%s: %s\n' "$TAG" "$*"; }
+warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
+die() {
+	printf '%s: %s\n' "$TAG" "$*" >&2
+	exit 1
+}
+
+need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required but not on PATH"; }
+
+# ── Inventory ────────────────────────────────────────────────────────────────
+# The parsed inventory, held in a variable rather than re-read per lookup.
+#
+# Parsing eagerly, from the CALLER'S shell, is the whole point. Every accessor
+# below is used inside `$(...)`, and a subshell cannot write its cache back to
+# the parent — so a lazily-populated cache would be repopulated by each and
+# every lookup and save nothing. hosts_load runs once in the parent, and the
+# subshells then inherit an already-populated variable. Before this, a `--list`
+# over 8 hosts reading 2 fields each spawned ~17 taplo processes to parse the
+# same unchanging file; now it spawns one.
+#
+# The second benefit is that an unreadable inventory is now fatal where it is
+# noticed. The old per-call check ran inside a subshell, where `die` exits only
+# that subshell: the caller carried on with an empty host list and reported
+# every host as unknown rather than saying the file could not be read.
+_HOSTS_JSON=""
+
+hosts_load() {
+	[ -n "$_HOSTS_JSON" ] && return 0
+	need taplo
+	need jq
+	[ -r "$HOSTS_TOML" ] || die "cannot read $HOSTS_TOML"
+	_HOSTS_JSON=$(taplo get -f "$HOSTS_TOML" -o json 'hosts') ||
+		die "could not parse $HOSTS_TOML"
+	[ -n "$_HOSTS_JSON" ] || die "$HOSTS_TOML has no [hosts] table"
+	return 0
+}
+
+hosts_json() {
+	hosts_load
+	printf '%s' "$_HOSTS_JSON"
+}
+
+host_names() { hosts_json | jq -r 'keys[]'; }
+
+# Any scalar key under [hosts.<name>]; empty when absent. Callers apply their
+# own placeholder (`${addr:-?}`), since what reads well differs per column.
+host_field() { hosts_json | jq -r --arg h "$1" --arg f "$2" '.[$h][$f] // empty'; }
+
+host_known() { host_names | grep -qx "$1"; }
+
+# hosts.toml keys are hostnames, so a key matching this machine means "self".
+# Callers must special-case it: a host almost never has its own key in
+# known_hosts, so `ssh tifa` from tifa fails verification and would be reported
+# as unreachable while it is plainly right here.
+is_self() { [ "$1" = "$(hostname -s 2>/dev/null || hostname)" ]; }
+
+# ── Remote probing ───────────────────────────────────────────────────────────
+# Cheap liveness probe. ICMP rather than ssh: a host mid-boot answers ping well
+# before sshd is listening, and for "is it coming up" that is the question.
+is_up() { ping -c 1 -W 1 "$1" >/dev/null 2>&1; }
+
+# Run a snippet on a host and print its stdout. Returns 2 — and ONLY 2 — when
+# ssh could not reach the host at all.
+#
+# That distinction is the reason this is a shared helper rather than an inline
+# ssh call. Both callers ask a host a question whose answer may legitimately be
+# empty ("no wired NIC", "serving no remoting port"), and both must tell that
+# apart from "never got there". Conflating them sends you debugging a service
+# on a host you never actually reached — a Pi that refuses your key gets
+# reported as having no ethernet, and you go hunting through BIOS.
+#
+# Two pieces make it work, and neither is optional:
+#   * `|| true` on the REMOTE side, so a command that legitimately finds
+#     nothing (grep with no match) still exits 0. Without it, "found nothing"
+#     and "could not connect" are the same non-zero again. Callers must keep
+#     their snippet non-fatal; this wrapper cannot do it for them, since only
+#     the snippet knows which of its own failures are expected.
+#   * `-n` on ssh, which is load-bearing rather than decoration: both callers
+#     invoke this inside a `while read` loop, and without it ssh inherits and
+#     drains the loop's stdin, so the listing stops dead after the first host.
+#
+# BatchMode keeps ssh from prompting and ConnectTimeout bounds a down host to
+# six seconds instead of a stall.
+ssh_probe() {
+	local host=$1 snippet=$2 out rc
+	out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$host" "$snippet" 2>/dev/null)
+	rc=$?
+
+	printf '%s' "$out"
+	[ "$rc" -eq 255 ] && return 2
+	return 0
+}
+
+# The advice both callers give when ssh_probe returns 2. Kept together with the
+# probe so the wording cannot drift apart again.
+warn_unreachable() {
+	warn "Check it directly to see the real error:  ssh $1 true"
+	warn "A changed or unknown host key is the usual cause."
+}

@@ -77,6 +77,67 @@
   identityfile = "~/.ssh/id_remoting"
   user = "jhettenh"
 
+# The arcade cabinet: Batocera v42, reached with the same remoting key as the
+# hosts above. Two things differ, and both are dropbear's doing — Batocera ships
+# dropbear, not OpenSSH, so this host is NOT provisioned by
+# run_onchange_provision-linux-host.sh and its sshd settings have no drop-in.
+#
+#   * `user = "root"` because Batocera has no other account: root's HOME is
+#     /userdata/system, which is also where its authorized_keys must live (the
+#     rootfs is a tmpfs overlay and would lose it; /userdata is real ext4).
+#     PermitRootLogin no, which every other host here sets, is therefore not
+#     available — key-only root is the tightest this host can be.
+#
+#   * The authorized_keys line uses dropbear's DENY-list options
+#     (no-agent-forwarding,no-X11-forwarding) rather than the
+#     `restrict,port-forwarding,pty` that provision-linux-host writes. Dropbear
+#     has no positive re-enabling options, so that string is rejected outright
+#     and the key never authenticates. Measured on v2024.86: bare `restrict`
+#     denies the pty but still ALLOWS port forwarding, so it is both too strict
+#     and too loose. The deny-list above reproduces the OpenSSH line's effective
+#     permissions exactly: shell + port-forwarding, no agent, no X11.
+#
+# No `desktop` key: it serves no RDP/VNC, so no Remmina profile is generated for
+# it. No `mac` either — the wired NIC is e4:54:e8:07:71:8e, but nothing in this
+# repo configures a Wake-on-LAN receiving side on Batocera, so recording it
+# would promise a wake that may never arrive.
+[hosts.caitsith]
+  hostname = "192.168.2.80"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
+# Synology NAS (DSM 7.x). Serves SMB/AFP (445/548), DSM on 5000/5001, rsync on
+# 873 — and unlike caitsith its SMB guest account is DISABLED
+# (NT_STATUS_ACCOUNT_DISABLED), so any share mount needs real credentials. Those
+# live encrypted in secrets/alisaie.yaml; see home-manager/modules/sops.nix.
+#
+# `user` is taken from the only prior use recorded on this machine
+# (`ssh root@alisaie.local` in zsh history). DSM 7 disables root ssh by default,
+# so if that account was renamed, correct this to match `alisaie.admin_user` in
+# the encrypted file — nothing else here depends on the value.
+#
+# The remoting key IS authorized here now, in /root/.ssh/authorized_keys, with
+# the same `restrict,port-forwarding,pty` options the OpenSSH hosts use — DSM
+# runs OpenSSH 8.2p1, so unlike caitsith's dropbear that string is honoured
+# verbatim. identitiesonly keeps ssh from burning DSM's MaxAuthTries offering
+# other keys first. Pre-existing authorized keys on the NAS were preserved.
+#
+# DSM enforces StrictModes strictly and fails SILENTLY when it trips: a
+# group-writable home makes sshd ignore authorized_keys entirely and fall back
+# to a password prompt, which reads as "the key was rejected". If key auth ever
+# stops working here, check `ls -ld /root /root/.ssh` before suspecting the key.
+#
+# No `desktop` key: DSM is a web UI on 5001, not an RDP/VNC session, so
+# remote-desktop has nothing to detect and no Remmina profile is generated.
+# No `mac`: nothing in this repo configures Wake-on-LAN on a Synology, and the
+# NAS is not a machine that gets powered off.
+[hosts.alisaie]
+  hostname = "192.168.2.223"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
+
 [hosts.hassio]
   hostname = "192.168.2.111"
   user = "root"
