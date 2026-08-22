@@ -70,6 +70,40 @@ in {
       # mode 0600 is mandatory: ssh refuses a private key that is group- or
       # world-readable, and sops-nix defaults to 0400 for the *owner* only,
       # which ssh accepts but which surprises anything that tries to rewrite it.
+      # Synology NAS (alisaie) share credentials.
+      #
+      # Only the SMB half is materialized. The admin credential stays encrypted
+      # and is read on demand — nothing should be handed an admin password
+      # automatically, and it was needed exactly once, to authorize the remoting
+      # key above. Same arrangement as secrets/rclone-gdrive.json:
+      #   sops -d secrets/alisaie.yaml | yq -r .alisaie.admin_password
+      #
+      # mode 0600 rather than sops-nix's 0400 default: rclone reads this at
+      # every mount, and 0400 invites a later "fix" that rewrites it wholesale.
+      "alisaie/smb_password" = {
+        sopsFile = ../../secrets/alisaie.yaml;
+        path = "${config.home.homeDirectory}/.config/rclone/alisaie-smb-password";
+        mode = "0600";
+      };
+
+      # KeePassXC master password.  The database at
+      # ~/.local/share/keypass/secrets.kdbx needs all three of password, key
+      # file (~/.local/state/keepass/secrets.keyx) and a YubiKey slot-2
+      # challenge-response; only the password is a secret this repo can hold.
+      # The key file is deliberately kept out of sops: it is mirrored to Drive
+      # by sync-to-gdrive for portability, so putting it here would create a
+      # second, diverging copy.
+      #
+      # mode 0600 rather than sops-nix's 0400 default, for the same reason as
+      # alisaie/smb_password: ~/.local/bin/keepass redirects this file onto
+      # keepassxc-cli's stdin on every call, and 0400 invites a later "fix"
+      # that rewrites it wholesale.
+      "keepassxc/master_password" = {
+        sopsFile = ../../secrets/keepassxc.yaml;
+        path = "${config.home.homeDirectory}/.config/keepass/password";
+        mode = "0600";
+      };
+
       "remoting/ssh_private_key" = {
         sopsFile = ../../secrets/remoting-ssh.yaml;
         path = "${config.home.homeDirectory}/.ssh/id_remoting";
