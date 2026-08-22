@@ -1,0 +1,132 @@
+#!/usr/bin/env zsh
+# keepass — keepassxc-cli with this host's composite key already assembled.
+#
+# The database is protected by all three factors KeePassXC supports, and
+# keepassxc-cli is stateless — every invocation must be handed all three:
+#
+#   password   sops-managed, materialized at ~/.config/keepass/password
+#              (secrets/keepassxc.yaml -> home-manager/modules/sops.nix).
+#              Fed on stdin, never as an argv element, so it never appears in
+#              /proc/<pid>/cmdline or shell history.
+#   key file   ~/.local/state/keepass/secrets.keyx — the one canonical copy.
+#              Four byte-identical copies used to be scattered across
+#              .local/state/{,keepass/,keypass/} and ~/Downloads; the other
+#              three were deleted 2026-08-22, locally and from the gdrive
+#              backup, so there is exactly one path to keep in sync now.
+#              Note the spelling: the key file is under state/keePass while
+#              the database is under share/keyPass. That mismatch is real, not
+#              a typo here.
+#   yubikey    HMAC-SHA1 challenge-response on slot 2.
+#
+# Why the yubikey is addressed by SLOT ONLY, never slot:serial — two YubiKeys
+# are enrolled against this database (serials 19116593 and 27682300), both
+# carrying the same slot-2 secret, so either one opens it. Pinning a serial
+# (as the stale ~/.config/keepass/yubikey.serial does) makes the CLI fail with
+# "Could not find hardware key with serial number ..." whenever the *other* key
+# is the one plugged in. Slot-only lets keepassxc use whichever is present.
+# Set KEEPASS_YUBIKEY_SLOT=2:<serial> if you ever do want to pin one.
+#
+# Usage mirrors keepassxc-cli, minus the database argument:
+#   keepass ls /                     # list the root group
+#   keepass show -a Password 'Some/Entry'
+#   keepass search github
+#   keepass db-info
+#   keepass check                    # verify all three factors line up
+#
+# `keepassxc-cli open` (the interactive sub-shell) is NOT wrapped: it reads its
+# commands from the same stdin the password is piped on, so the pipe closes it
+# immediately. Run keepassxc-cli directly for that.
+set -uo pipefail
+
+KP_DB=${KEEPASS_DB:-$HOME/.local/share/keypass/secrets.kdbx}
+KP_KEYFILE=${KEEPASS_KEYFILE:-$HOME/.local/state/keepass/secrets.keyx}
+KP_SLOT=${KEEPASS_YUBIKEY_SLOT:-2}
+KP_PASSFILE=${KEEPASS_PASSWORD_FILE:-$HOME/.config/keepass/password}
+
+die() {
+	print -ru2 -- "keepass: $*"
+	exit 1
+}
+
+# Subcommands that take no database argument, so the composite key is
+# irrelevant and piping a password to them would just confuse the prompt.
+NO_DB=(generate diceware estimate --help -h --version -v)
+
+usage() {
+	print -r -- "usage: keepass <keepassxc-cli-subcommand> [args...]"
+	print -r -- "       keepass check"
+	print -r -- ""
+	print -r -- "db:      $KP_DB"
+	print -r -- "keyfile: $KP_KEYFILE"
+	print -r -- "yubikey: slot $KP_SLOT"
+	print -r -- "password file: $KP_PASSFILE"
+}
+
+(($#)) || {
+	usage
+	exit 2
+}
+
+command -v keepassxc-cli >/dev/null || die "keepassxc-cli not on PATH (nix package: keepassxc)"
+
+sub=$1
+shift
+
+if ((${NO_DB[(Ie)$sub]})); then
+	exec keepassxc-cli "$sub" "$@"
+fi
+
+[[ -r $KP_DB ]] || die "database not readable: $KP_DB"
+[[ -r $KP_KEYFILE ]] || die "key file not readable: $KP_KEYFILE"
+[[ -r $KP_PASSFILE ]] || die "password file not readable: $KP_PASSFILE
+  It is a sops secret — run 'task home-switch' in the nix-config repo to
+  materialize it, or see secrets/keepassxc.yaml."
+
+# secrets/keepassxc.yaml ships with a placeholder so the flake evaluates before
+# anyone has typed the real master password into it. Say so plainly rather than
+# letting keepassxc report a generic HMAC mismatch.
+if [[ $(<$KP_PASSFILE) == REPLACE-ME-* ]]; then
+	die "the sops secret still holds its placeholder value.
+  Run: zsh ~/.cache/claude/2026-08-22-keepass-sops-provision.sh
+  then re-run 'task home-switch'."
+fi
+
+# `check` is not a keepassxc-cli subcommand; it is db-info plus a human verdict.
+verdict=0
+if [[ $sub == check ]]; then
+	sub=db-info
+	verdict=1
+	set --
+fi
+
+# --- Password on stdin, never argv. keepassxc-cli's own -q would also swallow
+# --- its error messages, so instead the password prompt (which it writes with
+# --- no trailing newline, so it prefixes the first line of real output) is
+# --- stripped back out here. stdout and stderr are captured together and then
+# --- routed by exit status: on success the caller gets clean, parseable output;
+# --- on failure it all goes to stderr with the diagnostic intact.
+out=$(keepassxc-cli "$sub" \
+	--key-file "$KP_KEYFILE" \
+	--yubikey "$KP_SLOT" \
+	"$KP_DB" "$@" <"$KP_PASSFILE" 2>&1)
+rc=$?
+out=${out//"Enter password to unlock $KP_DB: "/}
+out=${out#$'\n'} # the newline keepassxc echoes after reading the password
+
+if ((verdict)); then
+	if ((rc == 0)); then
+		print -r -- "keepass: OK — password, key file and yubikey slot $KP_SLOT all accepted."
+		print -r -- "$out"
+	else
+		print -ru2 -- "keepass: FAILED to unlock $KP_DB"
+		print -ru2 -- "$out"
+	fi
+	exit $rc
+fi
+
+if ((rc == 0)); then
+	print -r -- "$out"
+else
+	print -ru2 -- "$out"
+fi
+exit $rc

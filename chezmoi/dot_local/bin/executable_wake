@@ -21,16 +21,14 @@
 
 set -euo pipefail
 
-readonly HOSTS_TOML="${HOSTS_TOML:-$HOME/.config/ssh/hosts.toml}"
-
 readonly TAG=wake
 
-note() { printf '%s: %s\n' "$TAG" "$*"; }
-warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
-die() {
-	printf '%s: %s\n' "$TAG" "$*" >&2
-	exit 1
-}
+# Inventory access (hosts_load/host_field/host_known), note/warn/die, need,
+# is_self, is_up, and ssh_probe all live in the shared lib, which
+# remote-desktop sources too. lib/ sits two levels up from this file
+# (…/bin/wake → …/lib/…).
+# shellcheck source=../lib/hosts-toml disable=SC1091
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/lib/hosts-toml"
 
 usage() {
 	cat <<'EOF'
@@ -47,24 +45,6 @@ as soon as the packet is away.
 EOF
 }
 
-need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required but not on PATH"; }
-
-hosts_json() {
-	[ -r "$HOSTS_TOML" ] || die "cannot read $HOSTS_TOML"
-	taplo get -f "$HOSTS_TOML" -o json 'hosts'
-}
-
-host_names() { hosts_json | jq -r 'keys[]'; }
-host_field() { hosts_json | jq -r --arg h "$1" --arg f "$2" '.[$h][$f] // empty'; }
-host_known() { host_names | grep -qx "$1"; }
-
-# hosts.toml keys are hostnames, so a key matching this machine means "self".
-is_self() { [ "$1" = "$(hostname -s 2>/dev/null || hostname)" ]; }
-
-# Cheap liveness probe. ICMP rather than ssh: a host mid-boot answers ping well
-# before sshd is listening, and for "did the packet work" that is the question.
-is_up() { ping -c 1 -W 1 "$1" >/dev/null 2>&1; }
-
 # The WIRED MAC of a host, asked of the host itself over ssh, for the --list
 # nag. Only answerable while the host is up — which is the point being made.
 #
@@ -78,16 +58,16 @@ is_up() { ping -c 1 -W 1 "$1" >/dev/null 2>&1; }
 # Wireless devices have a `wireless` directory; virtual ones (docker0, veth,
 # bridges) have no `device` symlink. What is left is a real wired NIC.
 #
-# Exit 2 means the host could not be reached over ssh at all, which must NOT
-# read as "has no wired NIC" — the same distinction remote-desktop draws for its
-# port probe. hassio makes it concrete: it refuses the remoting key, and
-# reporting that as "no wired NIC" on a Pi that is plainly on ethernet sends you
-# off to fix the wrong thing entirely. `|| true` on the remote side is what
-# makes the status meaningful: without it a host that simply has no wired NIC
-# exits non-zero too, and the two become indistinguishable again.
+# Returns 2 (from ssh_probe) when the host could not be reached over ssh at
+# all, which must NOT read as "has no wired NIC". hassio makes it concrete: it
+# refuses the remoting key, and reporting that as "no wired NIC" on a Pi that is
+# plainly on ethernet sends you off to fix the wrong thing entirely. The
+# trailing `|| true` inside the snippet is what keeps that distinction alive —
+# see ssh_probe in lib/hosts-toml.
 wired_mac() {
 	local out rc
-	out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=6 "$1" '
+	# shellcheck disable=SC2016 # $d/$n must expand on the REMOTE host, not here
+	out=$(ssh_probe "$1" '
 		{ for d in /sys/class/net/*/; do
 			n=${d%/}; n=${n##*/}
 			[ "$n" = lo ] && continue
@@ -95,12 +75,10 @@ wired_mac() {
 			[ -e "$d/device" ] || continue
 			cat "$d/address"
 		done; } || true
-	' 2>/dev/null)
-	rc=$?
+	') && rc=0 || rc=$?
 
 	printf '%s' "$out" | head -1
-	[ "$rc" -eq 255 ] && return 2
-	return 0
+	return "$rc"
 }
 
 do_list() {
@@ -137,7 +115,7 @@ do_list() {
 		suggestion=$(wired_mac "$h") && rc=0 || rc=$?
 		if [ "$rc" -eq 2 ]; then
 			warn "$h is up but could not be reached over ssh to read its MAC."
-			warn "Check it directly to see the real error:  ssh $h true"
+			warn_unreachable "$h"
 		elif [ -n "$suggestion" ]; then
 			note "$h is up but has no mac — add to [hosts.$h] in hosts.toml:"
 			note "    mac = \"$suggestion\""
@@ -178,7 +156,7 @@ do_wake() {
 		found=$(wired_mac "$host") && rc=0 || rc=$?
 		if [ "$rc" -eq 2 ]; then
 			warn "It is up now, but ssh to it failed, so its MAC could not be read."
-			warn "Check it directly to see the real error:  ssh $host true"
+			warn_unreachable "$host"
 		elif [ -n "$found" ]; then
 			warn "It is up now — add to [hosts.$host] in hosts.toml:"
 			warn "    mac = \"$found\""
@@ -233,8 +211,9 @@ do_wake() {
 }
 
 main() {
-	need taplo
-	need jq
+	# Parse the inventory once, here in the top-level shell, so the accessors
+	# below run against a variable instead of re-invoking taplo per lookup.
+	hosts_load
 
 	case "${1:---list}" in
 	-h | --help)
