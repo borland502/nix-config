@@ -4,6 +4,17 @@
   pkgs,
   lib,
   isWsl ? false,
+  # Set per host: true where the distro already ships a python at least as new
+  # as nixpkgs', so the nix one must not take `python3` on $PATH. See the
+  # comment on home.packages below.
+  #
+  # Every entry point that imports this file must define it in _module.args --
+  # home.nix, home-wsl.nix and home-darwin.nix all do. The `? false` below reads
+  # like a fallback and is not one: the module system maps over functionArgs and
+  # resolves each name through config._module.args, so a name missing there is an
+  # eval error ("attribute 'preferSystemPython' missing") rather than a default.
+  # isWsl above carries the same requirement.
+  preferSystemPython ? false,
   ...
 }: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
@@ -163,7 +174,10 @@
     delve
 
     # Python
-    python3
+    # The interpreter is appended to home.packages rather than listed here, so
+    # that preferSystemPython can leave it out. pipx and uv are unaffected:
+    # each carries its own python in its own closure and neither installs a
+    # `python3` of its own into the profile.
     pipxPatched
     uv
 
@@ -760,7 +774,24 @@ in {
     };
 
     # Common packages shared across Linux, WSL, and macOS.
-    packages = lib.filter availableOnHost commonPackages;
+    # Installing nixpkgs' python3 puts `python3` in ~/.nix-profile/bin, which
+    # precedes /usr/bin on $PATH and so becomes the interpreter that every
+    # `#!/usr/bin/env python3` on the machine resolves to — including scripts
+    # the distro installed, whose modules live in the distro python's
+    # site-packages and are invisible to the nix one. That is not a version
+    # skew that can be patched around: the two interpreters have separate
+    # module paths, and a distro package's C extensions are built against its
+    # own python ABI.
+    #
+    # So nixpkgs' python3 is only worth shadowing the system one when it is
+    # actually newer. Where the distro is level or ahead, preferSystemPython
+    # leaves it out of the profile and /usr/bin/python3 wins. Nothing here
+    # loses access to it: the ops-agent and kion-aws-refresh wrappers below
+    # invoke ${pkgs.python3} by absolute store path, and pipx, uv and yamllint
+    # bring their own — this only decides who owns the bare `python3` name.
+    packages =
+      lib.filter availableOnHost commonPackages
+      ++ lib.optional (!preferSystemPython) pkgs.python3;
 
     # Common home-manager settings
     stateVersion = "26.05";

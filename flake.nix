@@ -245,7 +245,14 @@
               # generic Linux host running standalone home-manager.
               users.jhettenh = {
                 imports = [./home-manager/home.nix];
-                _module.args.isNixos = true;
+                _module.args = {
+                  isNixos = true;
+
+                  # No distro python to defer to here, so nixpkgs' is the only
+                  # python and belongs on $PATH. home.nix defaults this the
+                  # other way for standalone home-manager on a distro.
+                  preferSystemPython = false;
+                };
               };
 
               # Optionally, use home-manager.extraSpecialArgs to pass arguments to home.nix

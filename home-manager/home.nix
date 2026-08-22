@@ -27,13 +27,24 @@
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   availableLinuxPackages = lib.filter availableOnHost linuxPackages;
 in {
-  _module.args.isWsl = lib.mkDefault false;
+  _module.args = {
+    isWsl = lib.mkDefault false;
 
-  # False here so standalone home-manager on a generic Linux distro (CachyOS on
-  # Tifa) never installs the GPU-dependent packages guarded in
-  # profiles/desktop-linux.nix. The NixOS host overrides this to true in
-  # flake.nix, where /run/opengl-driver exists and those packages work.
-  _module.args.isNixos = lib.mkDefault false;
+    # False here so standalone home-manager on a generic Linux distro (CachyOS
+    # on Tifa) never installs the GPU-dependent packages guarded in
+    # profiles/desktop-linux.nix. The NixOS host overrides this to true in
+    # flake.nix, where /run/opengl-driver exists and those packages work.
+    isNixos = lib.mkDefault false;
+
+    # This entry point is standalone home-manager on a general-purpose Linux
+    # distro (CachyOS on Tifa), where /usr/bin/python3 is 3.14 against nixpkgs'
+    # 3.13 — newer, and the owner of every distro python module on the box, so
+    # the nix interpreter stays out of the profile rather than shadowing it.
+    # The NixOS host re-imports this file and overrides the flag in flake.nix,
+    # having no system python to defer to; WSL and darwin have their own entry
+    # points and keep the default (false).
+    preferSystemPython = lib.mkDefault true;
+  };
 
   imports = [
     ./common.nix # Import common configuration

@@ -161,6 +161,10 @@
 in {
   _module.args.isWsl = lib.mkDefault false;
 
+  # False: macOS ships python 3.9 and has been winding its bundled python down
+  # for years, so nixpkgs' is both newer and the one worth having on $PATH.
+  _module.args.preferSystemPython = lib.mkDefault false;
+
   imports = [
     ./common.nix # Import common configuration
     ./modules/gdrive-sync.nix # daily launchd agent for sync-to-gdrive

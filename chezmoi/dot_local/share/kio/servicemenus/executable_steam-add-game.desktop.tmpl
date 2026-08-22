@@ -1,0 +1,62 @@
+# Dolphin right-click: add a Windows game or installer to Steam as a non-Steam
+# shortcut, pinned to Proton. Pairs with the CDEmu menu beside it — mount a
+# bin/cue, browse the disc, right-click the installer.
+#
+# inode/directory is deliberately NOT in the MimeType list, even though
+# steam-add-game handles a directory perfectly well by reading autorun.inf. KIO
+# matches on mimetype alone, so there is no way to offer the action on a mounted
+# disc without also offering it on every other folder on the machine — and with
+# no working submenu to nest it in (see below) that is two stray entries in
+# every folder's context menu. The directory form stays available from a
+# terminal: `steam-add-game /run/media/$USER/SOME_DISC`.
+#
+# It is also the better target in practice: autorun.inf routinely points at a
+# menu shell rather than the installer, as on the BF1942 discs where it names
+# AUTORUN.EXE and the thing you actually want is Setup.exe.
+#
+# Run inside kitty rather than detached: unlike cdemu-mount this is a
+# conversation, not a fire-and-forget action. It prints the appid it derived and
+# the next step, and its two most common outcomes — "several executables found,
+# name one" and "Steam is running" — are text you have to read. --hold keeps the
+# window up after it exits so the output survives. kitty specifically because
+# this repo's provisioning guarantees it on every Linux host (see PACKAGES in
+# run_onchange_provision-linux-host.sh.tmpl).
+# X-KDE-Submenu is deliberately absent, and must stay absent. Plasma 6.7's
+# KIO honours the key by filing the entry into a submenu list that
+# KFileItemActions then never renders — the entry does not appear anywhere at
+# all, with no warning and nothing in the logs. X-KDE-Show-In-Submenu is the
+# key KIO 6.29 actually reads, but for *plugin* actions rather than service
+# menus, so setting it merely stops the suppression; the actions still render
+# flat. There is no working way to group service-menu actions under a heading
+# on this Plasma version, so both actions sit directly in the context menu.
+#
+# Verified by building a KFileItemActions probe against libKF6KIOWidgets and
+# asking KIO what it would offer for a given file, rather than by right-clicking
+# and guessing — see docs/ if that harness is ever needed again.
+#
+# Type is not checked by KIO at all for files in this directory (Application and
+# Service behave identically), and NoDisplay is not consulted either. Type=
+# Application is the current documented form. NoDisplay is unnecessary regardless:
+# the application launcher only scans applications/ directories, never
+# kio/servicemenus, so a service menu was never at risk of appearing there.
+#
+# Autorun.exe and Setup.exe on one disc can carry different mimetypes
+# (application/x-msdownload and application/vnd.microsoft.portable-executable
+# respectively on the BF1942 discs), so the list below covers the PE spellings
+# rather than assuming one.
+[Desktop Entry]
+Type=Application
+Name=Steam
+Icon=steam
+MimeType=application/vnd.microsoft.portable-executable;application/x-ms-dos-executable;application/x-msdownload;application/x-dosexec;application/x-msi;
+Actions=steamAdd;steamPreview;
+
+[Desktop Action steamAdd]
+Name=Add to Steam (Proton)
+Icon=steam
+Exec=kitty --hold -e {{ .chezmoi.homeDir }}/.local/bin/steam-add-game %f
+
+[Desktop Action steamPreview]
+Name=Preview what would be added
+Icon=dialog-information
+Exec=kitty --hold -e {{ .chezmoi.homeDir }}/.local/bin/steam-add-game --dry-run %f

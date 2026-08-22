@@ -1,0 +1,777 @@
+#!/usr/bin/env python3
+"""steam-add-game — register a Windows game or installer as a non-Steam Steam
+shortcut and pin it to a Proton build, without Lutris or Heroic.
+
+A non-Steam game is not an install in any meaningful sense: it is one entry in
+``userdata/<id>/config/shortcuts.vdf`` (binary VDF) plus one entry under
+``config/config.vdf``'s ``CompatToolMapping`` (text VDF) naming the compat tool.
+Everything Lutris does around that -- prefix creation, Proton invocation, the
+runtime -- Steam already does itself once the shortcut exists. So the whole job
+is writing those two entries correctly, which is what this does.
+
+The disc-image flow it is built for, given a directory (a mounted bin/cue, see
+cdemu-mount):
+
+  1. steam-add-game /run/media/$USER/GAME_DISC
+     -> finds the installer via autorun.inf and adds it as a shortcut
+  2. launch it from Steam. Steam builds the Proton prefix and runs the installer
+     inside it, which is the part that has to be Steam's job: a prefix this
+     script built by hand would not be the one Steam later runs the game in.
+  3. steam-add-game "<...>/compatdata/<id>/pfx/drive_c/.../Game Folder"
+     -> takes over the installer's own shortcut, repointing it at the game
+
+Step 2 cannot be collapsed into step 1, and the local shortcuts.vdf shows why:
+its Battle.net entry points into ``compatdata/4260897906/pfx`` while carrying
+appid 4260897906 -- the prefix is named after the appid of the shortcut that
+created it, so the prefix cannot exist before the shortcut does. Two runs of
+this script are therefore unavoidable; what step 3 does *not* do is leave two
+shortcuts behind.
+
+That takeover is the whole point of step 3, and skipping it is the classic way
+to get a game that starts and dies. A second, separate shortcut hashes to a
+second appid, Steam builds it a second and empty prefix, and the game launches
+without the registry its installer wrote -- for Battlefield 1942 the GAMEDIR
+path and the ergc CD key, absent which BF1942.exe exits immediately and silently.
+Keeping the installer's appid keeps the install. Pass --keep-installer to hold
+on to the installer entry instead (useful for a game whose expansions ship their
+own installers); the game then gets its own shortcut and the prefix is shared by
+symlink.
+
+Deliberately dependency-free: the binary VDF reader/writer below is ~60 lines
+and is exercised by a byte-exact round-trip of the real file before any write,
+which is a stronger check than trusting an unpinned python-vdf from the distro.
+
+Steam must be closed. It holds both files in memory and rewrites them on exit,
+so edits made while it runs are silently discarded -- this refuses to run
+rather than let that happen.
+"""
+
+from __future__ import annotations
+
+import argparse
+import configparser
+import pathlib
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import time
+import zlib
+
+# Binary VDF type tags. shortcuts.vdf uses only these four.
+BIN_MAP = 0x00
+BIN_STRING = 0x01
+BIN_INT32 = 0x02
+BIN_END = 0x08
+
+# Installer names worth trying before falling back to "any single .exe", in
+# preference order. Matched case-insensitively: disc filesystems are routinely
+# uppercase.
+INSTALLER_NAMES = ("setup.exe", "install.exe", "autorun.exe", "start.exe")
+
+# Subdirectories that never hold the thing you want to launch, skipped when
+# scanning a disc for candidates.
+SKIP_DIRS = {"redist", "redistributables", "directx", "drivers", "support", "docs"}
+
+DEFAULT_PROTON = "proton_experimental"
+
+
+class Fatal(Exception):
+    pass
+
+
+# --- binary VDF -------------------------------------------------------------
+
+
+def _read_cstr(buf: bytes, i: int) -> tuple[str, int]:
+    end = buf.index(b"\x00", i)
+    return buf[i:end].decode("utf-8", "replace"), end + 1
+
+
+def vdf_parse(buf: bytes, i: int = 0) -> tuple[dict, int]:
+    """Parse one map from *buf* at *i*, returning it and the next offset."""
+    out: dict[str, object] = {}
+    while True:
+        if i >= len(buf):
+            # A truncated file is recoverable -- treat the map as closed rather
+            # than losing every shortcut before the damage.
+            return out, i
+        tag = buf[i]
+        i += 1
+        if tag == BIN_END:
+            return out, i
+        key, i = _read_cstr(buf, i)
+        if tag == BIN_MAP:
+            out[key], i = vdf_parse(buf, i)
+        elif tag == BIN_STRING:
+            out[key], i = _read_cstr(buf, i)
+        elif tag == BIN_INT32:
+            out[key] = struct.unpack_from("<i", buf, i)[0]
+            i += 4
+        else:
+            raise Fatal(f"unknown binary VDF tag {tag:#04x} at offset {i - 1}")
+
+
+def vdf_dump(obj: dict) -> bytes:
+    out = bytearray()
+    for key, val in obj.items():
+        kb = key.encode("utf-8") + b"\x00"
+        if isinstance(val, dict):
+            out += bytes([BIN_MAP]) + kb + vdf_dump(val)
+        elif isinstance(val, bool):
+            out += bytes([BIN_INT32]) + kb + struct.pack("<i", int(val))
+        elif isinstance(val, int):
+            out += bytes([BIN_INT32]) + kb + struct.pack("<i", val)
+        else:
+            out += bytes([BIN_STRING]) + kb + str(val).encode("utf-8") + b"\x00"
+    out += bytes([BIN_END])
+    return bytes(out)
+
+
+# --- appid ------------------------------------------------------------------
+
+
+def shortcut_appid(exe_field: str, app_name: str) -> int:
+    """Steam's non-Steam shortcut id: crc32 of the Exe and AppName fields, with
+    the top bit set so it cannot collide with a real Steam appid.
+
+    *exe_field* must be the value exactly as stored, quotes included -- the
+    quotes are part of the hashed string.
+
+    Note this is a convention, not a requirement: Steam honours whatever appid
+    the shortcut carries, and the entry only has to agree with the key used in
+    CompatToolMapping. Following the convention anyway is what lets SteamGridDB
+    and other artwork tools find the same shortcut.
+
+    It also means the id is only stable while Exe and AppName are -- re-pointing
+    a shortcut at a different exe changes its id and orphans its Proton mapping.
+    """
+    return zlib.crc32((exe_field + app_name).encode("utf-8")) | 0x80000000
+
+
+def as_int32(unsigned: int) -> int:
+    """Steam stores the appid as a signed int32; the same bits read unsigned are
+    what CompatToolMapping is keyed by."""
+    return unsigned - 2**32 if unsigned >= 2**31 else unsigned
+
+
+def exe_path(field: object) -> str:
+    """The bare path out of a shortcut's Exe field.
+
+    This script quotes Exe (the quotes are part of the string the appid is hashed
+    from), but Steam's own "Add a Non-Steam Game" dialog writes the path bare. Two
+    entries for the same executable therefore compare unequal unless the quotes
+    are stripped first -- which is how a hand-added shortcut ends up duplicated
+    rather than replaced.
+    """
+    return str(field).strip('"')
+
+
+def as_unsigned(signed: int) -> int:
+    """Inverse of as_int32, for reporting an appid read back out of a shortcut."""
+    return signed + 2**32 if signed < 0 else signed
+
+
+# --- text VDF (config.vdf) --------------------------------------------------
+
+
+def set_compat_tool(text: str, appid: int, tool: str) -> tuple[str, str]:
+    """Point *appid* at compat tool *tool* in config.vdf's CompatToolMapping.
+
+    Edits the block in place instead of reparsing and re-emitting the file.
+    config.vdf is Steam's own 47KB config with accounts, depots and download
+    settings in it; a full round-trip would risk reformatting all of that to fix
+    one three-line entry, so only the lines that must change are touched.
+
+    Returns the new text and a description of what changed.
+    """
+    lines = text.splitlines(keepends=True)
+
+    head = next(
+        (i for i, ln in enumerate(lines) if ln.strip() == '"CompatToolMapping"'),
+        None,
+    )
+    if head is None:
+        raise Fatal(
+            "no CompatToolMapping block in config.vdf -- set a Proton version "
+            "for any one game in Steam once, then re-run"
+        )
+
+    brace = head + 1
+    while brace < len(lines) and lines[brace].strip() != "{":
+        brace += 1
+    if brace >= len(lines):
+        raise Fatal("malformed CompatToolMapping block in config.vdf")
+
+    indent = re.match(r"[\t ]*", lines[head]).group(0) + "\t"
+    key = f'"{appid}"'
+
+    # Walk the mapping's own entries, tracking depth so a "name" belonging to a
+    # different appid's block is never mistaken for ours.
+    depth = 0
+    i = brace + 1
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if depth == 0 and stripped == "}":
+            break
+        if depth == 0 and stripped == key:
+            # Found it -- replace the tool name inside this entry's block.
+            j = i + 1
+            while j < len(lines) and lines[j].strip() != "}":
+                if lines[j].strip().startswith('"name"'):
+                    old = lines[j].split('"')[3]
+                    lines[j] = re.sub(
+                        r'("name"\s*")[^"]*(")', rf"\g<1>{tool}\g<2>", lines[j]
+                    )
+                    return "".join(lines), f"remapped {appid}: {old} -> {tool}"
+                j += 1
+            raise Fatal(f"entry {appid} exists but has no name key")
+        if stripped == "{":
+            depth += 1
+        elif stripped == "}":
+            depth -= 1
+        i += 1
+
+    entry = (
+        f"{indent}{key}\n"
+        f"{indent}{{\n"
+        f'{indent}\t"name"\t\t"{tool}"\n'
+        f'{indent}\t"config"\t\t""\n'
+        f'{indent}\t"priority"\t\t"250"\n'
+        f"{indent}}}\n"
+    )
+    lines.insert(brace + 1, entry)
+    return "".join(lines), f"mapped {appid} -> {tool}"
+
+
+# --- discovery --------------------------------------------------------------
+
+
+def steam_root() -> pathlib.Path:
+    for candidate in (
+        pathlib.Path.home() / ".steam/steam",
+        pathlib.Path.home() / ".local/share/Steam",
+        pathlib.Path.home() / ".var/app/com.valvesoftware.Steam/data/Steam",
+    ):
+        if (candidate / "userdata").is_dir():
+            return candidate
+    raise Fatal("no Steam installation found -- log into Steam at least once")
+
+
+def user_config_dir(root: pathlib.Path, want: str | None) -> pathlib.Path:
+    # "0" is Steam's placeholder for "no account", not a login.
+    users = sorted(
+        d for d in (root / "userdata").iterdir() if d.is_dir() and d.name != "0"
+    )
+    if want:
+        chosen = [d for d in users if d.name == want]
+        if not chosen:
+            raise Fatal(
+                f"no such Steam user {want} (found: {', '.join(d.name for d in users)})"
+            )
+        return chosen[0] / "config"
+    if not users:
+        raise Fatal("no Steam accounts under userdata/")
+    if len(users) > 1:
+        raise Fatal(
+            "several Steam accounts found -- pass --user with one of: "
+            + ", ".join(d.name for d in users)
+        )
+    return users[0] / "config"
+
+
+def steam_is_running() -> bool:
+    # pgrep -x, not a substring match: "steam-add-game" and "steamwebhelper"
+    # would both match a loose pattern, and the second outlives the client for
+    # a moment during shutdown.
+    return subprocess.run(["pgrep", "-x", "steam"], capture_output=True).returncode == 0
+
+
+def proton_tools(root: pathlib.Path) -> list[str]:
+    """Compat tools this install can actually use.
+
+    Custom builds (GE-Proton and friends) declare their own internal name in a
+    compatibilitytool.vdf, so those are read out. Valve's own Proton ships no
+    such file -- Steam knows those by appid -- so they are reported by directory
+    name with their conventional internal id alongside.
+    """
+    found: list[str] = []
+    for base in (
+        root / "compatibilitytools.d",
+        pathlib.Path.home() / ".steam/root/compatibilitytools.d",
+    ):
+        if not base.is_dir():
+            continue
+        for entry in sorted(base.iterdir()):
+            vdf = entry / "compatibilitytool.vdf"
+            if vdf.is_file():
+                names = re.findall(
+                    r'"([^"]*(?:GE|Proton|proton)[^"]*)"\s*\n?\s*\{',
+                    vdf.read_text(errors="replace"),
+                )
+                found.append(names[-1] if names else entry.name)
+            elif entry.is_dir():
+                found.append(entry.name)
+
+    common = root / "steamapps/common"
+    if common.is_dir():
+        for entry in sorted(common.glob("Proton*")):
+            tail = entry.name.removeprefix("Proton").strip(" -")
+            slug = "proton_" + (
+                re.sub(r"[^a-z0-9]+", "_", tail.lower()).strip("_") or "stable"
+            )
+            # "Proton 11.0" is proton_11, not proton_11_0.
+            slug = re.sub(r"_(\d+)_0$", r"_\1", slug)
+            found.append(f"{slug}  ({entry.name})")
+    return found
+
+
+def exe_from_autorun(directory: pathlib.Path) -> pathlib.Path | None:
+    """Resolve the target of a disc's autorun.inf, which is the disc author's
+    own answer to "what should run", and better than any heuristic."""
+    for name in ("autorun.inf", "AUTORUN.INF", "Autorun.inf"):
+        inf = directory / name
+        if not inf.is_file():
+            continue
+        parser = configparser.ConfigParser(strict=False, interpolation=None)
+        parser.optionxform = str.lower
+        try:
+            parser.read_string(inf.read_text(encoding="latin-1", errors="replace"))
+        except configparser.Error:
+            return None
+        for section in parser.sections():
+            if section.strip().lower() != "autorun":
+                continue
+            for key in ("open", "shellexecute"):
+                raw = parser[section].get(key)
+                if not raw:
+                    continue
+                # Values are DOS paths with optional arguments after the exe.
+                # Cut at the first .exe case-insensitively: disc filesystems
+                # hand these back uppercase far more often than not, and a
+                # case-sensitive split silently swallows the argument list into
+                # the filename.
+                head = re.match(r"\s*\"?(.*?\.exe)", raw, re.IGNORECASE)
+                if head is None:
+                    continue
+                rel = head.group(1).strip().replace("\\", "/").lstrip("/")
+                resolved = resolve_ci(directory, rel)
+                if resolved is not None:
+                    return resolved
+    return None
+
+
+def resolve_ci(base: pathlib.Path, relative: str) -> pathlib.Path | None:
+    """Resolve *relative* under *base* ignoring case -- ISO9660 and Joliet
+    disagree about case often enough that an exact match is not safe."""
+    current = base
+    for part in relative.split("/"):
+        if not part or part == ".":
+            continue
+        if not current.is_dir():
+            return None
+        match = next(
+            (c for c in current.iterdir() if c.name.lower() == part.lower()), None
+        )
+        if match is None:
+            return None
+        current = match
+    return current if current.is_file() else None
+
+
+def find_exe(directory: pathlib.Path) -> pathlib.Path:
+    from_inf = exe_from_autorun(directory)
+    if from_inf is not None:
+        return from_inf
+
+    top = {c.name.lower(): c for c in directory.iterdir() if c.is_file()}
+    for name in INSTALLER_NAMES:
+        if name in top:
+            return top[name]
+
+    candidates = [c for n, c in top.items() if n.endswith(".exe")]
+    if not candidates:
+        # One level down covers discs that keep everything in a subdirectory.
+        for sub in sorted(d for d in directory.iterdir() if d.is_dir()):
+            if sub.name.lower() in SKIP_DIRS:
+                continue
+            candidates += [
+                c for c in sub.iterdir() if c.is_file() and c.suffix.lower() == ".exe"
+            ]
+
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        raise Fatal(f"no .exe found under {directory}")
+    listing = "\n  ".join(str(c) for c in sorted(candidates)[:20])
+    raise Fatal(f"several executables found -- re-run naming one of them:\n  {listing}")
+
+
+# --- prefix reuse -----------------------------------------------------------
+
+
+def prefix_owner(exe: pathlib.Path, root: pathlib.Path) -> str | None:
+    """The appid whose Proton prefix contains *exe*, if any.
+
+    A game added in the second pass lives inside the prefix its own installer
+    built, at ``steamapps/compatdata/<appid>/pfx/drive_c/...``. Recognising that
+    shape is what lets the new shortcut be pointed back at the prefix that has
+    the install in it.
+    """
+    compatdata = (root / "steamapps/compatdata").resolve()
+    try:
+        rel = exe.resolve().relative_to(compatdata)
+    except ValueError:
+        return None
+    parts = rel.parts
+    return parts[0] if len(parts) >= 2 and parts[1] == "pfx" else None
+
+
+def share_prefix(
+    root: pathlib.Path, new_appid: int, src_appid: str, dry_run: bool
+) -> str:
+    """Point *new_appid*'s compatdata at *src_appid*'s, so both use one prefix.
+
+    Steam derives a shortcut's prefix from its appid alone, and the appid is a
+    hash of the exe path and name. The second-pass shortcut's exe path is by
+    definition different from the installer's, so it always gets a brand new and
+    empty prefix -- and the game then launches with none of the registry its
+    installer wrote. Battlefield 1942 is the worked example: the installer puts
+    GAMEDIR and the ergc CD key under HKLM\\Software\\Wow6432Node\\EA GAMES, BF1942.exe
+    reads them at startup, and without them it opens and exits immediately, which
+    reads as "starts, then dies" with nothing in any log.
+
+    A symlink is the only lever available, because Steam offers no way to name a
+    prefix explicitly for a non-Steam shortcut.
+    """
+    compatdata = root / "steamapps/compatdata"
+    dest = compatdata / str(new_appid)
+    src = compatdata / str(src_appid)
+
+    if not src.is_dir():
+        return f"prefix {src_appid} not found -- not shared"
+    if dest.is_symlink():
+        if dest.resolve() == src.resolve():
+            return f"prefix already shared with {src_appid}"
+        if not dry_run:
+            dest.unlink()
+    elif dest.exists():
+        # Never delete one: Steam may have built a prefix here already and it
+        # could hold a save. Move it aside under a timestamp instead.
+        moved = dest.with_name(f"{dest.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+        if dry_run:
+            return f"would move {dest.name} aside and share prefix {src_appid}"
+        dest.rename(moved)
+        if not dry_run:
+            dest.symlink_to(src)
+            return f"prefix shared with {src_appid} (old one kept as {moved.name})"
+    if dry_run:
+        return f"would share prefix {src_appid}"
+    dest.symlink_to(src)
+    return f"prefix shared with {src_appid}"
+
+
+def install_candidates(root: pathlib.Path, appid: int) -> list[pathlib.Path]:
+    """Game directories inside *appid*'s prefix, for naming in the pass-2 hint.
+
+    Only yields anything once the installer has actually run -- before that the
+    prefix does not exist and there is no real path to print.
+    """
+    drive_c = root / f"steamapps/compatdata/{appid}/pfx/drive_c"
+    skip = {"Common Files", "Windows NT", "Internet Explorer", "Windows Media Player"}
+    out: list[pathlib.Path] = []
+    for pf in ("Program Files (x86)", "Program Files"):
+        base = drive_c / pf
+        if not base.is_dir():
+            continue
+        for vendor in sorted(base.iterdir()):
+            if not vendor.is_dir() or vendor.name in skip:
+                continue
+            games = [d for d in sorted(vendor.iterdir()) if d.is_dir()]
+            out.extend(games or [vendor])
+    return out
+
+
+# --- main -------------------------------------------------------------------
+
+
+def backup(path: pathlib.Path) -> pathlib.Path:
+    dest = path.with_name(f"{path.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+    shutil.copy2(path, dest)
+    return dest
+
+
+def build_entry(
+    exe: pathlib.Path, name: str, start_dir: pathlib.Path, options: str
+) -> dict:
+    # Exe is stored quoted and StartDir bare, matching what Steam itself wrote
+    # for the existing shortcut in this file. The quotes are significant: they
+    # are part of the string the appid is hashed from.
+    exe_field = f'"{exe}"'
+    return {
+        "appid": as_int32(shortcut_appid(exe_field, name)),
+        "AppName": name,
+        "Exe": exe_field,
+        "StartDir": str(start_dir),
+        "icon": "",
+        "ShortcutPath": "",
+        "LaunchOptions": options,
+        "IsHidden": 0,
+        "AllowDesktopConfig": 1,
+        "AllowOverlay": 1,
+        "OpenVR": 0,
+        "Devkit": 0,
+        "DevkitGameID": "",
+        "DevkitOverrideAppID": 0,
+        "LastPlayTime": 0,
+        "FlatpakAppID": "",
+        "sortas": "",
+        "tags": {},
+    }
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        prog="steam-add-game",
+        description="Add a Windows game or installer to Steam as a non-Steam shortcut, pinned to Proton.",
+        epilog="Steam must be closed. Mount a disc image first with cdemu-mount.",
+    )
+    ap.add_argument(
+        "target", nargs="?", help="an .exe, or a directory/mounted disc to search"
+    )
+    ap.add_argument(
+        "--name", help="shortcut name (default: derived from the exe or disc)"
+    )
+    ap.add_argument(
+        "--proton",
+        default=DEFAULT_PROTON,
+        help=f"compat tool (default: {DEFAULT_PROTON})",
+    )
+    ap.add_argument(
+        "--start-dir", help="working directory (default: the exe's own directory)"
+    )
+    ap.add_argument("--launch-options", default="", help="Steam launch options string")
+    ap.add_argument("--user", help="Steam user id, when more than one is present")
+    ap.add_argument(
+        "--keep-installer",
+        action="store_true",
+        help="keep the installer shortcut and give the game its own, sharing the prefix by symlink",
+    )
+    ap.add_argument(
+        "--list-proton", action="store_true", help="list compat tools and exit"
+    )
+    ap.add_argument(
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="report what would change, write nothing",
+    )
+    args = ap.parse_args()
+
+    root = steam_root()
+
+    if args.list_proton:
+        for tool in proton_tools(root):
+            print(tool)
+        return 0
+
+    if args.target is None:
+        ap.error("a target is required")
+
+    target = pathlib.Path(args.target).expanduser().resolve()
+    if not target.exists():
+        raise Fatal(f"no such path: {target}")
+
+    if target.is_dir():
+        disc_name = target.name
+        exe = find_exe(target)
+        print(f"found {exe}")
+    else:
+        disc_name = target.stem
+        exe = target
+
+    name = args.name or (disc_name if target.is_dir() else exe.stem)
+    start_dir = (
+        pathlib.Path(args.start_dir).expanduser().resolve()
+        if args.start_dir
+        else exe.parent
+    )
+
+    config = user_config_dir(root, args.user)
+    shortcuts_path = config / "shortcuts.vdf"
+    config_vdf = root / "config/config.vdf"
+
+    entry = build_entry(exe, name, start_dir, args.launch_options)
+    appid = shortcut_appid(entry["Exe"], name)
+
+    # The prefix this exe lives in, if any, decides everything below: which slot
+    # is written, which appid it carries, and therefore which prefix Steam builds
+    # for it. Resolved before anything is written so the dry run and the real run
+    # agree.
+    src_prefix = prefix_owner(exe, root)
+
+    if steam_is_running() and not args.dry_run:
+        raise Fatal(
+            "Steam is running. It rewrites shortcuts.vdf and config.vdf from memory "
+            "on exit, so anything written now would be discarded -- quit Steam and re-run."
+        )
+
+    # Read first, so a parse failure aborts before anything is touched.
+    if shortcuts_path.exists():
+        raw = shortcuts_path.read_bytes()
+        parsed, _ = vdf_parse(raw)
+        if vdf_dump(parsed) != raw:
+            raise Fatal(
+                f"{shortcuts_path} does not survive a round-trip through this parser -- "
+                "refusing to rewrite it. Report this; the file is untouched."
+            )
+    else:
+        parsed = {"shortcuts": {}}
+
+    shortcuts = parsed.setdefault("shortcuts", {})
+
+    # Second pass: the exe lives inside a prefix, so some existing shortcut built
+    # that prefix. Repoint *that* shortcut at the game and keep its appid, rather
+    # than adding a second one. Steam derives the prefix from the appid alone, so
+    # carrying the old id forward is what keeps the install's registry -- the
+    # GAMEDIR and CD-key values a game reads at startup -- in front of the game.
+    # Adding a separate shortcut instead earns a new appid, hence a new and empty
+    # prefix, hence a game that starts and immediately exits.
+    #
+    # The appid then no longer matches the crc convention in shortcut_appid; that
+    # is fine and deliberate. Steam honours whatever id the entry carries, and the
+    # only cost is that artwork tools keying off the convention will not match.
+    reuse_note = ""
+    slot = None
+    if src_prefix and not args.keep_installer:
+        want = as_int32(int(src_prefix))
+        slot = next(
+            (
+                k
+                for k, v in shortcuts.items()
+                if isinstance(v, dict) and v.get("appid") == want
+            ),
+            None,
+        )
+        if slot is not None:
+            was = shortcuts[slot].get("AppName", "?")
+            appid = int(src_prefix)
+            entry["appid"] = want
+            reuse_note = f'took over the "{was}" shortcut, keeping prefix {src_prefix}'
+
+    # Steam keys entries by position, not by id, so a replacement has to reuse
+    # the existing slot rather than append a second entry for the same exe.
+    if slot is None:
+        slot = next(
+            (
+                k
+                for k, v in shortcuts.items()
+                if isinstance(v, dict)
+                and exe_path(v.get("Exe")) == exe_path(entry["Exe"])
+            ),
+            None,
+        )
+    verb = "replaced" if slot else "added"
+    if slot is None:
+        used = {int(k) for k in shortcuts if k.isdigit()}
+        slot = str(next(i for i in range(len(used) + 1) if i not in used))
+    shortcuts[slot] = entry
+
+    # A run from before the takeover existed may already have added this game
+    # under its own appid. Left in place that entry shows the game twice in the
+    # library, one copy still aimed at the empty prefix -- so drop any other slot
+    # holding the same Exe. Steam keys shortcuts by position, so the remaining
+    # keys have to be renumbered into a contiguous run rather than left with a
+    # hole in them.
+    orphans = [
+        shortcuts[k]
+        for k in list(shortcuts)
+        if k != slot
+        and isinstance(shortcuts[k], dict)
+        and exe_path(shortcuts[k].get("Exe")) == exe_path(entry["Exe"])
+    ]
+    if orphans:
+        kept = [
+            shortcuts[k]
+            for k in sorted(shortcuts, key=int)
+            if shortcuts[k] not in orphans
+        ]
+        shortcuts.clear()
+        for i, value in enumerate(kept):
+            shortcuts[str(i)] = value
+        slot = next(k for k, v in shortcuts.items() if v is entry)
+
+    config_text = config_vdf.read_text(encoding="utf-8", errors="surrogateescape")
+    new_config, mapping_note = set_compat_tool(config_text, appid, args.proton)
+
+    print(f"name    {name}")
+    print(f"exe     {exe}")
+    print(f"appid   {appid}")
+    print(f"proton  {args.proton}")
+    for orphan in orphans:
+        stale = as_unsigned(orphan.get("appid", 0))
+        print(f"orphan  dropping duplicate shortcut, appid {stale}")
+        stale_pfx = root / f"steamapps/compatdata/{stale}"
+        if stale_pfx.is_dir():
+            print(f"        its unused prefix is left in place: {stale_pfx}")
+    if reuse_note:
+        print(f"prefix  {src_prefix} (kept -- {reuse_note})")
+    elif src_prefix:
+        print(f"prefix  {src_prefix} (shared by symlink)")
+
+    if args.dry_run:
+        print(f"dry run: would have {verb} shortcut slot {slot}; {mapping_note}")
+        if src_prefix and not reuse_note:
+            print(f"dry run: {share_prefix(root, appid, src_prefix, True)}")
+        return 0
+
+    if shortcuts_path.exists():
+        print(f"backup  {backup(shortcuts_path).name}")
+    print(f"backup  {backup(config_vdf).name}")
+
+    shortcuts_path.write_bytes(vdf_dump(parsed))
+    config_vdf.write_text(new_config, encoding="utf-8", errors="surrogateescape")
+
+    print(f"{verb} shortcut slot {slot}; {mapping_note}")
+    # Only needed when the installer shortcut is being kept, or has already been
+    # deleted so there is nothing to take over.
+    if src_prefix and not reuse_note:
+        print(share_prefix(root, appid, src_prefix, False))
+    print()
+
+    if exe.name.lower() in INSTALLER_NAMES:
+        print(
+            "This looks like an installer. Start Steam and launch it: Proton builds the"
+        )
+        print("prefix and runs it there. Then add the installed game with")
+        print()
+        # Name the real directories when the prefix already holds an install;
+        # an ellipsis is no use to anyone at a shell prompt. Paths are quoted
+        # because "Program Files (x86)" is not going to survive word splitting.
+        found = install_candidates(root, appid)
+        if found:
+            for game_dir in found[:6]:
+                print(f'  steam-add-game "{game_dir}"')
+        else:
+            drive_c = root / f"steamapps/compatdata/{appid}/pfx/drive_c"
+            print(f'  steam-add-game "{drive_c}/Program Files (x86)/<publisher>/<game>"')
+            print()
+            print("(that path fills in once the installer has run -- re-run this command")
+            print("afterwards and it will list the installed directories by name)")
+        print()
+        print("The new shortcut reuses this prefix automatically, so the registry the")
+        print("installer wrote is still there when the game starts.")
+    else:
+        print("Start Steam -- the shortcut is in your library under it.")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Fatal as err:
+        print(f"steam-add-game: {err}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sys.exit(130)
