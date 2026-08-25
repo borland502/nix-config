@@ -45,7 +45,7 @@
 #   ssh -N -L 3389:localhost:3389 tifa      # KRdp
 [hosts.tifa]
   desktop = "rdp"
-  hostname = "192.168.2.145"
+  hostname = "tifa.local.technohouser.com"
   mac = "cc:96:e5:8a:1a:b7"          # enp0s31f6, e1000e
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
@@ -57,7 +57,7 @@
 # credential of its own — the ssh tunnel is the whole of its access control.
 [hosts.cloud]
   desktop = "vnc"
-  hostname = "192.168.2.113"
+  hostname = "cloud.local.technohouser.com"
   mac = "84:7b:eb:4b:db:78"          # enp0s31f6, e1000e
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
@@ -102,7 +102,7 @@
 # repo configures a Wake-on-LAN receiving side on Batocera, so recording it
 # would promise a wake that may never arrive.
 [hosts.caitsith]
-  hostname = "192.168.2.80"
+  hostname = "caitsith.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
@@ -133,17 +133,17 @@
 # No `mac`: nothing in this repo configures Wake-on-LAN on a Synology, and the
 # NAS is not a machine that gets powered off.
 [hosts.alisaie]
-  hostname = "192.168.2.223"
+  hostname = "alisaie.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.hassio]
-  hostname = "192.168.2.123"
+  hostname = "hassio.local.technohouser.com"
   user = "root"
 
 [hosts.hassio-root]
-  hostname = "192.168.2.123"
+  hostname = "hassio.local.technohouser.com"
   port = 2222
   user = "hassio"
 
@@ -191,49 +191,49 @@
   user = "root"
 
 [hosts.npmplus]  # lxc 103 on lyse
-  hostname = "192.168.2.159"
+  hostname = "npmplus.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.plex]  # lxc 105 on lyse
-  hostname = "192.168.2.62"
+  hostname = "plex.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.watchyourlan]  # lxc 108 on lyse
-  hostname = "192.168.2.222"
+  hostname = "watchyourlan.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.postgresql]  # lxc 110 on lyse
-  hostname = "192.168.2.8"
+  hostname = "postgresql.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.apt-cacher-ng]  # lxc 111 on lyse
-  hostname = "192.168.2.68"
+  hostname = "apt-cacher-ng.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.autoplex]  # qemu 112 on lyse
-  hostname = "192.168.2.115"
+  hostname = "autoplex.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.gitea]  # lxc 114 on lyse
-  hostname = "192.168.2.39"
+  hostname = "gitea.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.zoraxy]  # lxc 120 on lyse
-  hostname = "192.168.2.137"
+  hostname = "zoraxy.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
@@ -245,31 +245,31 @@
   user = "root"
 
 [hosts.magicmirror]  # lxc 130 on mara
-  hostname = "192.168.2.106"
+  hostname = "magicmirror.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.runtipi]  # lxc 106 on minfilia
-  hostname = "192.168.2.82"
+  hostname = "runtipi.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.pbs]  # lxc 107 on minfilia
-  hostname = "192.168.2.5"
+  hostname = "pbs.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.cloudflared]  # lxc 124 on minfilia
-  hostname = "192.168.2.152"
+  hostname = "cloudflared.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.nextcloudpi]  # lxc 134 on minfilia
-  hostname = "192.168.2.60"
+  hostname = "nextcloudpi.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
@@ -287,13 +287,13 @@
   user = "root"
 
 [hosts.influxdb]  # lxc 117 on salmissra
-  hostname = "192.168.2.227"
+  hostname = "influxdb.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
 [hosts.dashy-118]  # lxc 118 on salmissra
-  hostname = "192.168.2.71"
+  hostname = "dashy-118.local.technohouser.com"
   identitiesonly = "yes"
   identityfile = "~/.ssh/id_remoting"
   user = "root"
@@ -310,17 +310,22 @@
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
-# --- Technitium DNS cross-reference (dns.local.technohouser.com / 192.168.2.19,
-# the technitiumdns LXC above), ingested 2026-08-22. Every IP that DNS and this
-# file share AGREES — no IP conflicts. Recorded here because DNS is the naming
-# authority and its canonical names differ from the PVE guest names used as
-# table names above:
-#   technitiumdns (.19)  is  dns.local.technohouser.com
-#   npmplus       (.159) is  npm.local.technohouser.com   (+ *.npm wildcard)
-#   postgresql    (.8)   is  postgres.local.technohouser.com
-#   zoraxy        (.137) is  *.zoraxy.technohouser.com     (reverse-proxy wildcard)
-#   lyse/.9, pbs/.5, autoplex/.115  match by name too.
-# DNS knows one host this file does NOT: *.casaos.technohouser.com -> 192.168.2.18,
-# which is not a PVE guest (a separate CasaOS box). DNS coverage is otherwise
-# sparse: only ~9 hosts have A records, so most guests above resolve by IP only.
-# The forward zones served are: local / npm / zoraxy / casaos .technohouser.com.
+# --- Technitium DNS (dns.local.technohouser.com / 192.168.2.19, the
+# technitiumdns LXC above). Reconciled 2026-08-25: local.technohouser.com now
+# holds 25 A records + 3 CNAMEs and is the naming authority, so the `hostname`
+# keys above are FQDNs rather than IPs.
+#
+# Deliberately still on raw IPs — these are the hosts you must reach to fix DNS
+# itself, so they must not depend on it:
+#   technitiumdns (.19) and the four PVE nodes lyse/salmissra/mara/minfilia.
+#
+# CNAMEs exist where the DNS name predates the PVE guest name:
+#   technitiumdns -> dns, npmplus -> npm, postgresql -> postgres
+#
+# Guests that are STOPPED have no A record and stay on IP here: caddy-116,
+# dashy-132, worksites-dashy, fenrus. caddy-101 is running but excluded by
+# request. aerith is powered off and holds .85 by DHCP — worth a static IP,
+# since that lease was handed to caitsith while aerith was down.
+#
+# Not a PVE guest and not in this file: *.casaos.technohouser.com -> 192.168.2.18.
+# Forward zones served: local / npm / zoraxy / casaos .technohouser.com.
