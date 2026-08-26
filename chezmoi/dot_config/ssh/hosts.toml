@@ -138,14 +138,46 @@
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
+# Home Assistant OS 17.1 (Proxmox VM 102). Port 22 is NOT the HAOS host OS —
+# it is the "Advanced SSH & Web Terminal" add-on (slug a0d7b954_ssh, an Alpine
+# container, hostname a0d7b954-ssh) running with host_network, so its sshd
+# binds the VM's address directly. The remoting key was authorized on
+# 2026-08-26, so this is a normal key-auth host now.
+#
+# Authorizing a key here is NOT a file append. sshd reads
+#   AuthorizedKeysFile /etc/ssh/authorized_keys ~/.ssh/authorized_keys
+# and /etc/ssh/authorized_keys is REGENERATED at container start from the
+# add-on's stored options. The durable write is the add-on config — the
+# Supervisor API, `POST /addons/self/options`, merging into
+# .ssh.authorized_keys — and a file append alone silently reverts on the next
+# add-on restart. Write both: options for persistence, file for immediate use
+# without restarting the add-on and interrupting HA.
 [hosts.hassio]
   hostname = "hassio.local.technohouser.com"
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
   user = "root"
 
-[hosts.hassio-root]
+# The HAOS host OS itself (Proxmox VM 102), as opposed to `hassio` above which
+# is the add-on container. Enabled 2026-08-26. Port 22222 is fixed by HAOS and
+# not configurable — 2222 was never a real port here, it is what the old
+# hassio-root entry guessed.
+#
+# Host ssh is keys-only and is enabled by importing an `authorized_keys` file
+# from a filesystem LABELLED `CONFIG`, not by writing to the host. There is no
+# USB on a Proxmox VM, so: create a small volume on the node, mkfs.vfat -n
+# CONFIG, drop authorized_keys at its root, hot-attach it to VM 102, then
+# `POST /os/config/sync` on the Supervisor API. HAOS copies the key to
+# /root/.ssh, which is a bind mount from the persistent overlay (/dev/sda7)
+# while / is read-only erofs — so it survives reboots and the scratch volume
+# can be detached and deleted immediately, which it was. No reboot needed;
+# dropbear picks the key up when hassos-config.service restarts.
+[hosts.hassio-host]
   hostname = "hassio.local.technohouser.com"
-  port = 2222
-  user = "hassio"
+  port = 22222
+  identitiesonly = "yes"
+  identityfile = "~/.ssh/id_remoting"
+  user = "root"
 
 # --- Proxmox cluster (autoplex homelab), enumerated from the PVE API on
 # 2026-08-22 via the vault credential (KeePass Proxmox Servers entry). IPs are
@@ -155,8 +187,12 @@
 # NOT here — it already had an entry above, whose IP this run corrected.
 # All reached with the remoting key as root, matching the other own-hosts. The key
 # was authorized on all 4 nodes and every running guest on 2026-08-22 (nodes share
-# authorized_keys via PVE cluster sync; guests seeded via pct/qm exec). hassio is
-# the exception — HAOS ignores /root/.ssh, its root ssh is the HA add-on on 2222.
+# authorized_keys via PVE cluster sync; guests seeded via pct/qm exec). hassio was
+# the exception until 2026-08-26, when it got both paths: the add-on container on
+# 22 (`hassio`) and the HAOS host OS on 22222 (`hassio-host`). Neither took a
+# plain append — the container regenerates /etc/ssh/authorized_keys from add-on
+# options at start, and the host imports keys from a CONFIG-labelled filesystem.
+# See the two blocks above. Port 2222 never answered and is not a thing here.
 # Any guest that was stopped then needs provisioning when next started. Table names
 # are the PVE guest names; a -<vmid> suffix disambiguates duplicate names.
 
