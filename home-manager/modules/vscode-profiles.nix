@@ -66,6 +66,35 @@
     }
   ];
 
+  # Shell-script extensions that nixpkgs' vscode-extensions set does not carry,
+  # pinned from the marketplace like sublimeKeymap above. Marketplace install
+  # counts on 2026-08-26: bash-debug 1.38M (the only maintained-enough bash
+  # debugger and the 4th most-installed shell extension overall), shellman
+  # 409k, shebang-snippets 221k. The three nixpkgs-packaged ones the Shell
+  # profile also uses outrank all of these — shell-format 2.68M, shellcheck
+  # 2.24M, bash-ide 1.19M.
+  shellMarketplace = pkgs.vscode-utils.extensionsFromVscodeMarketplace [
+    {
+      name = "bash-debug";
+      publisher = "rogalmic";
+      version = "0.3.9";
+      sha256 = "sha256-f8FUZCvz/PonqQP9RCNbyQLZPnN5Oce0Eezm/hD19Fg=";
+    }
+    {
+      # Snippet library for the argument parsing / getopts / trap boilerplate.
+      name = "shellman";
+      publisher = "remisa";
+      version = "5.7.0";
+      sha256 = "sha256-ggRe7r1h11TUDzyXCZbaaoI8g3YKdZR0iBLI/0nmiPs=";
+    }
+    {
+      name = "shebang-snippets";
+      publisher = "rpinski";
+      version = "1.1.0";
+      sha256 = "sha256-biv0Ccdfwd68hsY8UwLc+0vAnfmV+Ngnqie3QOo6VBc=";
+    }
+  ];
+
   # Baseline every *language* profile gets on top of its language tooling.
   # Deliberately not applied to the default profile, which stays as-is.
   languageProfileBase =
@@ -241,6 +270,78 @@
           "[typescriptreact]" = {
             "editor.formatOnSave" = false;
             "editor.defaultFormatter" = "esbenp.prettier-vscode";
+          };
+        };
+    };
+
+    # POSIX sh / bash scripting. mkhl.direnv is in here rather than in
+    # languageProfileBase because this is the profile used on repos like this
+    # one, where every script is entered through a .envrc.
+    Shell = {
+      extensions =
+        languageProfileBase
+        ++ (with pkgs.vscode-extensions; [
+          timonwong.shellcheck
+          foxundermoon.shell-format
+          mads-hartmann.bash-ide-vscode
+          jetmartin.bats
+          mkhl.direnv
+        ])
+        ++ shellMarketplace;
+      userSettings =
+        baseUserSettings
+        // {
+          # All three of these ship a bundled binary or expect one on PATH.
+          # Point them at the store copies common.nix already installs so the
+          # editor and `task lint:sh` cannot disagree about versions.
+          "shellcheck.executablePath" = "${pkgs.shellcheck}/bin/shellcheck";
+          "shellcheck.enableQuickFix" = true;
+          "shellcheck.run" = "onType";
+          "shellformat.path" = "${pkgs.shfmt}/bin/shfmt";
+          # -i 0 (tab indent) matches `task fmt:sh` and CI; without it the
+          # extension formats with spaces and every save fights the linter.
+          "shellformat.flag" = "-i 0";
+          "bashIde.shellcheckPath" = "${pkgs.shellcheck}/bin/shellcheck";
+          "bashIde.shfmt.path" = "${pkgs.shfmt}/bin/shfmt";
+
+          # bash-ide also registers a shellscript formatter, so name the one
+          # that should win — otherwise formatOnSave prompts on every save.
+          "[shellscript]" = {
+            "editor.defaultFormatter" = "foxundermoon.shell-format";
+          };
+
+          # shellcheck's default ignorePatterns already skips .zsh/.zshrc (it
+          # cannot parse zsh); add the chezmoi-prefixed copies of those, which
+          # the shared files.associations maps to shellscript.
+          "shellcheck.ignorePatterns" = {
+            "**/dot_zshrc" = true;
+            "**/dot_zshenv" = true;
+            "**/dot_zprofile" = true;
+            "**/*.zsh.tmpl" = true;
+          };
+
+          # bash-debug takes every path from the launch config and defaults
+          # them to FHS locations (/usr/local/bin/bashdb, /usr/bin/cat, ...)
+          # that do not exist on NixOS, so F5 fails out of the box. VS Code
+          # honours a "launch" key in user settings, which gives the profile a
+          # working global config without a launch.json in every repo.
+          "launch" = {
+            version = "0.2.0";
+            configurations = [
+              {
+                type = "bashdb";
+                request = "launch";
+                name = "Bash-Debug (current file)";
+                program = "\${file}";
+                cwd = "\${workspaceFolder}";
+                pathBash = "${pkgs.bash}/bin/bash";
+                pathBashdb = "${pkgs.bashdb}/bin/bashdb";
+                pathBashdbLib = "${pkgs.bashdb}/share/bashdb";
+                pathCat = "${pkgs.coreutils}/bin/cat";
+                pathMkfifo = "${pkgs.coreutils}/bin/mkfifo";
+                pathPkill = "${pkgs.procps}/bin/pkill";
+              }
+            ];
           };
         };
     };
