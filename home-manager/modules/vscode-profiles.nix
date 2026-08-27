@@ -227,6 +227,31 @@
           christian-kohler.path-intellisense
           wix.vscode-import-cost
           yoavbls.pretty-ts-errors
+
+          # Angular. ng-template is the official language service (template
+          # type-checking, go-to-definition across .ts/.html, completions
+          # inside decorators) — 9.7M installs, published 2026-08-12. nixpkgs
+          # carries 21.2.3 against a 22.1.0 marketplace release; one minor
+          # behind is preferred here over a hand-pinned sha256 that goes stale
+          # silently.
+          angular.ng-template
+
+          # Class/id completion inside HTML and JSX, sourced from the
+          # workspace's own stylesheets. 29.6M installs, published 2026-02-12
+          # — the most-installed extension on both the "angular" and "react"
+          # marketplace searches after Prettier.
+          ecmel.vscode-html-css
+
+          # React CSS-in-JS: highlighting and IntelliSense inside styled.*
+          # template literals. 2.0M installs.
+          styled-components.vscode-styled-components
+
+          # Official Vitest runner (test explorer, per-test debug, watch).
+          # 1.1M installs, published 2026-07-20. Complements orta.vscode-jest
+          # below, which only understands Jest projects. ZixuanChen.vitest-
+          # explorer is the DEPRECATED extension this one replaced — do not
+          # re-add it.
+          vitest.explorer
         ])
         ++ pkgs.vscode-utils.extensionsFromVscodeMarketplace [
           {
@@ -241,6 +266,35 @@
             version = "4.4.3";
             sha256 = "sha256-QF950JhvVIathAygva3wwUOzBLjBm7HE3Sgcp7f20Pc=";
           }
+          {
+            # Angular Snippets. 5.4M installs, 4.81/5, published 2026-07-20 —
+            # tracks the Angular major (this is the v22 release). Every rival
+            # snippet pack has lost its maintainer: Mikael.Angular-BeastCode
+            # (2.7M) last shipped 2024-02, alexiv.vscode-angular2-files (997k)
+            # 2020-08, infinity1207.angular2-switcher (1.0M) 2022-05.
+            name = "Angular2";
+            publisher = "johnpapa";
+            version = "22.0.0";
+            sha256 = "sha256-7Wy9HBEqrOynyPNC5XwcHiC6oqQHGps30PkTD1I3egE=";
+          }
+          {
+            # Angular Schematics: runs `ng generate` from the explorer context
+            # menu with the schematic's real option list. 1.5M installs,
+            # published 2026-08-19.
+            name = "angular-schematics";
+            publisher = "cyrilletuzi";
+            version = "8.1.0";
+            sha256 = "sha256-tWZST4QejQ4qx8He38YtFgufWu5O8/Da7LLdZnp8wDw=";
+          }
+          {
+            # Official Playwright Test integration — run and debug specs from
+            # the test explorer, pick locators, record new tests. 2.9M
+            # installs, published 2026-04-29.
+            name = "playwright";
+            publisher = "ms-playwright";
+            version = "1.1.19";
+            sha256 = "sha256-N2U+KvmqslmjXSpHovIbT/iVbSV6JrTu1UsoiolW9/Y=";
+          }
         ];
       userSettings =
         baseUserSettings
@@ -248,6 +302,17 @@
           "eslint.useFlatConfig" = true;
           "javascript.updateImportsOnFileMove.enabled" = "always";
           "typescript.updateImportsOnFileMove.enabled" = "always";
+          # Renames the matching open/close tag in HTML, Angular templates and
+          # JSX. This is why formulahendry.auto-rename-tag (25.8M installs) is
+          # deliberately absent: VS Code has done this natively since 1.53 and
+          # the extension has not shipped since 2022-02.
+          "editor.linkedEditing" = true;
+          # Angular components put the template in a .html file, so this
+          # profile now edits HTML directly and needs a named formatter for it
+          # like the JS/TS blocks below.
+          "[html]" = {
+            "editor.defaultFormatter" = "esbenp.prettier-vscode";
+          };
           "[javascript]" = {
             "editor.defaultFormatter" = "esbenp.prettier-vscode";
           };
