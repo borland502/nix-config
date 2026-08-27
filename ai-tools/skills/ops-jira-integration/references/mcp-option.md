@@ -12,15 +12,29 @@ simpler. The MCP path has the same credential requirements as REST.
     "command": "uvx",
     "args": ["mcp-atlassian==0.21.0"],
     "env": {
-      "JIRA_URL": "https://jiraent.cms.gov",
-      "JIRA_PERSONAL_TOKEN": "your-pat",
-      "CONFLUENCE_URL": "https://confluenceent.cms.gov",
-      "CONFLUENCE_PERSONAL_TOKEN": "your-pat"
+      "JIRA_URL": "<jira-host>",
+      "JIRA_PERSONAL_TOKEN": "<jira-pat>",
+      "CONFLUENCE_URL": "<confluence-host>",
+      "CONFLUENCE_PERSONAL_TOKEN": "<confluence-pat>"
     },
     "description": "Jira issue tracking — search, create, update, comment, transition"
   }
 }
 ```
+
+**Filling the placeholders.** All four are secrets — this repo is public, so
+never inline them here. They live encrypted in `secrets/ops-agent.yaml` and
+`home-manager/modules/sops.nix` materializes them:
+
+| Placeholder | Read from |
+| --- | --- |
+| `<jira-host>` | `~/.config/ops-agent/jira-base-url` — **strip the trailing `/rest/api/2`**; that file is the API root, not the bare host mcp-atlassian wants |
+| `<jira-pat>` | `~/.config/ops-agent/jira-token` |
+| `<confluence-host>` | `~/.config/confluence/base-url` — already a bare host |
+| `<confluence-pat>` | `~/.config/confluence/token` |
+
+MCP config JSON is not shell: `$(cat …)` is not expanded there. Paste the
+values, or generate the config with a script that reads those paths.
 
 **Requirements:** Python 3.10+, `uvx` (from `uv`). For standalone instances use
 the `*_PERSONAL_TOKEN` variables (PAT/Bearer); the cloud-style `JIRA_EMAIL` +

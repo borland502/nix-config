@@ -514,6 +514,12 @@ tasks:
       task check:agent-instructions
       task check:instruction-size
       task check:model-agnostic
+      task check:secret-hygiene
+
+  check:secret-hygiene:
+    desc: Enforce that private detail stays encrypted — this repo is public
+    platforms: [linux, darwin]
+    cmd: bash scripts/check-secret-hygiene.sh
 
   check:model-agnostic:
     desc: Enforce model-tier aliases in ai-tools — no versioned Claude model IDs

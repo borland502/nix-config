@@ -5,9 +5,14 @@ description: Use when reading or writing Confluence pages, uploading or replacin
 
 # Confluence (Server/DC)
 
-Read and write pages, attachments, and images on the self-hosted Confluence at
-`confluenceent.cms.gov` — **not Atlassian Cloud**. Every cloud-shaped call fails
-here: there is no `/api/v2/pages`, no Basic `-u email:api-token`, no ADF bodies.
+Read and write pages, attachments, and images on the self-hosted Confluence
+instance — **not Atlassian Cloud**. Every cloud-shaped call fails here: there is
+no `/api/v2/pages`, no Basic `-u email:api-token`, no ADF bodies.
+
+The hostname is a secret, not a constant — this repo is public. It lives
+encrypted in `secrets/ops-agent.yaml` (`ops_agent.confluence_base_url`) and is
+materialized to `~/.config/confluence/base-url`; the `confluence-*` helpers
+below already read it from there.
 
 Two helpers own the boilerplate. Reach for them before hand-rolling `curl`:
 

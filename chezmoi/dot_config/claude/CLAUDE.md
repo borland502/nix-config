@@ -17,6 +17,12 @@ read that file on demand instead of asking the user.
   for routine logging. Add an explicit `tee` to a timestamped ~/.cache/claude
   file only for truly large content whose full output exceeds that ceiling and
   you need it preserved verbatim.
+- nix-config is a PUBLIC repo. Never commit an internal URL, hostname, private
+  repo layout, or credential to it in the clear — not in docs or comments
+  either. Encrypt instead: work-repo files under `chezmoi/Development/**` as
+  `encrypted_<name>` (age), endpoints and tokens into `secrets/*.yaml` via
+  `sops` + `home-manager/modules/sops.nix`. Docs cite the materialized path,
+  never the value. `task check:secret-hygiene` enforces both in pre-commit.
 - Preserve repositories: unless explicitly requested as tracked deliverables,
   write agent-generated specs, plans, handoffs, notes, reports, helpers, long
   payloads, and logs to `~/.cache/claude` or an existing ignored operational

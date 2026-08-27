@@ -346,7 +346,8 @@
   identityfile = "~/.ssh/id_remoting"
   user = "root"
 
-# --- Technitium DNS (dns.local.technohouser.com / 192.168.2.19, the
+# --- Technitium DNS (host in secrets/technitiumdns-cli.toml api.baseUrl,
+#     materialized per home-manager/modules/sops.nix; 192.168.2.19, the
 # technitiumdns LXC above). Reconciled 2026-08-25: local.technohouser.com now
 # holds 25 A records + 3 CNAMEs and is the naming authority, so the `hostname`
 # keys above are FQDNs rather than IPs.
