@@ -38,9 +38,16 @@ ticket to an RFC page.
 
 ## Standalone, Not Cloud
 
-**The configured Jira (`jiraent.cms.gov`) and Confluence
-(`confluenceent.cms.gov`) are self-hosted standalone (Server/Data Center)
-deployments, not Atlassian Cloud.** Everything cloud-shaped fails here:
+**The configured Jira and Confluence are self-hosted standalone (Server/Data
+Center) deployments, not Atlassian Cloud.** Everything cloud-shaped fails here:
+
+Both hostnames are secrets, not constants — this repo is public. They live
+encrypted in `secrets/ops-agent.yaml` (`ops_agent.jira_base_url`,
+`ops_agent.confluence_base_url`) and `home-manager/modules/sops.nix`
+materializes them to `~/.config/ops-agent/jira-base-url` and
+`~/.config/confluence/base-url`. Read them from those paths; never inline a
+hostname back into this repo.
+
 
 | Aspect | Cloud (do NOT use) | Standalone (use this) |
 | ------ | ------------------ | --------------------- |
