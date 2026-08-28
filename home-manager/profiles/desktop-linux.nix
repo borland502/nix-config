@@ -286,6 +286,37 @@ in {
         ];
       };
     };
+
+    # KeePassXC's browser bridge, for the same reason as the Plasma one above:
+    # the browser reads an absolute path out of a manifest, so the proxy has to
+    # be named explicitly.
+    #
+    # KeePassXC can write this file itself, from Settings -> Browser
+    # Integration, but only for the browsers it knows and only into the paths
+    # the running build was compiled with. Doing it here instead means the
+    # manifest points at THIS nix-profile proxy rather than whatever
+    # /usr/bin/keepassxc-proxy a distro package might drop in later, and that it
+    # survives a profile wipe.
+    #
+    # Two halves are required and only one of them lives here: without
+    # `[Browser] Enabled=true` in keepassxc.ini, KeePassXC never opens the
+    # socket the proxy connects to, and the extension sits on "Checking
+    # status..." forever with no error. That half is asserted by
+    # chezmoi/dot_config/keepassxc/modify_keepassxc.ini — change both together.
+    #
+    # allowed_origins is the KeePassXC-Browser extension ID; the browser refuses
+    # the connection if the requesting extension is not listed.
+    configFile."vivaldi/NativeMessagingHosts/org.keepassxc.keepassxc_browser.json" = lib.mkIf (!isNixos) {
+      text = builtins.toJSON {
+        name = "org.keepassxc.keepassxc_browser";
+        description = "KeePassXC integration with native messaging support";
+        path = "${pkgs.keepassxc}/bin/keepassxc-proxy";
+        type = "stdio";
+        allowed_origins = [
+          "chrome-extension://oboonakemofpalcgghocfoadofidjkkk/"
+        ];
+      };
+    };
   };
 
   # Firefox configuration

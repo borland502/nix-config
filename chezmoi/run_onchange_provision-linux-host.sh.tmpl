@@ -1489,4 +1489,71 @@ if [ -n "$static_cidr" ]; then
   fi
 fi
 
+# --- 10. vivaldi extension policy -------------------------------------------
+#
+# Make it impossible for Vivaldi to run a VPN extension. This is enforcement,
+# not preference: a VPN switched on by accident on a work machine can route
+# corporate traffic through a consumer exit node, which is the kind of mistake
+# somebody else notices first.
+#
+# Why a policy rather than uninstalling the extension: an extension removed from
+# the profile comes back. Vivaldi rewrites Preferences on exit, so a deletion
+# made while it is running is simply undone, and profile sync reinstalls it at
+# the next sign-in. A managed policy is the only lever the browser will not
+# argue with — blocklisted extensions are force-removed at startup and cannot be
+# re-added from the UI or the store.
+#
+# `/etc/vivaldi/policies` is not a guess: it is the path compiled into the
+# binary (`strings .../opt/vivaldi/vivaldi-bin | grep policies`). There is no
+# per-user equivalent — Chromium reads managed policy from /etc only — which is
+# why this lives here and not in home-manager alongside the native-messaging
+# manifests.
+#
+# The blocklist is "*" with an explicit allowlist rather than a list of banned
+# IDs, and that is the whole point: naming only Proton VPN's ID would leave
+# every OTHER VPN extension installable. Deny-by-default is what makes "can
+# never use a VPN" true rather than "cannot use that particular one".
+#
+# CONSEQUENCE, deliberate: installing any new extension now means adding its ID
+# here. That is the price of the guarantee. The allowlist is exactly the set in
+# use — KeePassXC-Browser (autofill), Plasma Integration (KDE media/download
+# bridge), Chrome Remote Desktop. React and Angular DevTools are deliberately
+# absent: they were unwanted, and deny-by-default removes them without needing
+# to name them.
+#
+# macOS has the same policy under a completely different mechanism — a
+# preference domain rather than a JSON file — and no provisioning pass of its
+# own, so it is applied by hand via
+# chezmoi/dot_local/bin/executable_vivaldi-extension-policy.
+# KEEP THE TWO ALLOWLISTS IN SYNC: an ID added here and not there means the
+# extension works on one machine and is force-removed on the other, which reads
+# as the extension being broken rather than as policy.
+if command -v vivaldi >/dev/null 2>&1 || [ -d /opt/vivaldi ]; then
+  vivaldi_policy_dir=/etc/vivaldi/policies/managed
+  vivaldi_policy=$vivaldi_policy_dir/10-extension-allowlist.json
+  vivaldi_policy_want=$(
+    cat <<'JSON'
+{
+  "ExtensionInstallBlocklist": ["*"],
+  "ExtensionInstallAllowlist": [
+    "oboonakemofpalcgghocfoadofidjkkk",
+    "cimiefiiaegbelhefglklhhakcgmhkai",
+    "inomeogfingihgjfjlpeplalcfajhgai"
+  ]
+}
+JSON
+  )
+
+  if [ -f "$vivaldi_policy" ] && [ "$(cat "$vivaldi_policy")" = "$vivaldi_policy_want" ]; then
+    :
+  elif ensure_root; then
+    $SUDO mkdir -p "$vivaldi_policy_dir"
+    printf '%s\n' "$vivaldi_policy_want" | $SUDO tee "$vivaldi_policy" >/dev/null
+    $SUDO chmod 644 "$vivaldi_policy"
+    note "vivaldi: extension policy written — VPN blocked (restart Vivaldi to apply)"
+  else
+    warn "vivaldi: extension policy NOT written — a VPN extension can still run"
+  fi
+fi
+
 note "done"
