@@ -36,20 +36,6 @@
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
     inherit pkgs;
   };
-  # SSH host inventory lives in TOML rather than inline Nix so the same list is
-  # editable (and readable) outside the flake. Read from the repo copy — flake
-  # eval is pure, so the deployed ~/.config/ssh/hosts.toml is not reachable
-  # here; chezmoi deploys that copy from this same file.
-  #
-  # Keys that hosts.toml carries for other consumers but that ssh does not know
-  # are stripped here. programs.ssh.settings is freeform, so anything left in
-  # lands in ~/.ssh/config verbatim, and one unrecognised keyword there makes
-  # *every* ssh invocation fail — not just one to the host that declared it.
-  sshHostNonSshKeys = ["desktop" "mac"];
-  sshHosts =
-    builtins.mapAttrs
-    (_name: host: builtins.removeAttrs host sshHostNonSshKeys)
-    (builtins.fromTOML (builtins.readFile ../chezmoi/dot_config/ssh/hosts.toml)).hosts;
   copilotLogBashHook = builtins.toJSON {
     version = 1;
     hooks.postToolUse = [
@@ -1114,20 +1100,24 @@ in {
 
     # SSH host aliases, ported from the hand-written ~/.ssh/config that
     # predated this repo (files dated 2021). The host list itself lives in
-    # chezmoi/dot_config/ssh/hosts.toml (deployed to ~/.config/ssh/hosts.toml);
-    # only the host aliases are declarative — key material stays on disk and
-    # out of git.
+    # The host aliases are NOT declared here any more. They live encrypted at
+    # secrets/hosts.toml (this repo is public), and flake eval is pure, so
+    # nothing in Nix can decrypt them at build time. They are decrypted and
+    # rendered into ~/.ssh/config.d/hosts at ACTIVATION time instead — see
+    # decryptSshHosts / renderSshHostConfig in home-manager/modules/sops.nix.
     #
-    # enableDefaultConfig = false keeps the generated file to these blocks
-    # alone; the default would prepend a `Host *` block that the hand-written
-    # config never had, silently changing global ssh behaviour.
+    # enableDefaultConfig = false keeps the generated file to the include alone;
+    # the default would prepend a `Host *` block that the hand-written config
+    # never had, silently changing global ssh behaviour.
+    #
+    # The include is a glob rather than a literal path on purpose: ssh treats a
+    # missing literal Include as an error, but a glob that matches nothing is
+    # fine. On a machine with no age key the fragment is never written, and ssh
+    # must still work for everything that does not depend on an alias.
     ssh = {
       enable = true;
       enableDefaultConfig = false;
-      # `settings`, not the older `matchBlocks` — home-manager deprecated the
-      # latter (attribute names are Host patterns in both, so it is a rename).
-      # TOML table names map straight onto Host patterns.
-      settings = sshHosts;
+      includes = ["config.d/*"];
     };
 
     # Direnv for automatic environment loading

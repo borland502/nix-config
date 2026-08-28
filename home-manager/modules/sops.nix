@@ -142,6 +142,78 @@ in {
       fi
     '';
 
+    # The ssh host inventory. This repo is PUBLIC, and hosts.toml is a complete
+    # map of the home network — every host, address, MAC, login and remoting
+    # key path — so it lives encrypted at secrets/hosts.toml rather than in the
+    # chezmoi tree. Nothing in it is a credential; the exposure it prevents is
+    # reconnaissance, which is why encryption was enough and rotation was not
+    # required.
+    #
+    # The git history was deliberately NOT rewritten (decision 2026-08-28). The
+    # plaintext inventory is still readable in every commit before this one, on
+    # a public remote, and encrypting it stops future exposure only. That was
+    # judged the better trade: the already-published topology matters less than
+    # the repo's history and coherence, which a force-push would damage. Do not
+    # assume a name or address found in an old commit is secret.
+    #
+    # Encrypted with --input-type binary: sops' native TOML handling would
+    # discard the comments, and in this file the comments carry more operational
+    # knowledge than the values do (why a host has no `mac`, why an address is
+    # raw rather than an FQDN, which guests are static and therefore immune to a
+    # DHCP reservation). Binary mode treats the file as opaque bytes and returns
+    # it byte-identical.
+    decryptSshHosts = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      _age_key="${config.home.homeDirectory}/.config/sops/age/keys.txt"
+      if [ -f "$_age_key" ]; then
+        ${pkgs.coreutils}/bin/mkdir -p "${config.home.homeDirectory}/.config/ssh"
+        SOPS_AGE_KEY_FILE="$_age_key" \
+          ${pkgs.sops}/bin/sops --decrypt \
+          --input-type binary --output-type binary \
+          ${../../secrets/hosts.toml} \
+          > "${config.home.homeDirectory}/.config/ssh/hosts.toml"
+        ${pkgs.coreutils}/bin/chmod 600 "${config.home.homeDirectory}/.config/ssh/hosts.toml"
+      fi
+    '';
+
+    # Render the decrypted inventory into an ssh_config fragment that
+    # ~/.ssh/config Includes.
+    #
+    # This used to be `programs.ssh.settings`, evaluated from the repo copy by
+    # home-manager/common.nix. That is no longer possible: flake eval is pure,
+    # so it cannot decrypt, and the plaintext it used to read no longer exists.
+    # Rendering therefore moved from eval time to activation time.
+    #
+    # `desktop` and `mac` are stripped for the same reason common.nix stripped
+    # them: ssh_config is not extensible, and ONE unrecognised keyword makes
+    # every ssh invocation fail — not just one to the host that declared it.
+    renderSshHostConfig = lib.hm.dag.entryAfter ["decryptSshHosts"] ''
+      _hosts="${config.home.homeDirectory}/.config/ssh/hosts.toml"
+      _dir="${config.home.homeDirectory}/.ssh/config.d"
+      if [ -r "$_hosts" ]; then
+        ${pkgs.coreutils}/bin/mkdir -p "$_dir"
+        if ${pkgs.taplo}/bin/taplo get -f "$_hosts" -o json 'hosts' \
+             | ${pkgs.jq}/bin/jq -r '
+                 to_entries[]
+                 | "Host \(.key)",
+                   ( .value
+                     | to_entries[]
+                     | select(.key != "desktop" and .key != "mac")
+                     | "  \(.key) \(.value)" ),
+                   ""
+               ' > "$_dir/hosts.tmp"; then
+          ${pkgs.coreutils}/bin/mv "$_dir/hosts.tmp" "$_dir/hosts"
+          ${pkgs.coreutils}/bin/chmod 600 "$_dir/hosts"
+        else
+          # Leave the previous fragment in place. A half-written or empty
+          # include silently strips every host alias, and the failure shows up
+          # later as "Could not resolve hostname tifa" rather than as a
+          # decryption or parse error.
+          ${pkgs.coreutils}/bin/rm -f "$_dir/hosts.tmp"
+          echo "renderSshHostConfig: could not parse $_hosts; kept previous ~/.ssh/config.d/hosts" >&2
+        fi
+      fi
+    '';
+
     decryptTechnitiumConfig = lib.hm.dag.entryAfter ["writeBoundary"] ''
       _age_key="${config.home.homeDirectory}/.config/sops/age/keys.txt"
       if [ -f "$_age_key" ]; then

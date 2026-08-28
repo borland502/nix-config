@@ -239,7 +239,7 @@ Several settings are authored once in TOML under `chezmoi/dot_config/` and parse
 | Source | Consumed by | Drives |
 |---|---|---|
 | `colors/monokai.toml` | `lib/colors.nix`, `common.nix` | Stylix `base16Scheme`, Starship, zsh, PowerShell |
-| `ssh/hosts.toml` | `common.nix` | the managed `~/.ssh/config` host inventory |
+| `secrets/hosts.toml` | `modules/sops.nix` | SOPS-encrypted host inventory; decrypted to `~/.config/ssh/hosts.toml` and rendered into `~/.ssh/config.d/hosts` at activation |
 | `zsh/aliases.toml` | `zsh.nix` | shell aliases |
 | `mimeapps/defaults.toml` | `profiles/desktop-linux.nix` | `xdg.mimeApps` default handlers |
 
@@ -507,8 +507,12 @@ task logs SERVICE=pipewire.service             # journalctl --user
 2. Add/remove packages in `home-manager/common.nix` (shared) or a platform profile.
 3. Edit `chezmoi/dot_config/instructions/agent-defaults.md` for agent changes, then run
    `task generate:agent-instructions` and commit the result.
-4. Edit the TOML sources in `chezmoi/dot_config/` — `colors/monokai.toml` (palette), `ssh/hosts.toml`,
+4. Edit the TOML sources in `chezmoi/dot_config/` — `colors/monokai.toml` (palette),
    `zsh/aliases.toml`, `mimeapps/defaults.toml` — and both Nix and chezmoi pick the change up.
+5. Edit the ssh inventory with `sops secrets/hosts.toml`. It is encrypted because this repo
+   is public and the inventory maps the whole home network. Unlike the files above it is
+   **not** read at flake-eval time — eval is pure and cannot decrypt — so it is decrypted to
+   `~/.config/ssh/hosts.toml` and rendered into `~/.ssh/config.d/hosts` during activation.
 
 ## Formatting & linting
 

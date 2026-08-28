@@ -24,7 +24,7 @@
 # looking for, not this file.
 #
 # Sending side: the `wake` helper, driven from the `mac` key in
-# chezmoi/dot_config/ssh/hosts.toml.
+# secrets/hosts.toml (SOPS-encrypted; decrypted to ~/.config/ssh/hosts.toml).
 {
   networking.networkmanager.settings = {
     # Sections named connection* are NetworkManager's "connection defaults":
