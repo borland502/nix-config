@@ -29,10 +29,15 @@
 # or the user has put in the profile — resolution, scaling, audio, window
 # geometry, Remmina's own last_success bookkeeping — is read back and kept.
 #
-# run_onchange_ is keyed on this script's rendered hash, and hosts.toml is
-# rendered into it below, so this re-runs when the inventory changes and stays
-# quiet the rest of the time. Deleting a host's `desktop` key (or the host)
-# removes its profile on the next run.
+# This is `run_`, not `run_onchange_`, and that is a deliberate downgrade.
+# run_onchange_ keys on the rendered script's hash, which worked only while the
+# inventory was templated into the body below. The inventory is now encrypted at
+# secrets/hosts.toml and read at RUN time from the decrypted copy, so nothing
+# about a host change would alter this script's hash — a newly added desktop
+# host would silently never get a profile. Running every apply is the cheap,
+# correct answer: the script is idempotent, rewrites only the fields it manages,
+# and reports nothing when there is nothing to do. Deleting a host's `desktop`
+# key (or the host) removes its profile on the next run.
 
 {{ if ne .chezmoi.os "linux" -}}
 exit 0
@@ -82,24 +87,67 @@ readonly MANAGED='name|group|protocol|server|username|ssh_tunnel_enabled|ssh_tun
 # than responsiveness.
 readonly RDP_COLORDEPTH=66
 
-# Rendered from chezmoi/dot_config/ssh/hosts.toml at apply time: one
-# tab-separated record per host that declares a desktop.
+# One tab-separated record per host that declares a desktop, read at RUN time
+# from the decrypted inventory rather than templated in at apply time — the
+# repo copy is encrypted and chezmoi cannot read it.
 #
-# `index` rather than `$h.key` throughout — chezmoi renders with
-# missingkey=error, so a plain field lookup is a hard failure on the first host
-# that omits an optional key (port, identityfile) or omits desktop entirely,
-# which is most of them.
+# `// ""` and `// 22` throughout for the same reason the template used `index`
+# with a default: most hosts omit user, port or identityfile, and a bare lookup
+# would fail on the first one that does.
 #
 # This machine is skipped, the same way remote-desktop refuses to connect to
 # itself: hosts.toml table names are hostnames, so a matching name is the local
 # desktop, and a profile for it would only ever open a window onto the session
 # it was launched from.
-hosts=(
-{{- range $name, $h := (fromToml (include "dot_config/ssh/hosts.toml")).hosts }}
-{{- if and (index $h "desktop") (ne $name $.chezmoi.hostname) }}
-	"{{ $name }}	{{ index $h "desktop" }}	{{ index $h "hostname" }}	{{ index $h "user" | default "" }}	{{ index $h "port" | default 22 }}	{{ index $h "identityfile" | default "" }}"
-{{- end }}
-{{- end }}
+# Where to read the inventory from, in priority order. This ORDER IS THE POINT,
+# not a nicety: `task switch` runs chezmoi apply BEFORE home-manager activation,
+# and it is activation that decrypts ~/.config/ssh/hosts.toml. Reading the
+# deployed copy alone would therefore always see the PREVIOUS generation's
+# inventory — a host added today would not get a profile until the switch after
+# next. Decrypting the repo secret directly is the only way to be current.
+#
+# The deployed copy stays as the fallback for machines that have the file but
+# not the repo (or not the age key).
+readonly REPO_SECRET="{{ .chezmoi.sourceDir }}/../secrets/hosts.toml"
+readonly AGE_KEY="$HOME/.config/sops/age/keys.txt"
+inventory=""
+cleanup_inventory() { [ -n "${_tmp_inv:-}" ] && rm -f "$_tmp_inv"; }
+trap cleanup_inventory EXIT
+
+if [ -r "$REPO_SECRET" ] && [ -r "$AGE_KEY" ] && command -v sops >/dev/null 2>&1; then
+	_tmp_inv=$(mktemp) && chmod 600 "$_tmp_inv"
+	if SOPS_AGE_KEY_FILE="$AGE_KEY" sops --decrypt \
+		--input-type binary --output-type binary "$REPO_SECRET" >"$_tmp_inv" 2>/dev/null; then
+		inventory=$_tmp_inv
+	else
+		rm -f "$_tmp_inv"
+		_tmp_inv=""
+		warn "could not decrypt $REPO_SECRET — falling back to the deployed copy"
+	fi
+fi
+
+: "${HOSTS_TOML:="${inventory:-$HOME/.config/ssh/hosts.toml}"}"
+
+# No inventory is not an error. On a machine with no age key and no deployed
+# copy there is nothing to read, and this script must not fail the whole
+# chezmoi apply over a missing Remmina profile.
+if [ ! -r "$HOSTS_TOML" ]; then
+	note "no readable inventory — leaving existing profiles alone"
+	exit 0
+fi
+
+hosts=()
+while IFS= read -r record; do
+	[ -n "$record" ] && hosts+=("$record")
+done < <(
+	taplo get -f "$HOSTS_TOML" -o json 'hosts' |
+		jq -r --arg self "$(hostname -s)" '
+			to_entries[]
+			| select((.value.desktop // null) != null and .key != $self)
+			| [ .key, .value.desktop, .value.hostname,
+			    (.value.user // ""), (.value.port // 22),
+			    (.value.identityfile // "") ]
+			| @tsv'
 )
 
 mkdir -p "$DEST"

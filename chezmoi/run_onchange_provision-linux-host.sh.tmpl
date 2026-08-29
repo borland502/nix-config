@@ -184,6 +184,57 @@ CONFLICTING_FIREWALLS=(firewalld nftables iptables ip6tables)
 # into and expected to sit on AC rather than applied to every laptop.
 WIFI_REMOTE_HOSTS=(aerith)
 
+# Hosts that must keep a fixed IPv4 address, as host=CIDR, plus the gateway and
+# resolvers they pin against. The values are NOT in this file: it lives in a
+# PUBLIC repo, so they moved into the encrypted inventory under [network] and
+# [network.static] and are read here from the decrypted copy at run time.
+#
+# These are the hosts something else resolves or dials BY ADDRESS, so a moved
+# lease breaks a consumer that has no way to notice: caitsith's jumped
+# .80 -> .85 during the Batocera 43.1 upgrade and looked, to every script
+# pointing at .80, exactly like a dead host.
+#
+# The CAVEAT that used to sit here — "pinned on the HOST, not reserved on the
+# router" — is RESOLVED as of 2026-08-28. DHCP moved off the router to the
+# Technitium LXC: the router's server is off, and the LAN scope carries a
+# reserved lease for every host on this list at the address it already holds.
+#
+# The host-side pin is still worth keeping on top of the reservation, and the
+# reason is a dependency cycle rather than belt-and-braces: the DHCP server is
+# now a container ON this network, so a host that needed DHCP in order to boot
+# would depend on a machine that may not be up yet. The pin breaks that cycle.
+#
+# The pin and the reservation are two independent claims on one address. If they
+# disagree the host answers on one while every A record and every reserved lease
+# points at the other, so change them together — see the [network] comments in
+# the inventory.
+#
+# aerith's entry is from the ssh inventory and the DNS audit, NOT read off the
+# host: it has been powered off for every attempt. Its interface is wireless
+# (wlp0s20f3, iwlwifi) and a wifi profile carries a PSK that cannot be cloned
+# into a new profile, so the wifi path below edits the existing profile in place
+# and refuses rather than guesses if there is none. Verify on next boot.
+#
+# An unreadable inventory is deliberately NOT fatal. On a machine with no age
+# key it is never decrypted, and step 9 then finds no entry for this host and
+# skips — the same outcome as not being on the list at all.
+: "${HOSTS_TOML:="$HOME/.config/ssh/hosts.toml"}"
+STATIC_ADDRESSES=()
+STATIC_GATEWAY=""
+STATIC_DNS=""
+if [ -r "$HOSTS_TOML" ] && command -v taplo >/dev/null 2>&1 &&
+  command -v jq >/dev/null 2>&1; then
+  while IFS= read -r _entry; do
+    [ -n "$_entry" ] && STATIC_ADDRESSES+=("$_entry")
+  done < <(taplo get -f "$HOSTS_TOML" -o json 'network.static' 2>/dev/null |
+    jq -r 'to_entries[] | "\(.key)=\(.value)"' 2>/dev/null)
+  STATIC_GATEWAY=$(taplo get -f "$HOSTS_TOML" -o json 'network.gateway' 2>/dev/null |
+    jq -r '. // empty' 2>/dev/null)
+  # dns is a TOML array; nmcli wants one space-separated string.
+  STATIC_DNS=$(taplo get -f "$HOSTS_TOML" -o json 'network.dns' 2>/dev/null |
+    jq -r 'if type == "array" then join(" ") else (. // empty) end' 2>/dev/null)
+fi
+
 note() { printf '%s: %s\n' "$TAG" "$*"; }
 warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
 
@@ -1314,6 +1365,194 @@ EOF
   else
     warn "kwriteconfig6 missing — power-button policy unchanged, so this host may"
     warn "still be shut down rather than suspended and become unwakeable"
+  fi
+fi
+
+# --- 9. static addressing (opt-in hosts only) -------------------------------
+#
+# Pin the address the host already holds, for the hosts named in the inventory's
+# [network.static] table and loaded into STATIC_ADDRESSES at the top. See there
+# for why the pin exists alongside the DHCP reservation.
+#
+# The reason this is not a one-line `nmcli con mod`: on both tifa and cloud the
+# active profile is VOLATILE. NetworkManager auto-generated it because the host
+# has no persistent wired config, and keeps it in
+#   /run/NetworkManager/system-connections/   (tmpfs)
+# Editing that profile appears to work and then vanishes at the next reboot,
+# taking the static address with it while the A record keeps pointing at it —
+# a failure that shows up long after the change that caused it. So: edit in
+# place when the active profile is persistent, and add a new profile under /etc
+# when it is not.
+#
+# Wifi is handled but not synthesized. A wifi profile holds a PSK, and a new
+# profile cannot be given one that was never readable here, so the volatile-wifi
+# case warns instead of writing a profile that would fail to associate.
+
+static_cidr=""
+for entry in ${STATIC_ADDRESSES[@]+"${STATIC_ADDRESSES[@]}"}; do
+  [ "${entry%%=*}" = "$(hostname -s)" ] && static_cidr="${entry#*=}"
+done
+
+if [ -n "$static_cidr" ]; then
+  if ! command -v nmcli >/dev/null 2>&1; then
+    warn "NetworkManager not present — static address not configured"
+  else
+    # The device carrying the default route, so a host with several NICs pins the
+    # one its address actually belongs to rather than the first one listed.
+    static_dev=$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')
+    static_line=$(nmcli -t -f NAME,DEVICE,TYPE,FILENAME con show --active 2>/dev/null |
+                    awk -F: -v d="$static_dev" '$2 == d { print; exit }')
+
+    static_con=${static_line%%:*}
+    static_type=$(printf '%s' "$static_line" | cut -d: -f3)
+    static_file=$(printf '%s' "$static_line" | cut -d: -f4-)
+
+    # Which profile would be authoritative at the next boot: the active one if it
+    # is persistent, otherwise a new <host>-static under /etc.
+    static_target="$static_con"
+    case "$static_file" in
+      /etc/*) static_action=mod ;;
+      *)      static_action=add; static_target="$(hostname -s)-static" ;;
+    esac
+
+    # A previous run already added it; from here it is an edit, not an add.
+    if [ "$static_action" = add ] &&
+       nmcli -t -f NAME con show 2>/dev/null | grep -qx "$static_target"; then
+      static_action=mod
+      static_con="$static_target"
+    fi
+
+    # Idempotence is checked against that profile, not against the live address:
+    # the live address is already correct by construction (it is the lease being
+    # pinned), so testing it would report success on a host where nothing had
+    # been persisted at all.
+    #
+    # autoconnect is part of the test, not an afterthought. A profile with the
+    # right address and autoconnect=no is INERT: NM passes over it at boot and
+    # generates a fresh volatile DHCP profile instead, so the pin silently does
+    # not apply while every field you would think to check reads correct. tifa
+    # was in exactly that state — added by hand, never enabled.
+    #
+    # The `|| true` is load-bearing under this script's `set -euo pipefail`: on
+    # the first run of a host the target profile does not exist yet, nmcli exits
+    # non-zero, pipefail promotes that to the assignment's status, and the whole
+    # provisioning run dies here — after section 8, before "done". Found by
+    # running this section on cloud, where the profile was genuinely absent;
+    # tifa could never have shown it, because its profile already existed.
+    static_have=$(nmcli -t -f connection.autoconnect,ipv4.method,ipv4.addresses \
+                    con show "$static_target" 2>/dev/null | paste -sd' ' - || true)
+    static_want="connection.autoconnect:yes ipv4.method:manual ipv4.addresses:$static_cidr"
+
+    if [ "$static_have" = "$static_want" ]; then
+      note "unchanged  static address $static_cidr on $static_target"
+    elif [ -z "$static_dev" ] || [ -z "$static_line" ]; then
+      warn "no active connection on the default route — static address not configured"
+    elif [ "$static_action" = add ] && [ "$static_type" != "802-3-ethernet" ]; then
+      # The aerith case, if it ever boots without a persistent profile.
+      warn "$static_dev is $static_type and its profile is volatile ($static_file)."
+      warn "A replacement profile cannot carry the existing PSK. Make the current"
+      warn "connection persistent first (nmcli con clone, re-enter the key), then re-run."
+    elif ensure_root; then
+      if [ "$static_action" = add ]; then
+        # autoconnect is set OFF at creation and ON immediately after, rather
+        # than ON in one step. Adding an autoconnect profile makes NM run an
+        # activation check against a device that is already up, and the switch it
+        # may decide to make is a link bounce — see below for why that is not
+        # survivable here.
+        $SUDO nmcli con add type ethernet con-name "$static_target" ifname "$static_dev" \
+          ipv4.method manual \
+          ipv4.addresses "$static_cidr" \
+          ipv4.gateway "$STATIC_GATEWAY" \
+          ipv4.dns "$STATIC_DNS" \
+          ipv6.method auto \
+          connection.autoconnect no >/dev/null
+        $SUDO nmcli con mod "$static_target" connection.autoconnect yes
+        note "ADDED      $static_target — $static_cidr on $static_dev (persistent)"
+      else
+        $SUDO nmcli con mod "$static_con" \
+          ipv4.method manual \
+          ipv4.addresses "$static_cidr" \
+          ipv4.gateway "$STATIC_GATEWAY" \
+          ipv4.dns "$STATIC_DNS" \
+          connection.autoconnect yes
+        note "SET        $static_con — $static_cidr on $static_dev"
+      fi
+
+      # Deliberately NOT `nmcli con up`, for the same reason as section 7: this
+      # script is run over ssh on the headless hosts and dropping the link severs
+      # the session running it. The address is unchanged either way — the profile
+      # only has to win at the next activation, which it now does.
+      note "           takes effect at next reconnect (address is already $static_cidr)"
+    else
+      warn "static address not configured — this host's A record can go stale on a new lease"
+    fi
+  fi
+fi
+
+# --- 10. vivaldi extension policy -------------------------------------------
+#
+# Make it impossible for Vivaldi to run a VPN extension. This is enforcement,
+# not preference: a VPN switched on by accident on a work machine can route
+# corporate traffic through a consumer exit node, which is the kind of mistake
+# somebody else notices first.
+#
+# Why a policy rather than uninstalling the extension: an extension removed from
+# the profile comes back. Vivaldi rewrites Preferences on exit, so a deletion
+# made while it is running is simply undone, and profile sync reinstalls it at
+# the next sign-in. A managed policy is the only lever the browser will not
+# argue with — blocklisted extensions are force-removed at startup and cannot be
+# re-added from the UI or the store.
+#
+# `/etc/vivaldi/policies` is not a guess: it is the path compiled into the
+# binary (`strings .../opt/vivaldi/vivaldi-bin | grep policies`). There is no
+# per-user equivalent — Chromium reads managed policy from /etc only — which is
+# why this lives here and not in home-manager alongside the native-messaging
+# manifests.
+#
+# The blocklist is "*" with an explicit allowlist rather than a list of banned
+# IDs, and that is the whole point: naming only Proton VPN's ID would leave
+# every OTHER VPN extension installable. Deny-by-default is what makes "can
+# never use a VPN" true rather than "cannot use that particular one".
+#
+# CONSEQUENCE, deliberate: installing any new extension now means adding its ID
+# here. That is the price of the guarantee. The allowlist is exactly the set in
+# use — KeePassXC-Browser (autofill), Plasma Integration (KDE media/download
+# bridge), Chrome Remote Desktop. React and Angular DevTools are deliberately
+# absent: they were unwanted, and deny-by-default removes them without needing
+# to name them.
+#
+# macOS has the same policy under a completely different mechanism — a
+# preference domain rather than a JSON file — and no provisioning pass of its
+# own, so it is applied by hand via
+# chezmoi/dot_local/bin/executable_vivaldi-extension-policy.
+# KEEP THE TWO ALLOWLISTS IN SYNC: an ID added here and not there means the
+# extension works on one machine and is force-removed on the other, which reads
+# as the extension being broken rather than as policy.
+if command -v vivaldi >/dev/null 2>&1 || [ -d /opt/vivaldi ]; then
+  vivaldi_policy_dir=/etc/vivaldi/policies/managed
+  vivaldi_policy=$vivaldi_policy_dir/10-extension-allowlist.json
+  vivaldi_policy_want=$(
+    cat <<'JSON'
+{
+  "ExtensionInstallBlocklist": ["*"],
+  "ExtensionInstallAllowlist": [
+    "oboonakemofpalcgghocfoadofidjkkk",
+    "cimiefiiaegbelhefglklhhakcgmhkai",
+    "inomeogfingihgjfjlpeplalcfajhgai"
+  ]
+}
+JSON
+  )
+
+  if [ -f "$vivaldi_policy" ] && [ "$(cat "$vivaldi_policy")" = "$vivaldi_policy_want" ]; then
+    :
+  elif ensure_root; then
+    $SUDO mkdir -p "$vivaldi_policy_dir"
+    printf '%s\n' "$vivaldi_policy_want" | $SUDO tee "$vivaldi_policy" >/dev/null
+    $SUDO chmod 644 "$vivaldi_policy"
+    note "vivaldi: extension policy written — VPN blocked (restart Vivaldi to apply)"
+  else
+    warn "vivaldi: extension policy NOT written — a VPN extension can still run"
   fi
 fi
 

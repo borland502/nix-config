@@ -53,7 +53,17 @@ else
 			# regions, shell names — and those legitimately recur all over the
 			# repo. Only key names that denote a credential or an endpoint are
 			# in scope; everything else would be noise, and noise gets ignored.
-			case "${keypath,,}" in
+			#
+			# Matched on the LEAF key, not the whole path. Matching the path made
+			# the table name leak into the decision: every key under
+			# secrets/hosts.toml's [hosts.*] tables matched *host*, so ordinary
+			# fields like identityfile were scanned and flagged for holding
+			# ~/.ssh/id_remoting — a path that is *supposed* to appear in
+			# sshd.nix and the provisioning script. The leaf keeps the intent
+			# (hostname, api_url, admin_password) without inheriting it from a
+			# parent that merely happens to be called "hosts".
+			leafkey=${keypath##*.}
+			case "${leafkey,,}" in
 			*url* | *host* | *endpoint* | *token* | *secret* | *password* | *passwd* | *api_key* | *apikey* | *_pat) ;;
 			*) continue ;;
 			esac

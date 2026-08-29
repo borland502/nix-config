@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+# vivaldi-extension-policy — deny-by-default extension policy for Vivaldi.
+#
+# The point of this script is one guarantee: Vivaldi cannot run a VPN
+# extension. That matters most on the work Mac, where a VPN switched on by
+# accident routes corporate traffic through a consumer exit node — the kind of
+# mistake somebody else notices first.
+#
+# WHY A POLICY AND NOT AN UNINSTALL
+# An extension removed from the profile comes back. Vivaldi rewrites
+# Preferences on exit, so a deletion made while it is running is simply undone,
+# and profile sync reinstalls it at the next sign-in. A managed policy is the
+# only lever the browser will not argue with: blocklisted extensions are
+# force-removed at startup and cannot be re-added from the UI or the store.
+#
+# WHY "*" AND AN ALLOWLIST, NOT A LIST OF BANNED IDS
+# Naming only Proton VPN's ID would leave every OTHER VPN extension
+# installable. Deny-by-default is what makes "can never use a VPN" true rather
+# than "cannot use that particular one".
+#
+# CONSEQUENCE, deliberate: installing any new extension now means adding its ID
+# to ALLOW below. That is the price of the guarantee.
+#
+# LINUX IS NOT HANDLED HERE. chezmoi/run_onchange_provision-linux-host.sh.tmpl
+# section 10 writes the equivalent /etc/vivaldi/policies/managed file
+# automatically on every apply. This script exists because macOS has no
+# equivalent provisioning pass and its policy mechanism is completely different
+# (a preference domain, not a JSON file). KEEP THE TWO ALLOWLISTS IN SYNC.
+#
+# Managed by chezmoi (chezmoi/dot_local/bin/executable_vivaldi-extension-policy).
+
+set -euo pipefail
+
+readonly TAG=vivaldi-extension-policy
+note() { printf '%s: %s\n' "$TAG" "$*"; }
+warn() { printf '%s: WARNING: %s\n' "$TAG" "$*" >&2; }
+die() {
+	printf '%s: %s\n' "$TAG" "$*" >&2
+	exit 1
+}
+
+# The extensions that are allowed to exist. Everything else is force-removed.
+#   oboonakemofpalcgghocfoadofidjkkk  KeePassXC-Browser   (password autofill)
+#   inomeogfingihgjfjlpeplalcfajhgai  Chrome Remote Desktop
+#   cimiefiiaegbelhefglklhhakcgmhkai  Plasma Integration  (Linux only; harmless
+#                                     here, and keeps the two lists identical)
+#
+# Deliberately absent, and removed by deny-by-default without being named:
+#   jplgfhpmjnbigmhklmmbgecoobifkmpa  Proton VPN          <- the whole point
+#   fmkadmapgofadopljbjfkapdkoienihi  React Developer Tools
+#   ienfalfjdbdpebioblfackkekamfmbnh  Angular DevTools
+ALLOW=(
+	oboonakemofpalcgghocfoadofidjkkk
+	inomeogfingihgjfjlpeplalcfajhgai
+	cimiefiiaegbelhefglklhhakcgmhkai
+)
+
+# The machine-level policy domain. NOT /Library/Managed Preferences: that path
+# belongs to MDM (this Mac is Jamf-enrolled via DEP), and writing there would
+# both fight the management agent and be silently reverted on the next check-in.
+# /Library/Preferences is the supported local-admin location and is read as
+# machine policy by every Chromium-derived browser.
+readonly DOMAIN=/Library/Preferences/com.vivaldi.Vivaldi
+readonly PLIST="$DOMAIN.plist"
+readonly MDM_PLIST="/Library/Managed Preferences/com.vivaldi.Vivaldi.plist"
+
+[ "$(uname -s)" = "Darwin" ] ||
+	die "macOS only — on Linux this is applied by run_onchange_provision-linux-host.sh (section 10)."
+
+command -v defaults >/dev/null 2>&1 || die "defaults(1) not found"
+
+usage() {
+	cat <<EOF
+usage: $TAG [--check]
+
+  (no args)  apply the policy, prompting for sudo if needed
+  --check    report the current state and exit non-zero if it is not applied
+EOF
+}
+
+check_only=0
+case "${1:-}" in
+	--check) check_only=1 ;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	"") ;;
+	*)
+		usage >&2
+		exit 2
+		;;
+esac
+
+# Read the live values. `defaults read` exits non-zero when the key is absent,
+# which is the normal state on a host that has never been configured — so a
+# failure here is "not set", not an error.
+current_block=$(defaults read "$DOMAIN" ExtensionInstallBlocklist 2>/dev/null || true)
+current_allow=$(defaults read "$DOMAIN" ExtensionInstallAllowlist 2>/dev/null || true)
+
+# Normalise the plist array dump to a sorted, space-separated list so the
+# comparison does not depend on formatting or ordering.
+normalise() { tr -d '(),"' | tr -s ' \n' '\n' | sed '/^$/d' | sort | tr '\n' ' '; }
+
+want_allow=$(printf '%s\n' "${ALLOW[@]}" | sort | tr '\n' ' ')
+have_allow=$(printf '%s' "$current_allow" | normalise)
+have_block=$(printf '%s' "$current_block" | normalise)
+
+is_applied() { [ "$have_block" = "* " ] && [ "$have_allow" = "$want_allow" ]; }
+
+report() {
+	note "domain:    $DOMAIN"
+	note "blocklist: ${have_block:-<unset>}"
+	note "allowlist: ${have_allow:-<unset>}"
+	if [ -f "$MDM_PLIST" ]; then
+		# Worth surfacing rather than silently losing to it: MDM-delivered policy
+		# takes precedence over the local domain, so if IT ships its own Vivaldi
+		# payload it, not this file, decides what runs.
+		warn "an MDM-managed Vivaldi policy also exists and OUTRANKS this one:"
+		warn "  $MDM_PLIST"
+	fi
+}
+
+if ((check_only)); then
+	# Checks ALL THREE layers, not just the extension policy. A --check that
+	# answers only for the policy is actively dangerous here: it reported
+	# "APPLIED" on 2026-08-28 while the hosts block was missing and the VPN
+	# button was still in the toolbar, which is precisely the state this script
+	# exists to prevent. Values below are duplicated from the sections that own
+	# them — keep them in step.
+	report
+	rc=0
+	is_applied || rc=1
+	note "extension policy: $(is_applied && echo APPLIED || echo "NOT APPLIED")"
+
+	if grep -qF "vivaldi-extension-policy" /etc/hosts 2>/dev/null; then
+		note "hosts block:      APPLIED"
+	else
+		note "hosts block:      NOT APPLIED"
+		rc=1
+	fi
+
+	_prefs="$HOME/Library/Application Support/Vivaldi/Default/Preferences"
+	if [ ! -f "$_prefs" ]; then
+		note "toolbar button:   n/a (no Vivaldi profile)"
+	elif [ "$(grep -o VPNButton "$_prefs" 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
+		note "toolbar button:   REMOVED"
+	else
+		# Counted with grep -o, not grep -c: Preferences is minified onto a
+		# single line, so grep -c reports 1 no matter how many entries remain.
+		note "toolbar button:   STILL PRESENT ($(grep -o VPNButton "$_prefs" | wc -l | tr -d ' ') entries)"
+		rc=1
+	fi
+
+	((rc == 0)) && note "state: FULLY APPLIED" || note "state: INCOMPLETE"
+	exit "$rc"
+fi
+
+# Deliberately NOT `exit 0` when already applied. The sections below — the
+# hosts block and the toolbar button — are independent of the extension policy
+# and must still run every time.
+#
+# This was a real bug, not a hypothetical: while this script only wrote the
+# policy, an early exit here was correct. Once the built-in-VPN work was added
+# below, that same exit silently skipped it, and a re-run reported success while
+# leaving /etc/hosts untouched and both VPNButton entries in place (observed
+# 2026-08-28). Anything added after this point must stay reachable.
+if is_applied; then
+	note "extension policy already applied"
+	report
+else
+	# Vivaldi only reads policy at startup, so a running instance keeps whatever
+	# it had. Say so plainly: the failure mode otherwise is applying this, seeing
+	# the VPN icon still there, and concluding it did not work.
+	if pgrep -x Vivaldi >/dev/null 2>&1; then
+		warn "Vivaldi is running — policy applies only after a FULL quit and relaunch."
+	fi
+
+	note "writing extension policy (sudo required)"
+	sudo defaults write "$DOMAIN" ExtensionInstallBlocklist -array '*'
+	sudo defaults write "$DOMAIN" ExtensionInstallAllowlist -array "${ALLOW[@]}"
+
+	# defaults creates the plist 600 root:wheel; Vivaldi runs as the user and
+	# must be able to read it, so a policy written but unreadable is a silent
+	# no-op.
+	sudo chmod 644 "$PLIST"
+
+	# Re-read through the same path used above, so the verification exercises
+	# what the browser will actually see rather than trusting the write.
+	current_block=$(defaults read "$DOMAIN" ExtensionInstallBlocklist 2>/dev/null || true)
+	current_allow=$(defaults read "$DOMAIN" ExtensionInstallAllowlist 2>/dev/null || true)
+	have_block=$(printf '%s' "$current_block" | normalise)
+	have_allow=$(printf '%s' "$current_allow" | normalise)
+
+	report
+	if is_applied; then
+		note "extension policy applied"
+	else
+		die "policy did not take effect — read back does not match what was written"
+	fi
+fi
+
+# --- 2. the BUILT-IN VPN ------------------------------------------------------
+#
+# The extension policy above does not touch Vivaldi's own VPN. Proton VPN ships
+# compiled into the application (Contents/Frameworks/.../resources holds
+# provider_proton.png and vpn-dialog@2x.webp), so it is not an extension, no
+# ExtensionInstallBlocklist reaches it, and — checked against the framework
+# binary — Vivaldi registers no policy to disable it either. The strings that
+# look like candidates (ThirdPartyVPN, OpenVPN) are Chromium internals.
+#
+# So there are only two levers, and NEITHER is a real off switch. They are
+# stacked deliberately: one removes the chance of an accident, the other removes
+# the ability to succeed at one.
+
+# --- 2a. name resolution ------------------------------------------------------
+#
+# Blocking the VPN's API is the chokepoint: without it the client cannot
+# authenticate or fetch a server list, so the feature is present but inert.
+#
+# ALL of Proton is blocked, not just the VPN API. That is a deliberate decision
+# (2026-08-28): Proton Mail/Drive are not used on this machine, and giving up
+# the need to keep them working removes the hard part of the problem. Narrowing
+# to VPN-only hosts would mean guessing which endpoints the bundled client uses
+# and hoping none of them hide behind a host shared with Mail — a guess that
+# fails silently and in the wrong direction.
+#
+# The real limitation is /etc/hosts itself: it cannot wildcard, so a subdomain
+# not named below still resolves. The list is therefore the apex domains plus
+# the API and account hosts a client actually needs; anything reached by an
+# unlisted subdomain would slip through. That is why the Technitium block
+# (which CAN wildcard) covers the home network, and why the durable answer on a
+# DEP-enrolled machine is still a network/Jamf block owned by IT.
+readonly HOSTS_MARK="# vivaldi-extension-policy: proton (managed — VPN lockdown)"
+VPN_HOSTS=(
+	proton.me
+	account.proton.me
+	api.proton.me
+	vpn-api.proton.me
+	mail.proton.me
+	drive.proton.me
+	protonvpn.ch
+	api.protonvpn.ch
+	protonvpn.com
+	api.protonvpn.com
+	protonvpn.net
+	api.protonvpn.net
+	protonmail.com
+	protonmail.ch
+	api.protonmail.ch
+)
+
+if grep -qF "$HOSTS_MARK" /etc/hosts 2>/dev/null; then
+	note "hosts: proton vpn api already blocked"
+else
+	note "hosts: blocking proton vpn api (sudo required)"
+	{
+		printf '\n%s\n' "$HOSTS_MARK"
+		for h in "${VPN_HOSTS[@]}"; do
+			printf '0.0.0.0\t%s\n' "$h"
+			printf '::\t%s\n' "$h"
+		done
+	} | sudo tee -a /etc/hosts >/dev/null
+	note "hosts: blocked ${#VPN_HOSTS[@]} host(s)"
+fi
+
+for h in "${VPN_HOSTS[@]}"; do
+	# Resolution, not reachability: a host that still resolves to a real address
+	# is not blocked, whatever /etc/hosts says.
+	got=$(dscacheutil -q host -a name "$h" 2>/dev/null | awk '/^ip_address:/{print $2; exit}')
+	printf '%s:   %-22s -> %s\n' "$TAG" "$h" "${got:-<no answer>}"
+done
+
+# --- 2b. the toolbar button ---------------------------------------------------
+#
+# Cosmetic on its own, and it is not pretended otherwise: the feature remains
+# reachable from settings. What it removes is the ACCIDENT — a one-click control
+# sitting in the toolbar next to buttons that are clicked all day.
+#
+# Vivaldi rewrites Preferences from memory when it exits, so editing this file
+# under a running browser is not merely racy, it is guaranteed to be discarded.
+# Refuse rather than appear to succeed.
+readonly PREFS="$HOME/Library/Application Support/Vivaldi/Default/Preferences"
+
+if pgrep -x Vivaldi >/dev/null 2>&1; then
+	warn "Vivaldi is RUNNING — toolbar button left alone."
+	warn "Quit Vivaldi completely (Cmd-Q), then re-run this script."
+elif [ ! -f "$PREFS" ]; then
+	warn "no Vivaldi profile at $PREFS — skipping toolbar button"
+else
+	cp -p "$PREFS" "$PREFS.bak-$(date +%Y%m%d%H%M%S)"
+	python3 - "$PREFS" <<'PY'
+import json, sys
+
+path = sys.argv[1]
+with open(path) as fh:
+    prefs = json.load(fh)
+
+removed = 0
+
+
+def strip(node):
+    """Drop VPNButton from every toolbar array, wherever Vivaldi keeps one."""
+    global removed
+    if isinstance(node, dict):
+        for value in node.values():
+            strip(value)
+    elif isinstance(node, list):
+        before = len(node)
+        node[:] = [x for x in node if x != "VPNButton"]
+        removed += before - len(node)
+        for value in node:
+            strip(value)
+
+
+strip(prefs)
+if removed:
+    # Write via a temp file in the same directory so a crash cannot leave a
+    # half-written Preferences behind, which Vivaldi would reset to defaults.
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(prefs, fh, separators=(",", ":"))
+    import os
+
+    os.replace(tmp, path)
+print(f"vivaldi-extension-policy: toolbar: removed {removed} VPNButton entr"
+      f"{'y' if removed == 1 else 'ies'}")
+PY
+fi
+
+note "done"
+note "next: relaunch Vivaldi, confirm at vivaldi://policy that blocked extensions are GONE"
+note "      the built-in VPN cannot be removed — it is inert (no API) and unbuttoned, not absent"
