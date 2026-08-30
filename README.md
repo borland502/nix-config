@@ -265,6 +265,7 @@ The Monokai Spectrum palette is the oldest and widest-reaching of these:
 | `rclone-gdrive.json` | Google Drive OAuth *client* credentials (the per-device token stays local) |
 | `gkion.toml` | Kion API settings — decrypted whole-file at activation |
 | `technitiumdns-cli.toml` | Technitium DNS CLI config — decrypted whole-file at activation |
+| `wifi.yaml` | Wireless SSID + PSK (`ellone`'s network); not wired into activation |
 
 sops-nix extracts individual keys, but tools that want a whole config file (gkion, technitiumdns) get a
 full-file decrypt in an activation script instead.
