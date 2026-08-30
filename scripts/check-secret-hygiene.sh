@@ -88,7 +88,15 @@ else
 			esac
 
 			for needle in "${needles[@]}"; do
-				hits=$(rg --fixed-strings --line-number --no-messages \
+				# --word-regexp, not a bare substring match. Without it a
+				# value that is a PREFIX of an unrelated one flags forever:
+				# quistis at 192.168.2.22 matched inside 192.168.2.223 in
+				# rclone-mount's alisaie comment, an unfixable failure short of
+				# renumbering a live host. Word boundaries still catch a real
+				# leak (the value followed by :port, /path, quote or EOL all
+				# break on a non-word char) while ignoring digits glued on the
+				# end. Applies to hostnames and tokens equally.
+				hits=$(rg --fixed-strings --word-regexp --line-number --no-messages \
 					--glob '!.git' \
 					--glob '!secrets/**' \
 					--glob '!hosts/*/secrets/**' \
