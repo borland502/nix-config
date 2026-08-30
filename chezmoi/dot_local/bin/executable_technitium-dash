@@ -1,0 +1,556 @@
+#!/usr/bin/env python3
+"""technitium-dash — full-screen Technitium DNS stats + live query monitor.
+
+Built for an always-on 1080p wall panel. Stdlib only: it must run on a bare
+DietPi image with no pip, so nothing here may import outside the stdlib.
+
+Colours are Monokai Spectrumish, the repo's single source of truth, read from
+~/.config/colors/monokai.toml when present and otherwise from the baked-in copy
+below. Keeping the fallback means the panel still themes correctly on a host
+chezmoi has not touched (ellone is DietPi, not chezmoi-managed).
+
+Config resolution, first hit wins:
+  1. --url / --token flags
+  2. $TECHNITIUM_URL / $TECHNITIUM_TOKEN
+  3. ~/.config/technitium-dash/config.toml   (url, token, fallback_url)
+
+The panel is a monitoring tool for a DNS server, so it is written to stay up
+while that server is down: every request is individually guarded, a failed poll
+degrades to a banner rather than a traceback, and if `fallback_url` is set the
+dashboard switches to it automatically. That matters during maintenance, which
+is exactly when someone is looking at the screen.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import signal
+import sys
+import time
+from datetime import datetime, timezone
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+# ---------------------------------------------------------------- palette ---
+
+_FALLBACK_PALETTE = {
+    "base00": "#222222", "base01": "#363537", "base02": "#525053",
+    "base03": "#69676c", "base04": "#8b888f", "base05": "#bab6c0",
+    "base06": "#fbf8ff", "base07": "#f7f1ff", "base08": "#FC618D",
+    "base09": "#fd9353", "base0A": "#FCE566", "base0B": "#7BD88F",
+    "base0C": "#5AD4E6", "base0D": "#948ae3", "base0E": "#fc618d",
+    "base0F": "#fef20a", "base10": "#191919",
+}
+
+
+def load_palette() -> dict[str, str]:
+    """Prefer the deployed palette so a scheme edit reaches the panel."""
+    for candidate in (
+        Path.home() / ".config/colors/monokai.toml",
+        Path("/etc/colors/monokai.toml"),
+    ):
+        try:
+            import tomllib  # 3.11+; DietPi Trixie ships 3.13
+
+            with candidate.open("rb") as fh:
+                pal = tomllib.load(fh).get("palette", {})
+            if pal:
+                return {**_FALLBACK_PALETTE, **pal}
+        except Exception:
+            continue
+    return dict(_FALLBACK_PALETTE)
+
+
+PAL = load_palette()
+
+
+def _rgb(hexstr: str) -> tuple[int, int, int]:
+    h = hexstr.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def fg(hexstr: str) -> str:
+    r, g, b = _rgb(hexstr)
+    return f"\x1b[38;2;{r};{g};{b}m"
+
+
+def bg(hexstr: str) -> str:
+    r, g, b = _rgb(hexstr)
+    return f"\x1b[48;2;{r};{g};{b}m"
+
+
+RESET = "\x1b[0m"
+BOLD = "\x1b[1m"
+DIM = "\x1b[2m"
+
+# The Linux VT is a 16-colour device: truecolor SGR is approximated to the
+# console palette, so emitting 24-bit here would NOT render Monokai. Instead
+# emit indexed colours and set the VT palette to Monokai separately (see
+# --print-vtrgb, consumed by the systemd unit). Slot assignments mirror the
+# kitty mapping in home-manager/home.nix so both terminals agree.
+_SLOT = {
+    "base00": 0, "base08": 1, "base0B": 2, "base0A": 3, "base0D": 4,
+    "base0E": 5, "base0C": 6, "base05": 7, "base03": 8, "base07": 15,
+    # base04/base06/base09 have no canonical slot; fall back to the nearest.
+    "base04": 8, "base06": 15, "base09": 3,
+}
+
+
+def _use_indexed() -> bool:
+    if os.environ.get("TECHNITIUM_DASH_COLOR") == "truecolor":
+        return False
+    if os.environ.get("TECHNITIUM_DASH_COLOR") == "16":
+        return True
+    term = os.environ.get("TERM", "")
+    if term == "linux":  # bare framebuffer console
+        return True
+    return os.environ.get("COLORTERM", "") not in ("truecolor", "24bit")
+
+
+INDEXED = _use_indexed()
+
+
+def fg(hexstr: str, base: str | None = None) -> str:
+    if INDEXED and base and base in _SLOT:
+        n = _SLOT[base]
+        return f"\x1b[{30 + n}m" if n < 8 else f"\x1b[{90 + n - 8}m"
+    r, g, b = _rgb(hexstr)
+    return f"\x1b[38;2;{r};{g};{b}m"
+
+
+def bg(hexstr: str, base: str | None = None) -> str:
+    if INDEXED and base and base in _SLOT:
+        n = _SLOT[base]
+        return f"\x1b[{40 + n}m" if n < 8 else f"\x1b[{100 + n - 8}m"
+    r, g, b = _rgb(hexstr)
+    return f"\x1b[48;2;{r};{g};{b}m"
+
+
+C_BG      = bg(PAL["base00"], "base00")
+C_TEXT    = fg(PAL["base05"], "base05")
+C_MUTED   = fg(PAL["base03"], "base03")
+C_LABEL   = fg(PAL["base04"], "base04")
+C_ACCENT  = fg(PAL["base0C"], "base0C")   # cyan  — headings, chrome
+C_OK      = fg(PAL["base0B"], "base0B")   # green — healthy, NoError
+C_WARN    = fg(PAL["base0A"], "base0A")   # yellow— NXDOMAIN, cached
+C_ALERT   = fg(PAL["base08"], "base08")   # pink  — blocked, failures
+C_ORANGE  = fg(PAL["base09"], "base09")   # orange— recursive
+C_PURPLE  = fg(PAL["base0D"], "base0D")   # purple— clients
+C_BRIGHT  = fg(PAL["base06"], "base06")
+
+
+def vtrgb_palette() -> str:
+    """Emit a setvtrgb(8) palette so the console's 16 slots ARE Monokai.
+
+    Order matches the kitty mapping: 0-7 normal, 8-15 bright.
+    """
+    order = ["base00", "base08", "base0B", "base0A", "base0D", "base0E",
+             "base0C", "base05", "base03", "base12", "base14", "base13",
+             "base16", "base0E", "base15", "base07"]
+    cols = [_rgb(PAL.get(k, PAL["base05"])) for k in order]
+    return "\n".join(",".join(str(c[i]) for c in cols) for i in range(3)) + "\n"
+
+
+# ------------------------------------------------------------------- api ----
+
+
+class ApiError(Exception):
+    pass
+
+
+class Technitium:
+    def __init__(self, url: str, token: str, timeout: float = 6.0):
+        self.url = url.rstrip("/")
+        self.token = token
+        self.timeout = timeout
+
+    def call(self, path: str, **params) -> dict:
+        params["token"] = self.token
+        qs = urllib.parse.urlencode(params)
+        full = f"{self.url}/{path.lstrip('/')}?{qs}"
+        try:
+            with urllib.request.urlopen(full, timeout=self.timeout) as resp:
+                payload = json.loads(resp.read().decode("utf-8", "replace"))
+        except urllib.error.HTTPError as exc:
+            raise ApiError(f"HTTP {exc.code}") from exc
+        except urllib.error.URLError as exc:
+            raise ApiError(str(exc.reason)) from exc
+        except (TimeoutError, OSError) as exc:
+            raise ApiError(str(exc)) from exc
+        except json.JSONDecodeError as exc:
+            raise ApiError("bad JSON from server") from exc
+        if payload.get("status") != "ok":
+            raise ApiError(payload.get("errorMessage") or "api returned not-ok")
+        return payload.get("response", {})
+
+    def stats(self, window: str = "LastHour") -> dict:
+        return self.call("dashboard/stats/get", type=window, utcFormat="false")
+
+    def queries(self, count: int) -> list[dict]:
+        # The Query Logs (Sqlite) app is optional; callers treat failure as
+        # "no live feed available" rather than a fatal error.
+        resp = self.call(
+            "logs/query",
+            name="Query Logs (Sqlite)",
+            classPath="QueryLogsSqlite.App",
+            pageNumber=1,
+            entriesPerPage=count,
+            descendingOrder="true",
+        )
+        return resp.get("entries", []) or []
+
+    def version(self) -> str:
+        try:
+            return self.call("user/checkForUpdate").get("currentVersion", "?")
+        except ApiError:
+            return "?"
+
+
+# ----------------------------------------------------------------- render ---
+
+# Debian console fonts ship U+2588 and the box-drawing set but NOT the
+# 1/8-block ramp U+2581..2587 — none of the ~200 fonts on a stock DietPi image
+# has it. On the VT those cells render as garbage, so fall back to a coarser
+# ramp built only from glyphs the console font actually maps. Verified present:
+# U+00B7 · , U+2591 ░ , U+2592 ▒ , U+2588 █ .
+SPARK_FINE = "▁▂▃▄▅▆▇█"
+SPARK_COARSE = "·░▒█"
+SPARK = SPARK_COARSE if INDEXED else SPARK_FINE
+
+
+def sparkline(values: list[int], width: int, ramp: str | None = None) -> str:
+    ramp = ramp or SPARK
+    if not values:
+        return ""
+    vals = values[-width:] if len(values) > width else values
+    peak = max(vals) or 1
+    steps = len(ramp) - 1
+    return "".join(ramp[min(steps, int(v / peak * steps))] for v in vals)
+
+
+def human(n) -> str:
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return "-"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 10_000:
+        return f"{n / 1000:.1f}k"
+    return f"{n:,}"
+
+
+def local_hms(iso: str) -> str:
+    """Technitium timestamps are UTC ISO-8601; the panel clock is local.
+
+    Slicing the string leaves the tail 4-5 hours off the header clock, which
+    reads as a stalled feed. .NET emits 7-digit fractional seconds, which
+    fromisoformat rejects before 3.13, so trim to microseconds first.
+    """
+    if not iso:
+        return "--:--:--"
+    try:
+        txt = iso.replace("Z", "+00:00")
+        if "." in txt:
+            head, _, tail = txt.partition(".")
+            digits = "".join(ch for ch in tail if ch.isdigit())[:6]
+            offset = tail[len(digits):] if len(tail) > len(digits) else ""
+            for marker in ("+", "-"):
+                if marker in tail:
+                    offset = tail[tail.index(marker):]
+                    break
+            txt = f"{head}.{digits or '0'}{offset}"
+        dt = datetime.fromisoformat(txt)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%H:%M:%S")
+    except (ValueError, TypeError):
+        return iso[11:19] or "--:--:--"
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def vlen(s: str) -> int:
+    """Visible width, ignoring SGR escapes.
+
+    Python's format padding counts escape bytes as characters, so a coloured
+    cell pads to far less than the intended column width. Every multi-column
+    row here must pad on this, not on len().
+    """
+    return len(_ANSI_RE.sub("", s))
+
+
+def vpad(s: str, width: int) -> str:
+    return s + " " * max(0, width - vlen(s))
+
+
+def clip(s: str, n: int) -> str:
+    s = str(s)
+    return s if len(s) <= n else s[: max(0, n - 1)] + "…"
+
+
+class Screen:
+    def __init__(self):
+        self.buf: list[str] = []
+
+    def line(self, s: str = ""):
+        self.buf.append(s)
+
+    def flush(self, cols: int):
+        # Repaint in one write: incremental redraws flicker badly over SSH,
+        # which is how this panel is usually watched while it is being built.
+        out = ["\x1b[H"]
+        for row in self.buf:
+            out.append(C_BG + row + "\x1b[K" + RESET + "\n")
+        out.append("\x1b[J")
+        sys.stdout.write("".join(out))
+        sys.stdout.flush()
+        self.buf.clear()
+
+
+def tile(label: str, value: str, colour: str, width: int) -> str:
+    inner = width - 2
+    return (
+        f"{C_MUTED}│{RESET}{C_BG}"
+        f"{colour}{BOLD}{value:>{inner - len(label) - 1}}{RESET}{C_BG} "
+        f"{C_LABEL}{label}{RESET}{C_BG}"
+    )
+
+
+def render(scr: Screen, srv: Technitium, name: str, version: str,
+           stats: dict, chart: dict, tops: dict, queries: list[dict],
+           cols: int, rows: int, err: str | None, interval: int):
+    s = stats or {}
+    total = int(s.get("totalQueries", 0) or 0)
+    blocked = int(s.get("totalBlocked", 0) or 0)
+    pct = (blocked / total * 100) if total else 0.0
+
+    # ---- header
+    host = urllib.parse.urlparse(srv.url).hostname or srv.url
+    left = f" {BOLD}{C_ACCENT}TECHNITIUM{RESET}{C_BG} {C_TEXT}{name}{RESET}{C_BG} {C_MUTED}v{version}{RESET}{C_BG}"
+    right = f"{C_MUTED}{host}  {time.strftime('%H:%M:%S')} {RESET}{C_BG}"
+    pad = cols - (len("  TECHNITIUM ") + len(name) + len(version) + 2 + len(host) + 12)
+    scr.line(left + " " * max(1, pad) + right)
+    scr.line(f"{C_MUTED}{'─' * cols}{RESET}{C_BG}")
+
+    if err:
+        scr.line(f" {C_ALERT}{BOLD}⚠ {err}{RESET}{C_BG}")
+        scr.line(f" {C_MUTED}retrying every {interval}s — last known values shown below{RESET}{C_BG}")
+        scr.line("")
+
+    # ---- stat tiles
+    tw = max(14, cols // 7)
+    tiles = [
+        ("QUERIES",  human(total),                       C_ACCENT),
+        ("BLOCKED",  f"{human(blocked)} {pct:.0f}%",     C_ALERT),
+        ("CACHED",   human(s.get("totalCached")),        C_WARN),
+        ("RECURSIVE",human(s.get("totalRecursive")),     C_ORANGE),
+        ("NXDOMAIN", human(s.get("totalNxDomain")),      C_WARN),
+        ("CLIENTS",  human(s.get("totalClients")),       C_PURPLE),
+        ("FAILURES", human(s.get("totalServerFailure")), C_OK if not int(s.get("totalServerFailure", 0) or 0) else C_ALERT),
+    ]
+    scr.line("".join(tile(l, v, c, tw) for l, v, c in tiles[: max(1, cols // tw)]))
+    scr.line("")
+
+    # ---- per-minute chart
+    series = {d.get("label"): d.get("data", []) for d in (chart.get("datasets") or [])}
+    labels = chart.get("labels") or []
+    cw = cols - 14
+    if series.get("Total") and cw > 20:
+        tot = [int(x or 0) for x in series["Total"]]
+        blk = [int(x or 0) for x in series.get("Blocked", [])]
+        scr.line(f" {C_LABEL}queries/min{RESET}{C_BG}  {C_ACCENT}{sparkline(tot, cw)}{RESET}{C_BG}")
+        if blk:
+            scr.line(f" {C_LABEL}blocked/min{RESET}{C_BG}  {C_ALERT}{sparkline(blk, cw)}{RESET}{C_BG}")
+        if labels:
+            span = f"{labels[0]} → {labels[-1]}"
+            scr.line(f" {C_MUTED}{' ' * 12}{span}   peak {max(tot)}/min{RESET}{C_BG}")
+        scr.line("")
+
+    # ---- top-N columns
+    colw = cols // 3 - 2
+    def column(title: str, rows_: list, colour: str, n: int) -> list[str]:
+        out = [f"{colour}{BOLD}{title}{RESET}{C_BG}"]
+        for e in (rows_ or [])[:n]:
+            nm = clip(e.get("name", "?"), colw - 9)
+            out.append(f"{C_TEXT}{nm:<{colw - 9}}{RESET}{C_BG}{C_MUTED}{human(e.get('hits')):>7}{RESET}{C_BG}")
+        while len(out) < n + 1:
+            out.append("")
+        return out
+
+    n_top = 6
+    a = column("TOP DOMAINS", tops.get("topDomains"), C_ACCENT, n_top)
+    b = column("TOP BLOCKED", tops.get("topBlockedDomains"), C_ALERT, n_top)
+    c = column("TOP CLIENTS", tops.get("topClients"), C_PURPLE, n_top)
+    for i in range(n_top + 1):
+        scr.line(f" {vpad(a[i], colw)}  {vpad(b[i], colw)}  {c[i]}")
+    scr.line("")
+
+    # ---- live query tail
+    scr.line(f" {C_ACCENT}{BOLD}LIVE QUERIES{RESET}{C_BG}  {C_MUTED}newest first{RESET}{C_BG}")
+    scr.line(f"{C_MUTED}{'─' * cols}{RESET}{C_BG}")
+    rcode_colour = {
+        "NoError": C_OK, "NxDomain": C_WARN, "ServerFailure": C_ALERT,
+        "Refused": C_ALERT, "Blocked": C_ALERT,
+    }
+    used = len(scr.buf) + 2
+    room = max(0, rows - used)
+    if queries is None:
+        scr.line(f" {C_MUTED}Query Logs (Sqlite) app not installed on this server{RESET}{C_BG}")
+    else:
+        for q in queries[:room]:
+            ts = local_hms(q.get("timestamp") or "")
+            client = q.get("clientIpAddress", "?")
+            qw = max(20, cols - 46)
+            qname = clip(q.get("qname", "?"), qw)
+            qtype = q.get("qtype", "?")
+            rcode = q.get("rcode", "?")
+            rc = rcode_colour.get(rcode, C_TEXT)
+            scr.line(
+                f" {C_MUTED}{ts}{RESET}{C_BG} "
+                f"{C_PURPLE}{client:<15}{RESET}{C_BG} "
+                f"{C_TEXT}{qname:<{qw}}{RESET}{C_BG} "
+                f"{C_LABEL}{qtype:<5}{RESET}{C_BG} {rc}{rcode}{RESET}{C_BG}"
+            )
+
+
+# ------------------------------------------------------------------- main ---
+
+
+def load_config(args) -> tuple[str, str, str | None, str | None]:
+    url = args.url or os.environ.get("TECHNITIUM_URL")
+    token = args.token or os.environ.get("TECHNITIUM_TOKEN")
+    fallback = args.fallback
+    fb_token = args.fallback_token or os.environ.get("TECHNITIUM_FALLBACK_TOKEN")
+    cfg_path = Path.home() / ".config/technitium-dash/config.toml"
+    if (not url or not token) and cfg_path.exists():
+        try:
+            import tomllib
+
+            with cfg_path.open("rb") as fh:
+                cfg = tomllib.load(fh)
+            url = url or cfg.get("url")
+            token = token or cfg.get("token")
+            fallback = fallback or cfg.get("fallback_url")
+            fb_token = fb_token or cfg.get("fallback_token")
+        except Exception as exc:
+            sys.exit(f"technitium-dash: cannot read {cfg_path}: {exc}")
+    if not url or not token:
+        sys.exit(
+            "technitium-dash: no server configured.\n"
+            "  set TECHNITIUM_URL and TECHNITIUM_TOKEN, pass --url/--token,\n"
+            f"  or create {cfg_path} with url/token keys."
+        )
+    # Each Technitium instance issues its own tokens; reusing the primary's
+    # against the secondary yields a confusing auth error at the exact moment
+    # the panel is meant to be useful. Default to it only as a convenience.
+    return url, token, fallback, (fb_token or token)
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description="Technitium DNS stats + live query panel")
+    p.add_argument("--url", help="API base, e.g. http://dns.example.lan:5380/api")
+    p.add_argument("--token", help="API token")
+    p.add_argument("--fallback", help="secondary API base used if the primary fails")
+    p.add_argument("--fallback-token", help="token for --fallback (defaults to --token)")
+    p.add_argument("--interval", type=int, default=5, help="refresh seconds (default 5)")
+    p.add_argument("--window", default="LastHour",
+                   choices=["LastHour", "LastDay", "LastWeek", "LastMonth"])
+    p.add_argument("--once", action="store_true", help="render one frame and exit")
+    p.add_argument("--print-vtrgb", action="store_true",
+                   help="print a setvtrgb palette (Monokai) and exit")
+    args = p.parse_args()
+
+    if args.print_vtrgb:
+        sys.stdout.write(vtrgb_palette())
+        return 0
+
+    url, token, fallback, fb_token = load_config(args)
+    primary = Technitium(url, token)
+    servers = [primary]
+    if fallback:
+        servers.append(Technitium(fallback, fb_token))
+
+    scr = Screen()
+    stop = False
+
+    def _stop(*_):
+        nonlocal stop
+        stop = True
+
+    signal.signal(signal.SIGINT, _stop)
+    signal.signal(signal.SIGTERM, _stop)
+
+    if not args.once:
+        sys.stdout.write("\x1b[?25l\x1b[?1049h")  # hide cursor, alt screen
+
+    last = {"stats": {}, "chart": {}, "tops": {}, "queries": []}
+    version = ""
+    active = 0
+    try:
+        while not stop:
+            cols, rows = shutil.get_terminal_size((120, 40))
+            err = None
+
+            # Try each server in turn within this one cycle. Switching across
+            # cycles instead left the header labelled "secondary" while still
+            # showing the primary's address and data — on a wall panel that
+            # misreads as the failover having not worked.
+            errors: list[str] = []
+            for offset in range(len(servers)):
+                idx = (active + offset) % len(servers)
+                cand = servers[idx]
+                host = urllib.parse.urlparse(cand.url).hostname
+                try:
+                    resp = cand.stats(args.window)
+                    last["stats"] = resp.get("stats", {})
+                    last["chart"] = resp.get("mainChartData", {})
+                    last["tops"] = {
+                        k: resp.get(k, []) for k in
+                        ("topDomains", "topBlockedDomains", "topClients")
+                    }
+                    if idx != active or not version:
+                        version = cand.version()
+                    active = idx
+                    break
+                except ApiError as exc:
+                    errors.append(f"{host}: {exc}")
+            else:
+                err = " | ".join(errors)
+
+            srv = servers[active]
+            if errors and not err:
+                err = errors[0] + f" — failed over to {urllib.parse.urlparse(srv.url).hostname}"
+
+            try:
+                last["queries"] = srv.queries(max(5, rows))
+            except ApiError:
+                last["queries"] = None
+
+            render(scr, srv, "primary" if active == 0 else "secondary",
+                   version or "?", last["stats"], last["chart"], last["tops"],
+                   last["queries"], cols, rows, err, args.interval)
+            scr.flush(cols)
+
+            if args.once:
+                break
+            for _ in range(args.interval * 10):
+                if stop:
+                    break
+                time.sleep(0.1)
+    finally:
+        if not args.once:
+            sys.stdout.write("\x1b[?25h\x1b[?1049l")
+            sys.stdout.flush()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
