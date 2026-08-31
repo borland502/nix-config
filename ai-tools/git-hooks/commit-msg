@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# Strip AI-agent attribution from commit messages.
+#
+# Removes Co-authored-by trailers naming Copilot or Claude, the "Generated with
+# Claude Code" line, and Claude-Session trailers, then lets the commit proceed.
+# Runs for every local commit regardless of which tool made it -- Claude Code,
+# Copilot CLI, or a plain `git commit`.
+#
+# Deployed by home-manager to ~/.config/git/hooks/commit-msg and activated
+# globally via core.hooksPath, so it applies to every repository on the machine
+# without touching any project's own files. A repo that sets its own
+# core.hooksPath (husky and friends) overrides this and is left alone.
+#
+# Scope: local commits only. GitHub adds its own Co-authored-by trailers when
+# squash-merging a PR (committer shows as "GitHub <noreply@github.com>"); that
+# happens server-side and cannot be intercepted here.
+
+set -euo pipefail
+
+msg_file="${1:-}"
+[ -n "$msg_file" ] && [ -f "$msg_file" ] || exit 0
+
+before_hash=$(cksum <"$msg_file")
+
+# Delete whole lines that attribute the commit to an agent. Matching is
+# case-insensitive and anchored so a legitimate body line that merely mentions
+# Copilot or Claude survives -- only trailer-shaped lines are removed. Human
+# Co-authored-by trailers are preserved.
+tmp_file=$(mktemp)
+trap 'rm -f "$tmp_file"' EXIT
+
+grep -viE \
+  -e '^[[:space:]]*Co-authored-by:[[:space:]]*Copilot([[:space:]]|<|$)' \
+  -e '^[[:space:]]*Co-authored-by:[[:space:]]*Claude([[:space:]]|<|$)' \
+  -e '^[[:space:]]*Co-authored-by:.*<[0-9]+\+Copilot@' \
+  -e '^[[:space:]]*Co-authored-by:.*<noreply@anthropic\.com>' \
+  -e '^[[:space:]]*(🤖[[:space:]]*)?Generated with[[:space:]]+\[?Claude Code' \
+  -e '^[[:space:]]*Claude-Session:' \
+  "$msg_file" >"$tmp_file" || true
+
+# Collapse trailing blank lines left behind by a removed trailer block.
+awk 'BEGIN { blanks = 0 }
+     /^[[:space:]]*$/ { blanks++; next }
+     { while (blanks-- > 0) print ""; blanks = 0; print }' \
+  "$tmp_file" >"$msg_file"
+
+if [ "$(cksum <"$msg_file")" != "$before_hash" ]; then
+  echo "commit-msg: removed AI-agent attribution trailer(s)" >&2
+fi
+
+exit 0

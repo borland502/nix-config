@@ -364,6 +364,16 @@ in {
         source = claude;
         force = true;
       };
+      # Global commit-msg hook: strips Co-authored-by trailers naming Copilot or
+      # Claude, the "Generated with Claude Code" line, and Claude-Session
+      # trailers, from every locally-made commit. Activated by
+      # programs.git.settings.core.hooksPath below. Lives here rather than in a
+      # project's .githooks/ because some repos cannot take a committed hook.
+      # Human co-authors and prose merely mentioning either tool are preserved.
+      "git/hooks/commit-msg" = {
+        source = ../ai-tools/git-hooks/commit-msg;
+        executable = true;
+      };
       # Automation scripts not meant for manual invocation live under
       # ~/.local/bin/ai-tools/ (deployed by home-manager from the top-level
       # ai-tools/scripts/ source — see home.file below); only the Copilot hook
@@ -1064,6 +1074,13 @@ in {
         core = {
           editor = "vim";
           pager = "delta";
+          # Global hook directory (see xdg.configFile."git/hooks/commit-msg"
+          # below). Applies the agent-attribution stripper to every repo without
+          # committing anything to those repos -- needed where a project's own
+          # hooks cannot be modified. A repo that sets its own core.hooksPath
+          # (husky et al) overrides this; a repo relying on plain .git/hooks
+          # does not run them while this is set.
+          hooksPath = "${xdgConfigHome}/git/hooks";
         };
         pull.rebase = false;
         # delta: syntax-highlighted diffs/pager. `delta` package added above.
