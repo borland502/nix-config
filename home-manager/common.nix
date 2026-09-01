@@ -147,6 +147,13 @@
     curl
     wget
 
+    # Sender half of Wake-on-LAN; the `wake` helper shells out to it. Shared
+    # rather than Linux-only: nixpkgs marks it platforms.all, and a magic packet
+    # is most useful from the laptop that finds a host asleep. Unprivileged — it
+    # broadcasts UDP/9 rather than forging an ethernet frame, hence this and not
+    # etherwake.
+    wakeonlan
+
     # Build tools
     gcc
     pkg-config
