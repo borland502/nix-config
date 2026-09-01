@@ -10,15 +10,25 @@ below. Keeping the fallback means the panel still themes correctly on a host
 chezmoi has not touched (ellone is DietPi, not chezmoi-managed).
 
 Config resolution, first hit wins:
-  1. --url / --token / --exclude flags
-  2. $TECHNITIUM_URL / $TECHNITIUM_TOKEN / $TECHNITIUM_EXCLUDE
-  3. ~/.config/technitium-dash/config.toml   (url, token, fallback_url, exclude)
+  1. --url / --token / --exclude / --max-per-name flags
+  2. $TECHNITIUM_URL / $TECHNITIUM_TOKEN / $TECHNITIUM_EXCLUDE /
+     $TECHNITIUM_MAX_PER_NAME
+  3. ~/.config/technitium-dash/config.toml
+     (url, token, fallback_url, exclude, max_per_name)
 
-`exclude` hides query names from the live tail -- a host polling in a tight
-loop can otherwise own most of the panel. It affects that tail only: the
-counters, chart, and top-domain columns still report the full picture, so the
-noise stays visible where it is information rather than clutter. The names are
-site-specific, so they live in config and never in this file.
+Two settings keep one busy host from owning the live tail, and they answer
+different questions:
+
+  `exclude`       hide these names entirely. For traffic you never want to
+                  look at -- a monitoring agent polling in a tight loop.
+  `max_per_name`  show at most N rows per name (default 2, 0 disables). For
+                  traffic you DO want to see, just not fifty times. Two keeps
+                  the usual A/AAAA pair intact.
+
+Both affect the tail only: the counters, chart, and top-domain columns still
+report the full picture, so the noise stays visible where it is information
+rather than clutter. Excluded names are site-specific, so they live in config
+and never in this file.
 
 The panel is a monitoring tool for a DNS server, so it is written to stay up
 while that server is down: every request is individually guarded, a failed poll
@@ -42,6 +52,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
 # ---------------------------------------------------------------- palette ---
 
@@ -179,11 +190,12 @@ class Technitium:
     MAX_PAGES = 6
 
     def __init__(self, url: str, token: str, timeout: float = 6.0,
-                 exclude: tuple[str, ...] = ()):
+                 exclude: tuple[str, ...] = (), max_per_name: int = 0):
         self.url = url.rstrip("/")
         self.token = token
         self.timeout = timeout
         self.exclude = exclude
+        self.max_per_name = max_per_name
 
     def call(self, path: str, **params) -> dict:
         params["token"] = self.token
@@ -207,20 +219,24 @@ class Technitium:
     def stats(self, window: str = "LastHour") -> dict:
         return self.call("dashboard/stats/get", type=window, utcFormat="false")
 
+    @staticmethod
+    def _qname(entry: dict) -> str:
+        return (entry.get("qname") or "").rstrip(".").lower()
+
     def _excluded(self, entry: dict) -> bool:
         # Match the name itself and anything under it, the way a zone reads:
         # excluding `svc.example.lan` also drops `a.svc.example.lan`.
-        name = (entry.get("qname") or "").rstrip(".").lower()
+        name = self._qname(entry)
         return any(name == pat or name.endswith("." + pat) for pat in self.exclude)
 
     def queries(self, count: int) -> list[dict]:
         # The Query Logs (Sqlite) app is optional; callers treat failure as
         # "no live feed available" rather than a fatal error.
         #
-        # The API has no server-side exclusion, so filtering happens here. That
-        # means over-fetching: drop 2/3 of a page and the panel shows a third of
-        # a screen, which reads as "DNS went quiet" rather than "the noise is
-        # hidden". Walk pages until the feed is full instead.
+        # The API has no server-side exclusion or per-name cap, so both happen
+        # here. That means over-fetching: drop 2/3 of a page and the panel shows
+        # a third of a screen, which reads as "DNS went quiet" rather than "the
+        # noise is hidden". Walk pages until the feed is full instead.
         def page(n: int, size: int) -> list[dict]:
             resp = self.call(
                 "logs/query",
@@ -232,11 +248,12 @@ class Technitium:
             )
             return resp.get("entries", []) or []
 
-        if not self.exclude:
+        if not self.exclude and not self.max_per_name:
             return page(1, count)
 
         per_page = count * 2
         kept: list[dict] = []
+        shown: dict[str, int] = {}
         for n in range(1, self.MAX_PAGES + 1):
             try:
                 entries = page(n, per_page)
@@ -247,7 +264,20 @@ class Technitium:
                 if n == 1:
                     raise
                 break
-            kept.extend(q for q in entries if not self._excluded(q))
+            for q in entries:
+                if self._excluded(q):
+                    continue
+                if self.max_per_name:
+                    # The cap is per name across the whole visible feed, not
+                    # per page -- a name at its limit on page 1 must stay at
+                    # that limit when page 2 supplies more of it.
+                    name = self._qname(q)
+                    if shown.get(name, 0) >= self.max_per_name:
+                        continue
+                    shown[name] = shown.get(name, 0) + 1
+                kept.append(q)
+                if len(kept) >= count:
+                    break
             if len(kept) >= count or len(entries) < per_page:
                 break
         return kept[:count]
@@ -445,9 +475,12 @@ def render(scr: Screen, srv: Technitium, name: str, version: str,
     # as that host having stopped resolving -- the opposite of the truth, and
     # exactly the wrong conclusion to draw from a DNS panel.
     muted = len(getattr(srv, "exclude", ()))
+    cap = getattr(srv, "max_per_name", 0)
     note = "newest first"
     if muted:
         note += f" · {muted} name{'' if muted == 1 else 's'} hidden"
+    if cap:
+        note += f" · max {cap}/name"
     scr.line(f" {C_ACCENT}{BOLD}LIVE QUERIES{RESET}{C_BG}  {C_MUTED}{note}{RESET}{C_BG}")
     scr.line(f"{C_MUTED}{'─' * cols}{RESET}{C_BG}")
     rcode_colour = {
@@ -497,7 +530,36 @@ def _clean_names(values) -> tuple[str, ...]:
     return tuple(out)
 
 
-def load_config(args) -> tuple[str, str, str | None, str | None, tuple[str, ...]]:
+# Two rows per name by default. A name that repeats is nearly always an A/AAAA
+# pair from one client, so 2 keeps the pair intact while stopping any single
+# name from owning the panel. 0 disables the cap.
+DEFAULT_MAX_PER_NAME = 2
+
+
+def _positive_int(value, source: str) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        sys.exit(f"technitium-dash: {source} must be a whole number, got {value!r}")
+    if n < 0:
+        sys.exit(f"technitium-dash: {source} cannot be negative, got {n}")
+    return n
+
+
+class Config(NamedTuple):
+    # A NamedTuple rather than a 6-tuple: positional unpacking stopped being
+    # readable once the feed grew filters of its own.
+    url: str
+    token: str
+    fallback: str | None
+    fallback_token: str | None
+    exclude: tuple[str, ...]
+    max_per_name: int
+
+
+def load_config(args) -> Config:
     url = args.url or os.environ.get("TECHNITIUM_URL")
     token = args.token or os.environ.get("TECHNITIUM_TOKEN")
     fallback = args.fallback
@@ -505,11 +567,16 @@ def load_config(args) -> tuple[str, str, str | None, str | None, tuple[str, ...]
     exclude = _clean_names(args.exclude) or _clean_names(
         os.environ.get("TECHNITIUM_EXCLUDE")
     )
+    cap = _positive_int(args.max_per_name, "--max-per-name")
+    if cap is None:
+        cap = _positive_int(
+            os.environ.get("TECHNITIUM_MAX_PER_NAME"), "TECHNITIUM_MAX_PER_NAME"
+        )
     cfg_path = Path.home() / ".config/technitium-dash/config.toml"
-    # The config is read for `exclude` even when url/token came from elsewhere:
-    # the noisy-name list is a property of the network, not of how this
-    # invocation was pointed at a server.
-    if (not url or not token or not exclude) and cfg_path.exists():
+    # The config is read for `exclude` and `max_per_name` even when url/token
+    # came from elsewhere: how crowded the feed gets is a property of the
+    # network, not of how this invocation was pointed at a server.
+    if (not url or not token or not exclude or cap is None) and cfg_path.exists():
         try:
             import tomllib
 
@@ -520,6 +587,8 @@ def load_config(args) -> tuple[str, str, str | None, str | None, tuple[str, ...]
             fallback = fallback or cfg.get("fallback_url")
             fb_token = fb_token or cfg.get("fallback_token")
             exclude = exclude or _clean_names(cfg.get("exclude"))
+            if cap is None:
+                cap = _positive_int(cfg.get("max_per_name"), "max_per_name")
         except Exception as exc:
             sys.exit(f"technitium-dash: cannot read {cfg_path}: {exc}")
     if not url or not token:
@@ -531,7 +600,8 @@ def load_config(args) -> tuple[str, str, str | None, str | None, tuple[str, ...]
     # Each Technitium instance issues its own tokens; reusing the primary's
     # against the secondary yields a confusing auth error at the exact moment
     # the panel is meant to be useful. Default to it only as a convenience.
-    return url, token, fallback, (fb_token or token), exclude
+    return Config(url, token, fallback, (fb_token or token), exclude,
+                  DEFAULT_MAX_PER_NAME if cap is None else cap)
 
 
 def main() -> int:
@@ -546,6 +616,12 @@ def main() -> int:
                         "--exclude metrics.example.lan. Use for a host that "
                         "polls in a tight loop and would otherwise fill the "
                         "panel. Stats and top-domain columns still count it.")
+    p.add_argument("--max-per-name", metavar="N",
+                   help="show at most N rows for any one query name "
+                        f"(default {DEFAULT_MAX_PER_NAME}, 0 disables the cap). "
+                        "Keeps a single busy name from crowding out the rest "
+                        "of the feed without hiding it entirely, the way "
+                        "--exclude does.")
     p.add_argument("--interval", type=int, default=5, help="refresh seconds (default 5)")
     p.add_argument("--window", default="LastHour",
                    choices=["LastHour", "LastDay", "LastWeek", "LastMonth"])
@@ -558,11 +634,11 @@ def main() -> int:
         sys.stdout.write(vtrgb_palette())
         return 0
 
-    url, token, fallback, fb_token, exclude = load_config(args)
-    primary = Technitium(url, token, exclude=exclude)
-    servers = [primary]
-    if fallback:
-        servers.append(Technitium(fallback, fb_token, exclude=exclude))
+    cfg = load_config(args)
+    feed = {"exclude": cfg.exclude, "max_per_name": cfg.max_per_name}
+    servers = [Technitium(cfg.url, cfg.token, **feed)]
+    if cfg.fallback:
+        servers.append(Technitium(cfg.fallback, cfg.fallback_token, **feed))
 
     scr = Screen()
     stop = False
