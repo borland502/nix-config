@@ -147,6 +147,13 @@
     curl
     wget
 
+    # Sender half of Wake-on-LAN; the `wake` helper shells out to it. Shared
+    # rather than Linux-only: nixpkgs marks it platforms.all, and a magic packet
+    # is most useful from the laptop that finds a host asleep. Unprivileged — it
+    # broadcasts UDP/9 rather than forging an ethernet frame, hence this and not
+    # etherwake.
+    wakeonlan
+
     # Build tools
     gcc
     pkg-config
@@ -356,6 +363,11 @@ in {
       # programs.git.settings.core.hooksPath below. Lives here rather than in a
       # project's .githooks/ because some repos cannot take a committed hook.
       # Human co-authors and prose merely mentioning either tool are preserved.
+      #
+      # A repo that sets its own core.hooksPath shadows this copy entirely --
+      # including THIS one, which does so via `task hooks:install`. Its
+      # .githooks/commit-msg is therefore a shim that delegates back to the same
+      # script, so the stripper still runs here.
       "git/hooks/commit-msg" = {
         source = ../ai-tools/git-hooks/commit-msg;
         executable = true;
@@ -1064,8 +1076,9 @@ in {
           # below). Applies the agent-attribution stripper to every repo without
           # committing anything to those repos -- needed where a project's own
           # hooks cannot be modified. A repo that sets its own core.hooksPath
-          # (husky et al) overrides this; a repo relying on plain .git/hooks
-          # does not run them while this is set.
+          # (husky et al) overrides this -- nix-config included, which is why it
+          # ships .githooks/commit-msg as a shim back to the same script; a repo
+          # relying on plain .git/hooks does not run them while this is set.
           hooksPath = "${xdgConfigHome}/git/hooks";
         };
         pull.rebase = false;

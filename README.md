@@ -548,7 +548,10 @@ task check:instruction-size       # guard the always-on prefix against bloat
 
 Run `task hooks:install` once per clone to use the tracked hooks in `.githooks/`. The pre-commit hook
 runs `task lint:nix` (statix, deadnix, and the `check:agent-instructions` / `check:copilot-instructions` /
-`check:instruction-size` / `check:model-agnostic` checks).
+`check:instruction-size` / `check:model-agnostic` checks). The commit-msg hook strips agent-attribution
+trailers by delegating to `ai-tools/git-hooks/commit-msg`. It is a shim rather than the script itself
+because `core.hooksPath` replaces the global hook directory instead of adding to it, so the copy
+home-manager deploys to `~/.config/git/hooks/` is shadowed in this repo and cannot run here.
 
 CI validates Linux and macOS by building flake outputs and the WSL target by building
 `nixosConfigurations.wsl` (GitHub runners have no real WSL2, so end-to-end boot tests need a self-hosted

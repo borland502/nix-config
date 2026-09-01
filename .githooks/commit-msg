@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+set -eu
+
+# Strip AI-agent attribution from commit messages, by delegating to the single
+# implementation in ai-tools/git-hooks/commit-msg -- the same file home-manager
+# deploys to ~/.config/git/hooks/commit-msg for every other repo on the machine.
+#
+# This shim exists because `task hooks:install` points core.hooksPath at
+# .githooks/, and that setting REPLACES the global hook directory rather than
+# adding to it. Without a commit-msg here, the global stripper never runs in the
+# one repository that defines it -- which is how the Claude-Session trailer in
+# 771ab88 reached main.
+#
+# Delegating to the in-repo copy rather than the deployed one keeps this working
+# in a fresh clone on a machine home-manager has never touched.
+#
+# Non-blocking by design, matching the script it calls: a missing or unusable
+# implementation warns and lets the commit through rather than wedging commits
+# on a broken checkout.
+
+repo_root=$(git rev-parse --show-toplevel)
+impl="$repo_root/ai-tools/git-hooks/commit-msg"
+
+if [ ! -x "$impl" ]; then
+	printf '%s\n' "commit-msg: $impl missing or not executable; agent attribution NOT stripped." >&2
+	exit 0
+fi
+
+exec "$impl" "$@"

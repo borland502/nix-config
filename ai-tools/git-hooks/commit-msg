@@ -10,7 +10,9 @@
 # Deployed by home-manager to ~/.config/git/hooks/commit-msg and activated
 # globally via core.hooksPath, so it applies to every repository on the machine
 # without touching any project's own files. A repo that sets its own
-# core.hooksPath (husky and friends) overrides this and is left alone.
+# core.hooksPath (husky and friends) overrides this and is left alone -- such a
+# repo can opt back in with a committed hook that execs this file, which is what
+# nix-config's own .githooks/commit-msg does.
 #
 # Scope: local commits only. GitHub adds its own Co-authored-by trailers when
 # squash-merging a PR (committer shows as "GitHub <noreply@github.com>"); that
