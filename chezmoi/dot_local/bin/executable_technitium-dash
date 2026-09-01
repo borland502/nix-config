@@ -10,9 +10,15 @@ below. Keeping the fallback means the panel still themes correctly on a host
 chezmoi has not touched (ellone is DietPi, not chezmoi-managed).
 
 Config resolution, first hit wins:
-  1. --url / --token flags
-  2. $TECHNITIUM_URL / $TECHNITIUM_TOKEN
-  3. ~/.config/technitium-dash/config.toml   (url, token, fallback_url)
+  1. --url / --token / --exclude flags
+  2. $TECHNITIUM_URL / $TECHNITIUM_TOKEN / $TECHNITIUM_EXCLUDE
+  3. ~/.config/technitium-dash/config.toml   (url, token, fallback_url, exclude)
+
+`exclude` hides query names from the live tail -- a host polling in a tight
+loop can otherwise own most of the panel. It affects that tail only: the
+counters, chart, and top-domain columns still report the full picture, so the
+noise stays visible where it is information rather than clutter. The names are
+site-specific, so they live in config and never in this file.
 
 The panel is a monitoring tool for a DNS server, so it is written to stay up
 while that server is down: every request is individually guarded, a failed poll
@@ -165,10 +171,19 @@ class ApiError(Exception):
 
 
 class Technitium:
-    def __init__(self, url: str, token: str, timeout: float = 6.0):
+    # Pages walked at most when filling a filtered feed. A chatty host can own
+    # most of a page on its own, so one page of `count` would leave the panel
+    # part-empty once its entries are dropped. Bounded because this runs on a
+    # 5s refresh: a busy server with everything excluded must not walk the log
+    # forever.
+    MAX_PAGES = 6
+
+    def __init__(self, url: str, token: str, timeout: float = 6.0,
+                 exclude: tuple[str, ...] = ()):
         self.url = url.rstrip("/")
         self.token = token
         self.timeout = timeout
+        self.exclude = exclude
 
     def call(self, path: str, **params) -> dict:
         params["token"] = self.token
@@ -192,18 +207,50 @@ class Technitium:
     def stats(self, window: str = "LastHour") -> dict:
         return self.call("dashboard/stats/get", type=window, utcFormat="false")
 
+    def _excluded(self, entry: dict) -> bool:
+        # Match the name itself and anything under it, the way a zone reads:
+        # excluding `svc.example.lan` also drops `a.svc.example.lan`.
+        name = (entry.get("qname") or "").rstrip(".").lower()
+        return any(name == pat or name.endswith("." + pat) for pat in self.exclude)
+
     def queries(self, count: int) -> list[dict]:
         # The Query Logs (Sqlite) app is optional; callers treat failure as
         # "no live feed available" rather than a fatal error.
-        resp = self.call(
-            "logs/query",
-            name="Query Logs (Sqlite)",
-            classPath="QueryLogsSqlite.App",
-            pageNumber=1,
-            entriesPerPage=count,
-            descendingOrder="true",
-        )
-        return resp.get("entries", []) or []
+        #
+        # The API has no server-side exclusion, so filtering happens here. That
+        # means over-fetching: drop 2/3 of a page and the panel shows a third of
+        # a screen, which reads as "DNS went quiet" rather than "the noise is
+        # hidden". Walk pages until the feed is full instead.
+        def page(n: int, size: int) -> list[dict]:
+            resp = self.call(
+                "logs/query",
+                name="Query Logs (Sqlite)",
+                classPath="QueryLogsSqlite.App",
+                pageNumber=n,
+                entriesPerPage=size,
+                descendingOrder="true",
+            )
+            return resp.get("entries", []) or []
+
+        if not self.exclude:
+            return page(1, count)
+
+        per_page = count * 2
+        kept: list[dict] = []
+        for n in range(1, self.MAX_PAGES + 1):
+            try:
+                entries = page(n, per_page)
+            except ApiError:
+                # Page 1 failing means no feed at all -- let the caller show
+                # that. A later page failing mid-walk should not discard the
+                # entries already in hand.
+                if n == 1:
+                    raise
+                break
+            kept.extend(q for q in entries if not self._excluded(q))
+            if len(kept) >= count or len(entries) < per_page:
+                break
+        return kept[:count]
 
     def version(self) -> str:
         try:
@@ -394,7 +441,14 @@ def render(scr: Screen, srv: Technitium, name: str, version: str,
     scr.line("")
 
     # ---- live query tail
-    scr.line(f" {C_ACCENT}{BOLD}LIVE QUERIES{RESET}{C_BG}  {C_MUTED}newest first{RESET}{C_BG}")
+    # Say so when the feed is filtered. Unlabelled, a hidden chatty host reads
+    # as that host having stopped resolving -- the opposite of the truth, and
+    # exactly the wrong conclusion to draw from a DNS panel.
+    muted = len(getattr(srv, "exclude", ()))
+    note = "newest first"
+    if muted:
+        note += f" · {muted} name{'' if muted == 1 else 's'} hidden"
+    scr.line(f" {C_ACCENT}{BOLD}LIVE QUERIES{RESET}{C_BG}  {C_MUTED}{note}{RESET}{C_BG}")
     scr.line(f"{C_MUTED}{'─' * cols}{RESET}{C_BG}")
     rcode_colour = {
         "NoError": C_OK, "NxDomain": C_WARN, "ServerFailure": C_ALERT,
@@ -424,13 +478,38 @@ def render(scr: Screen, srv: Technitium, name: str, version: str,
 # ------------------------------------------------------------------- main ---
 
 
-def load_config(args) -> tuple[str, str, str | None, str | None]:
+def _clean_names(values) -> tuple[str, ...]:
+    """Normalise names from a flag, an env var, or a TOML list into a tuple.
+
+    Every source has to survive commas: `--exclude` is `action="append"`, so
+    repeating it AND comma-separating one of them is a shape a user will
+    reasonably try, and it arrives here as a list whose elements each may hold
+    several names.
+    """
+    if isinstance(values, str):
+        values = [values]
+    out = []
+    for value in values or ():
+        for part in str(value).split(","):
+            name = part.strip().rstrip(".").lower()
+            if name:
+                out.append(name)
+    return tuple(out)
+
+
+def load_config(args) -> tuple[str, str, str | None, str | None, tuple[str, ...]]:
     url = args.url or os.environ.get("TECHNITIUM_URL")
     token = args.token or os.environ.get("TECHNITIUM_TOKEN")
     fallback = args.fallback
     fb_token = args.fallback_token or os.environ.get("TECHNITIUM_FALLBACK_TOKEN")
+    exclude = _clean_names(args.exclude) or _clean_names(
+        os.environ.get("TECHNITIUM_EXCLUDE")
+    )
     cfg_path = Path.home() / ".config/technitium-dash/config.toml"
-    if (not url or not token) and cfg_path.exists():
+    # The config is read for `exclude` even when url/token came from elsewhere:
+    # the noisy-name list is a property of the network, not of how this
+    # invocation was pointed at a server.
+    if (not url or not token or not exclude) and cfg_path.exists():
         try:
             import tomllib
 
@@ -440,6 +519,7 @@ def load_config(args) -> tuple[str, str, str | None, str | None]:
             token = token or cfg.get("token")
             fallback = fallback or cfg.get("fallback_url")
             fb_token = fb_token or cfg.get("fallback_token")
+            exclude = exclude or _clean_names(cfg.get("exclude"))
         except Exception as exc:
             sys.exit(f"technitium-dash: cannot read {cfg_path}: {exc}")
     if not url or not token:
@@ -451,7 +531,7 @@ def load_config(args) -> tuple[str, str, str | None, str | None]:
     # Each Technitium instance issues its own tokens; reusing the primary's
     # against the secondary yields a confusing auth error at the exact moment
     # the panel is meant to be useful. Default to it only as a convenience.
-    return url, token, fallback, (fb_token or token)
+    return url, token, fallback, (fb_token or token), exclude
 
 
 def main() -> int:
@@ -460,6 +540,12 @@ def main() -> int:
     p.add_argument("--token", help="API token")
     p.add_argument("--fallback", help="secondary API base used if the primary fails")
     p.add_argument("--fallback-token", help="token for --fallback (defaults to --token)")
+    p.add_argument("--exclude", action="append", metavar="NAME",
+                   help="hide a query name from the live feed, with everything "
+                        "under it (repeatable, or comma-separated), e.g. "
+                        "--exclude metrics.example.lan. Use for a host that "
+                        "polls in a tight loop and would otherwise fill the "
+                        "panel. Stats and top-domain columns still count it.")
     p.add_argument("--interval", type=int, default=5, help="refresh seconds (default 5)")
     p.add_argument("--window", default="LastHour",
                    choices=["LastHour", "LastDay", "LastWeek", "LastMonth"])
@@ -472,11 +558,11 @@ def main() -> int:
         sys.stdout.write(vtrgb_palette())
         return 0
 
-    url, token, fallback, fb_token = load_config(args)
-    primary = Technitium(url, token)
+    url, token, fallback, fb_token, exclude = load_config(args)
+    primary = Technitium(url, token, exclude=exclude)
     servers = [primary]
     if fallback:
-        servers.append(Technitium(fallback, fb_token))
+        servers.append(Technitium(fallback, fb_token, exclude=exclude))
 
     scr = Screen()
     stop = False
