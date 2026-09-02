@@ -156,13 +156,20 @@ Flake-managed:
 - **wsl** — NixOS-WSL. `hosts/wsl/default.nix` sets the hostname to `wsl` so auto-detection works after
   the first switch.
 
-Standalone `homeConfigurations` (no NixOS underneath): `jhettenh@linux`, `jhettenh@nixos-wsl`,
-`jhettenh@debian-wsl`, `jhettenh@ubuntu-wsl`, and `vscode@devcontainer[-aarch64]`.
+Standalone `homeConfigurations` (no NixOS underneath): `jhettenh@linux`, `jhettenh@tifa`,
+`jhettenh@nixos-wsl`, `jhettenh@debian-wsl`, `jhettenh@ubuntu-wsl`, and `vscode@devcontainer[-aarch64]`.
 
 **Not every managed machine is in the flake.** `tifa` is a CachyOS (Arch) box whose system config lives
 outside this repo; `chezmoi/run_once_provision-tifa-etc.sh.tmpl` reproduces its hand-applied `/etc` fixes
 (NVIDIA suspend/RTD3, a Bluetooth sleep hook, `nvidia-powerd`) so a reinstall doesn't lose them. It is
 hostname-gated and a no-op everywhere else.
+
+Its *user* config, though, is in the flake: `home-manager/home-tifa.nix` imports `home.nix` and adds
+only what is scoped to that one host (currently the Google Cloud CLI — `gcloud`/`gsutil`/`bq`, with zsh
+completion picked up from the profile's `share/zsh/site-functions`). `task` auto-detects hostname `tifa`
+and activates `jhettenh@tifa`; every other non-NixOS Linux host still resolves to `jhettenh@linux`, so
+host-scoped packages don't leak onto them. Add a host that way when a package must not be global —
+otherwise it belongs in `common.nix`.
 
 > **First WSL switch:** before your new local files are tracked by Git, use a path-based flake reference:
 >

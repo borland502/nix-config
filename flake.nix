@@ -297,6 +297,21 @@
         ];
       };
 
+      # tifa is CachyOS with no nixosConfigurations entry, so it activates
+      # standalone like jhettenh@linux does. It gets its own attr rather than
+      # sharing that one because home-tifa.nix adds host-scoped packages that
+      # must not reach the other non-NixOS Linux hosts (e.g. the cloud kiosk),
+      # which keep resolving to jhettenh@linux.
+      "jhettenh@tifa" = home-manager.lib.homeManagerConfiguration {
+        pkgs = pkgsFor "x86_64-linux";
+        modules = [
+          plasma-manager.homeModules.plasma-manager
+          stylix.homeModules.stylix
+          sops-nix.homeManagerModules.sops
+          ./home-manager/home-tifa.nix
+        ];
+      };
+
       "jhettenh@nixos-wsl" = home-manager.lib.homeManagerConfiguration {
         pkgs = pkgsFor "x86_64-linux";
         modules = [
