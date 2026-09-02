@@ -146,6 +146,13 @@
     # Network
     curl
     wget
+    nmap # port/service scanning and NSE scripts; also the `ncat`/`ndiff` tools
+    prettyping # readable ping; note the shell aliases `ping` to it, so a script
+    # that needs machine-parsable output must call /bin/ping explicitly
+    arp-scan # L2 sweep with an OUI vendor database — finds hosts that drop ICMP,
+    # which is most IoT gear and the main blind spot of a ping sweep
+    avahi # mDNS/DNS-SD browsing (avahi-browse); how Google/LIFX/Hue/Nest
+    # actually announce human-readable names on a home LAN
 
     # Build tools
     gcc

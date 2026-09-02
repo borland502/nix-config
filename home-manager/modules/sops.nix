@@ -57,6 +57,23 @@ in {
         path = "${config.home.homeDirectory}/.config/arr/prowlarr.key";
       };
 
+      # Home Assistant long-lived access token, minted specifically for this
+      # repo's automation rather than reused from the vault entry — so it can be
+      # revoked in the HA UI (Profile -> Long-lived access tokens, "sops-nix-config")
+      # without disturbing any interactive login. Grants full API access, which is
+      # what makes the device registry readable for LAN host identification.
+      "hassio/token" = {
+        sopsFile = ../../secrets/hassio.yaml;
+        path = "${config.home.homeDirectory}/.config/hassio/token";
+      };
+
+      # Base URL kept beside the token so consumers need no hardcoded address.
+      # This is the LAN address, not the nabu.casa remote URL.
+      "hassio/url" = {
+        sopsFile = ../../secrets/hassio.yaml;
+        path = "${config.home.homeDirectory}/.config/hassio/url";
+      };
+
       # Dedicated remoting key: the single credential for reaching these hosts
       # over ssh, and through an ssh tunnel for KRdp. It is not a general
       # identity — no service or forge auth uses it, so it can be rotated by
