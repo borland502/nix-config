@@ -562,20 +562,20 @@ before merging.
 
 This project's own code is MIT-licensed ([LICENSE](LICENSE)). Ingested upstream skills under
 `ai-tools/skills/` retain their original licenses and `origin:` frontmatter;
-skills without an `origin:` line (`flow-reconciliation`, `gh-graphql-jq-pipelines`, the `ops-agent` /
-`ops-cache-scan` / `ops-chezmoi` / `ops-confluence` / `ops-nix-pitfalls` set, `sec-credentials`,
-`sec-sops-encrypt`, `shell-pitfalls`, `ops-deploy-probes`, and others) are original to this repo.
+skills without an `origin:` line (`gh-graphql-jq-pipelines`, the `ops-agent` / `ops-cache-scan` /
+`ops-chezmoi` / `ops-confluence` / `ops-deploy-probes` / `ops-nix-pitfalls` set, `sec-credentials`,
+`sec-sops-encrypt`, `shell-pitfalls`, and others) are original to this repo. Where an ingested skill has
+been folded into an agent or command, its attribution moved with the content.
 
 | Upstream | License | Borrowed |
 |---|---|---|
 | [anthropics/skills](https://github.com/anthropics/skills) | Apache 2.0 / proprietary | `claude-api`, `document-skills` (loaded via marketplace, not redistributed) |
 | [obra/superpowers](https://github.com/obra/superpowers) | MIT | `flow-*`, `git-worktrees`, `git-finish-branch`, `git-request-review` |
-| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `golang-*`, `python-*`, `springboot-*`, `postgres-patterns`, `database-migrations`, `e2e-testing`, `github-ops`, `ops-jira-integration`, `git-workflow`, `sec-review` |
-| [github/awesome-copilot](https://github.com/github/awesome-copilot) | MIT | `github-actions`, `react18-batching-patterns` |
-| [kepano/obsidian-skills](https://github.com/kepano/obsidian-skills) | MIT | `defuddle`, `json-canvas` |
-| [wshobson/agents](https://github.com/wshobson/agents) | MIT | `javascript-testing-patterns`, `modern-javascript-patterns`, `nodejs-backend-patterns`, `typescript-advanced-types` |
-| [appautomaton/webmaton](https://github.com/appautomaton/webmaton) | MIT | `web-*` |
-| [angular/skills](https://github.com/angular/skills) | MIT (Google LLC) | `angular-developer`, `angular-new-app` |
+| [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code) | MIT | `github-ops`, `ops-jira-integration` |
+| [github/awesome-copilot](https://github.com/github/awesome-copilot) | MIT | `github-actions-expert` agent (CI/CD patterns, from the former `github-actions` skill) |
+| [kepano/obsidian-skills](https://github.com/kepano/obsidian-skills) | MIT | `defuddle` |
+| [wshobson/agents](https://github.com/wshobson/agents) | MIT | `javascript-pro`, `typescript-pro` agents |
+| [appautomaton/webmaton](https://github.com/appautomaton/webmaton) | MIT | `web-playwright-cli` |
 
 Organizational patterns (reimplemented, not copied) come from
 [khaneliman/khanelinix](https://github.com/khaneliman/khanelinix) (tiny-root agent instructions, core
@@ -587,5 +587,5 @@ as the documented agent interface), [budimanjojo/nix-config](https://github.com/
 art).
 
 When upstream externals refresh (every ~720h), reconcile local divergence with the
-[`flow-reconciliation` skill](ai-tools/skills/flow-reconciliation/SKILL.md) so local edits aren't silently
+[`/reconcile-audit` command](ai-tools/commands/reconcile-audit.md) so local edits aren't silently
 overwritten.

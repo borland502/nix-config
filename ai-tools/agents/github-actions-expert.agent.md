@@ -39,6 +39,68 @@ Clarify:
 - Approval requirements
 - Security constraints (SOC2, HIPAA, OIDC availability)
 
+## Workflow Patterns
+
+Concrete shapes for the recurring pieces. Every `uses:` here is written the way
+the pinning rule demands — full SHA with the version as a trailing comment.
+
+**Caching** — key on a lock-file hash so the entry only invalidates when
+dependencies actually change, and give it fallbacks:
+
+```yaml
+- uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+  with:
+    path: ~/.npm
+    key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+    restore-keys: |
+      ${{ runner.os }}-node-
+```
+
+`actions/setup-node` and `actions/setup-python` cache on their own when
+configured — reach for those before hand-rolling a cache step.
+
+**Matrix** — `fail-fast: false` when you want the full failure picture rather
+than the first one:
+
+```yaml
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [18.x, 20.x]
+```
+
+**Artifacts** — always bound the retention:
+
+```yaml
+- uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+  with:
+    name: build-output
+    path: dist/
+    retention-days: 30
+```
+
+**Security scanning** — `actions/dependency-review-action` on PRs,
+`github/codeql-action/analyze` for SAST, `aquasecurity/trivy-action` with
+`image-ref: myapp:${{ github.sha }}` for containers.
+
+**Deployment strategy** — pick deliberately, and say which one the workflow
+implements:
+
+| Strategy | When to use | Key mechanism |
+|---|---|---|
+| Rolling | Default; stateless apps | `maxSurge`/`maxUnavailable` in K8s |
+| Blue/Green | Zero-downtime; instant rollback | Traffic switch at load balancer |
+| Canary | Controlled risk; metric-based | Service mesh traffic splitting |
+| Feature flags | Decouple deploy from release | Flag service, deploy stays inert |
+
+**Rollback** — know the command before the deploy, not after:
+`kubectl rollout undo deployment/myapp`, or `git revert HEAD && git push` where
+the deploy tracks a branch.
+
 ## Workflow Security Checklist
 
 - [ ] Actions pinned to full commit SHAs with version comments

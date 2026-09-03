@@ -40,7 +40,7 @@ only if the subagent reports it is stuck for want of reasoning (not context).
 | Planning / architecture / system design | **high** | flow-writing-plans, the `Plan` agent, whole-branch design calls |
 | Brainstorming / spec exploration | **high** | flow-brainstorming — a vague idea into a design |
 | Deployment / migration planning against live infrastructure | **high** | ops-deploy-probes — environment classification, probe design, rollback |
-| Review iteration rounds — every round that may still return findings | **mid** | git-request-review / sec-review / SDD per-task reviews on a non-trivial diff |
+| Review iteration rounds — every round that may still return findings | **mid** | git-request-review / `/security-review` / SDD per-task reviews on a non-trivial diff |
 | Final confirming review, entered only from a clean cheap round | **high** | pre-merge / whole-branch pass on a non-trivial diff |
 | Feature implementation with integration concerns | **mid** | javascript-pro, typescript-pro, github-actions-expert; multi-file changes |
 | Routine debugging, pattern matching, test writing | **mid** | flow-test-driven-development, flow-systematic-debugging |
