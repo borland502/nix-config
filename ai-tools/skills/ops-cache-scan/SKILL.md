@@ -1,6 +1,6 @@
 ---
 name: ops-cache-scan
-description: Use when investigating why a recent command or tool failed, resuming context from an earlier session, or when asked what happened previously — scans the ~/.cache/claude and ~/.cache/copilot session logs. Prefer this over hand-rolled greps (rg/find) across the cache dir.
+description: Use when investigating why a recent command or tool failed, resuming context from an earlier session, or when asked what happened previously — scans the ~/.cache/claude and ~/.cache/copilot session logs. Prefer this over hand-rolled greps (rg/find) across the cache dir. Also read it before concluding a window had no failures: failed commands never reach the log.
 ---
 
 # Cache Scan
@@ -18,6 +18,40 @@ STDOUT: / STDERR: sections
 ```
 
 `status` is a heuristic (no exit code is exposed to the hook): `interrupted`, else `stderr` when stderr is non-empty, else `ok`. Activation also enforces `~/.cache/claude` → `~/.cache/copilot` as a symlink so both agents share one log dir.
+
+### The log cannot see failures — read this before triaging one
+
+Two limits, both measured on 2026-09-03, and together they mean **an empty
+`FAILURES` section is absence of evidence, never evidence of absence**:
+
+1. **A Bash call that exits non-zero produces no record at all.** The
+   `PostToolUse` hook does not fire for a failed Bash tool call, so the command,
+   its output, and its error are absent from the log entirely — not logged as
+   `ok`, simply missing. A probe (`ls /nonexistent-path`, exit 2) left zero
+   trace in its session log.
+2. **`stderr` is folded into `stdout` by the harness.** The Bash tool result now
+   carries `stderr: ""` on every call and puts the error text in `stdout`, so
+   the `status=stderr` branch can no longer fire. Measured across the log
+   corpus: 84 `status=stderr` records in 2026-06, then **0** across ~16,700
+   commands in 2026-07 through 2026-09.
+
+So `FAILURES (stderr|interrupted): none` is what you will always see. Triage a
+real failure from these instead, in order:
+
+- **`SILENT FAILURES (exit-0 errors, heuristic)`** — `cache-scan` pattern-matches
+  error text inside `STDOUT` and classifies it (`nullglob-miss`, `stat-dialect`,
+  `cmd-not-found`, …). This is now the log's primary failure signal.
+- **The transcript**, for anything that exited non-zero. The tool result carries
+  `is_error: true` with the error text; the jsonl is at
+  `~/.config/claude/projects/<project>/<session>.jsonl` (Claude) or
+  `~/.config/copilot/session-state/<id>/events.jsonl` (Copilot). `cache-scan -t`
+  reads these for prompts, decisions, and file edits but does **not** yet extract
+  `is_error` results — scan for that field directly when the failure matters.
+- **The user's own account** of what broke. When the log is silent, ask rather
+  than concluding the command succeeded.
+
+Never report "no failures in the window" on the strength of the `FAILURES`
+section alone.
 
 Lifecycle: `compress-old-cache` (hook + daily timer) zstd-compresses top-level cache files older than 1 day (or over 1 MB), then applies a **retention pass** — top-level `.zst` archives and subdirectories untouched for `CACHE_RETENTION_DAYS` (default 548 ≈ 1.5 years) are deleted. Subdirectories are never compressed, only pruned, so anything that must survive long-term does not belong in the cache dir.
 
@@ -74,8 +108,9 @@ This is *not* something a session needs to wire up — if the host has had `home
 
 - **SESSIONS** (default) — one line per session: id, command / stderr / interrupt
   counts, last status + command.
-- **FAILURES** (default) — commands with `status=stderr|interrupted`; the concrete
-  resume points.
+- **FAILURES** (default) — commands with `status=stderr|interrupted`. **In
+  practice always empty** on current harnesses; see "The log cannot see
+  failures" above before drawing any conclusion from it.
 - **ARTIFACTS** (default) — standalone plan/spec/design/handoff/note/resume
   files in the cache root (`PHASE*`, `*handoff*`, `*plan*.md*`, `*spec*.md*`,
   `*design*.md*`, `*note*.md*`, `*resume*.md*`), newest first, including `.zst`
