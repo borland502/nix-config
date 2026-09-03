@@ -48,8 +48,9 @@ Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
   --limit N        Timeline / decision length (default: 10)
   -t|--transcript  Enrich with native data the Bash log never sees: your typed
                    prompts, the assistant's decision text, the files changed,
-                   and the non-Bash tool tally — for Claude and Copilot sessions
-                   alike (needs jq)
+                   the non-Bash tool tally, and TOOL ERRORS — the tool calls
+                   that actually failed, which the Bash log cannot record at
+                   all — for Claude and Copilot sessions alike (needs jq)
       --diffs      Imply -t and also reconstruct the exact edits (Claude
                    old/new strings, Copilot V4A patches); capped by --limit
       --classify   Aggregate failure categories across the window (incl. .zst
@@ -68,6 +69,12 @@ reads each agent's own session record — Claude transcripts
 stream (~/.config/copilot/session-state/<id>/events.jsonl) + process log —
 joined to the cache logs by session id. Those are written for free by the
 agents; this only reads them — no model calls, no credits.
+
+Failure triage needs -t. A Bash call that exits non-zero never reaches the
+cache log (the PostToolUse hook does not fire for it), and the harness folds
+stderr into stdout, so the FAILURES section below is structurally empty on
+current agents and an empty one proves nothing. TOOL ERRORS (-t) reads the
+failures from the transcript, where they are recorded.
 EOF
 }
 
@@ -356,7 +363,14 @@ done | tail -n 12)
 if [[ -n "$fail_out" ]]; then
 	printf '%s\n' "$fail_out"
 else
-	echo "  none"
+	# Structurally empty on current agents, not evidence of a clean window: a
+	# non-zero-exit Bash call produces no record at all (the PostToolUse hook
+	# does not fire for it) and stderr now arrives folded into stdout, so the
+	# status=stderr branch cannot fire. Measured 2026-09-03: 84 stderr records
+	# in 2026-06, then 0 across ~16,700 commands through 2026-09. Only archived
+	# pre-July logs can still populate this. Say so rather than printing a
+	# reassuring "none".
+	echo "  none — the log cannot see these; run with -t for TOOL ERRORS"
 fi
 
 # Silent failures — commands that exit cleanly but whose OUTPUT shows the action
@@ -399,6 +413,12 @@ fi
 # to a resuming agent even though it is often the highest-signal context. List
 # files by mtime so they show up as resume candidates; read one directly
 # (zstdcat for .zst) for detail.
+#
+# `|| true` on the pipeline is load-bearing: `head -n 12` closes the pipe once
+# it has its rows, the upstream `sort` takes SIGPIPE, and `set -o pipefail`
+# turns that into exit 141 — which under `set -e` aborted the whole run before
+# the enrichment section, silently, and only once the window held enough files
+# to keep `sort` writing after `head` had gone. Same shape guarded below.
 echo "ARTIFACTS (plans/specs/designs/handoffs/notes/resumes incl. .zst; newest first)"
 art_out=$(find "${roots[@]}" -maxdepth 2 -type f \
 	\( -iname 'PHASE*' -o -iname '*handoff*' -o -iname '*plan*.md*' \
@@ -411,7 +431,7 @@ art_out=$(find "${roots[@]}" -maxdepth 2 -type f \
 		[[ -n "$date_filter" && "$d" != "$date_filter"* ]] && continue
 		printf '%s\t%s\t%s\n' "$ts" "$d" "$p"
 	done | sort -rn | head -n 12 |
-	while IFS=$'\t' read -r _ts d p; do printf '  %s  %s\n' "$d" "${p/#$HOME/\~}"; done)
+	while IFS=$'\t' read -r _ts d p; do printf '  %s  %s\n' "$d" "${p/#$HOME/\~}"; done || true)
 if [[ -n "$art_out" ]]; then
 	printf '%s\n' "$art_out"
 else
@@ -444,7 +464,7 @@ scr_out=$(find "${roots[@]}" -maxdepth 1 -type f \( "${script_pred[@]:1}" \) \
 		z=""
 		[[ "$p" == *.zst ]] && z="  (zstdcat)"
 		printf '  %s  %s%s\n' "$d" "${p/#$HOME/\~}" "$z"
-	done)
+	done || true)
 if [[ -n "$scr_out" ]]; then
 	printf '%s\n' "$scr_out"
 else
@@ -530,7 +550,7 @@ if ((transcript)); then
 	# TOOLS from the transcript. history.jsonl flushes at session end, so a live
 	# session shows no prompts yet — expected; resume targets prior runs.
 	distill_claude() {
-		local id="$1" t="$2" out edits tools
+		local id="$1" t="$2" out edits tools errs
 
 		echo "PROMPTS (your asks)"
 		if [[ -f "$history_file" ]]; then
@@ -562,6 +582,39 @@ if ((transcript)); then
 		' "$t" 2>/dev/null | sort | uniq -c | sort -rn | sed "s#$HOME#~#g" | head -n 15)
 		[[ -n "$edits" ]] && printf '%s\n' "$edits" || echo "  (none)"
 
+		# The failures the cache log structurally cannot hold. A tool_result
+		# carrying is_error names only its tool_use_id, so stream the file once
+		# and carry an id → {tool, argument} map forward to join against.
+		echo "TOOL ERRORS (failed tool calls, last $limit)"
+		errs=$(jq -rn '
+			reduce inputs as $l ({m: {}, out: []};
+				if ($l.type == "assistant") then
+					.m += ([ $l.message.content[]?
+						| select(.type == "tool_use")
+						| { key: (.id // ""),
+						    value: { n: (.name // "?"),
+						             a: ((.input.command // .input.file_path
+						                  // .input.pattern // .input.url
+						                  // .input.skill // "") | tostring) } } ]
+						| from_entries)
+				elif ($l.type == "user") then
+					.out += [ $l.message.content[]?
+						| select(type == "object" and .type == "tool_result"
+							and (.is_error == true))
+						| { ts: (($l.timestamp // "")[11:16]),
+						    ref: (.tool_use_id // ""),
+						    err: (if (.content | type) == "array"
+						          then ([.content[]? | select(.type == "text") | .text] | join(" "))
+						          elif (.content | type) == "string" then .content
+						          else "" end) } ]
+				else . end)
+			| .m as $m
+			| .out[]
+			| ($m[.ref] // { n: "?", a: "" }) as $u
+			| "  [\(.ts)] \($u.n): \(($u.a | gsub("\\s+"; " "))[0:78])\n      → \((.err | gsub("\\s+"; " "))[0:150])"
+		' "$t" 2>/dev/null | tail -n "$((limit * 2))")
+		[[ -n "$errs" ]] && printf '%s\n' "$errs" || echo "  (none)"
+
 		echo "NON-BASH TOOLS"
 		tools=$(jq -rc '
 			select(.type=="assistant") | .message.content[]?
@@ -572,6 +625,12 @@ if ((transcript)); then
 		if ((diffs)); then render_diffs_claude "$t"; fi
 	}
 
+	# NOTE: every `var=$(… rg …)` below carries `|| true`. rg exits 1 on
+	# no-match, and under `set -euo pipefail` a failing command substitution in
+	# an assignment aborts the whole run — so a Copilot session whose process
+	# log simply had no "Using default model" line, no apply_patch, or no error
+	# lines killed cache-scan at the enrichment stage with no message at all.
+	#
 	# Copilot session distillation: gpt-* sessions have no Claude transcript;
 	# their full event stream lives under
 	# ~/.config/copilot/session-state/<id>/events.jsonl. user.message = prompts,
@@ -579,14 +638,14 @@ if ((transcript)); then
 	# tool.execution_start.toolName = tool tally. The process log adds the model
 	# and the real error lines for triaging tool failures.
 	distill_copilot() {
-		local id="$1" e="$2" plog out edits tools model
+		local id="$1" e="$2" plog out edits tools model errs
 
 		model=$(jq -rc 'select(.type=="session.model_change") | .data.newModel
 			+ (if .data.reasoningEffort then " (" + .data.reasoningEffort + ")" else "" end)' \
 			"$e" 2>/dev/null | tail -n 1)
 		plog=$(find_copilot_process_log "$id")
 		if [[ -z "$model" && -n "$plog" ]]; then
-			model=$(rg -No -- 'Using default model: \S+' "$plog" 2>/dev/null | tail -n 1 | sed 's/.*model: //')
+			model=$(rg -No -- 'Using default model: \S+' "$plog" 2>/dev/null | tail -n 1 | sed 's/.*model: //' || true)
 		fi
 		echo "AGENT: copilot   MODEL: ${model:-unknown}"
 
@@ -607,8 +666,31 @@ if ((transcript)); then
 		edits=$(jq -rc 'select(.type=="tool.execution_start"
 				and .data.toolName=="apply_patch") | .data.arguments' "$e" 2>/dev/null |
 			rg -No -- '\*\*\* (Update|Add|Delete) File: .*' 2>/dev/null |
-			sed "s#$HOME#~#g" | sort | uniq -c | sort -rn | head -n 15)
+			sed "s#$HOME#~#g" | sort | uniq -c | sort -rn | head -n 15 || true)
 		[[ -n "$edits" ]] && printf '%s\n' "$edits" || echo "  (none)"
+
+		# Same join on the Copilot side: tool.execution_complete carries
+		# success/error but not the tool name, so map toolCallId → name+args
+		# from the matching tool.execution_start. Note `.data.success == false`
+		# rather than `// true` — jq's // treats false as absent.
+		echo "TOOL ERRORS (failed tool calls, last $limit)"
+		errs=$(jq -rn '
+			reduce inputs as $l ({m: {}, out: []};
+				if ($l.type == "tool.execution_start") then
+					.m[$l.data.toolCallId // ""] =
+						{ n: ($l.data.toolName // "?"),
+						  a: (($l.data.arguments // "") | tostring) }
+				elif ($l.type == "tool.execution_complete"
+					and $l.data.success == false) then
+					.out += [ { ref: ($l.data.toolCallId // ""),
+					            err: (($l.data.error // "") | tostring) } ]
+				else . end)
+			| .m as $m
+			| .out[]
+			| ($m[.ref] // { n: "?", a: "" }) as $u
+			| "  \($u.n): \(($u.a | gsub("\\s+"; " "))[0:78])\n      → \((.err | gsub("\\s+"; " "))[0:150])"
+		' "$e" 2>/dev/null | tail -n "$((limit * 2))")
+		[[ -n "$errs" ]] && printf '%s\n' "$errs" || echo "  (none)"
 
 		echo "NON-BASH TOOLS"
 		tools=$(jq -rc 'select(.type=="tool.execution_start")
@@ -622,7 +704,7 @@ if ((transcript)); then
 		if [[ -n "$plog" ]]; then
 			printf '  log: %s\n' "${plog/#$HOME/\~}"
 			out=$(rg -No -- '\[ERROR\][^\n]*(unauthorized|[Ff]ailed|HTTP [45][0-9][0-9]|errored|not found|timed? ?out|ECONN)[^\n]*' \
-				"$plog" 2>/dev/null | sed "s#$HOME#~#g" | sort -u | head -n 6)
+				"$plog" 2>/dev/null | sed "s#$HOME#~#g" | sort -u | head -n 6 || true)
 			[[ -n "$out" ]] && printf '%s\n' "$out" | sed 's/^/  /' || echo "  no notable errors"
 		else
 			echo "  (no process log matched this session)"

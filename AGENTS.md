@@ -16,8 +16,8 @@ workflows through `task` — do not hand-assemble `nixos-rebuild` /
   `dot_config/instructions/agent-defaults.md` is the single source for the
   always-on agent prefix (reference detail: `agent-reference.md` beside it)
 - `ai-tools/` — skills + agents (Claude plugin marketplace).
-  `skills/` deploys globally (always-on); `skills-stack/` is opt-in per
-  project via `task skills:enable SKILL=<name> DIR=<project>`
+  `skills/` deploys globally (always-on); a skill only one project needs
+  belongs in that project's own `.claude/skills/`, not here
 - `secrets/` — SOPS-encrypted (age); never commit plaintext secrets
 - `scripts/`, `taskfile.yaml` — automation; `docs/` — design notes
 

@@ -100,12 +100,10 @@
   };
   # Names of skills currently in ai-tools/skills/ — baked in at eval time so
   # the cleanup activation hook can delete any directory whose name is absent.
-  # Only ai-tools/skills/ (the always-on core set) deploys globally; the
-  # stack-specific set in ai-tools/skills-stack/ is opt-in per project (see
-  # `task skills:enable`), so its names are deliberately NOT in this list —
-  # the cleanup hook below therefore evicts any stack skill that an older
-  # generation deployed globally. Pattern borrowed from khaneliman/khanelinix,
-  # which keeps the always-on agent surface to a single skill reference.
+  # This is also what evicts the former ai-tools/skills-stack/ tree from hosts
+  # that deployed it: those names are gone from the source, so the cleanup hook
+  # removes them on the next switch. Pattern borrowed from
+  # khaneliman/khanelinix, which keeps the always-on agent surface small.
   currentSkillNames = builtins.attrNames (builtins.readDir ../ai-tools/skills);
   vividTheme = import ./lib/vivid-theme.nix {inherit lib pkgs;};
   # Bake LS_COLORS at build time from the repo's monokai palette so ls/eza/tree
@@ -407,9 +405,9 @@ in {
       # Single source of truth for custom agent/skill definitions is the
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
       # Token-cost note: every registered skill's description is injected into
-      # every session's system prompt, so only ai-tools/skills/ (core) is
-      # surfaced. Stack-specific skills live in ai-tools/skills-stack/ and are
-      # linked into individual projects with `task skills:enable` instead.
+      # every session's system prompt, so ai-tools/skills/ is kept to the set
+      # that earns that cost. A project needing a stack-specific skill puts it
+      # in its own <project>/.claude/skills/, where it loads only there.
       #
       # Claude deliberately does NOT get personal claude/skills or claude/agents
       # dirs: it already loads the same ai-tools content via the nix-config-tools
