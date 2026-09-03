@@ -625,27 +625,6 @@ tasks:
         exit 1
       fi
 
-  skills:enable:
-    desc: Symlink an opt-in stack skill into a project (SKILL=<name> DIR=<project root, default .>)
-    platforms: [linux, darwin]
-    cmd: |
-      _src="$PWD/ai-tools/skills-stack/{{.SKILL}}"
-      _dir="{{.DIR | default "."}}"
-      # A quoted DIR='~/...' reaches here with a literal tilde; expand it so
-      # mkdir -p doesn't create a real './~' directory in the repo root.
-      case "$_dir" in "~"|"~/"*) _dir="$HOME${_dir#"~"}" ;; esac
-      _dest="$_dir/.claude/skills"
-      if [ ! -d "$_src" ]; then
-        printf 'Unknown stack skill: %s\nAvailable:\n' "{{.SKILL}}" >&2
-        ls ai-tools/skills-stack >&2
-        exit 1
-      fi
-      mkdir -p "$_dest"
-      ln -sfn "$_src" "$_dest/{{.SKILL}}"
-      printf 'Linked %s -> %s\n' "$_dest/{{.SKILL}}" "$_src"
-    requires:
-      vars: [SKILL]
-
   agents:update:
     desc: Update the off-nixpkgs agent CLIs (Claude Code, Copilot CLI) to latest via their native installers
     platforms: [linux, darwin]

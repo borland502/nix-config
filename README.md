@@ -343,23 +343,21 @@ ai-tools/
 ├── agents/           Custom sub-agents (*.agent.md)
 ├── commands/         Slash commands for routine chores (flake-refresh, jira-digest, reconcile-audit)
 ├── scripts/          Hook loggers, cache compaction, the ops-agent CLI, and the AWS MCP wrapper
-├── skills/           Always-on core set (flow, git, ops, sec, web, shell)
-└── skills-stack/     Stack-specific set (Angular, Spring Boot, Go, Python, JS/TS, …) — opt-in per project
+└── skills/           Always-on core set (flow, git, ops, sec, web, shell)
 ```
 
-### Core vs. stack skills
+### Keeping the global set earned
 
-Every globally deployed skill injects its description into **every** session's system prompt, so only the
-core set in `skills/` ships globally. Language/framework skills live in `skills-stack/` and are linked
-into just the projects that use them:
+Every globally deployed skill injects its description into **every** session's system prompt, so
+`ai-tools/skills/` holds only skills that earn that standing cost across projects. A skill that just one
+project needs belongs in that project's own `<project>/.claude/skills/`, where it loads for sessions in
+that project alone.
 
-```bash
-task skills:enable SKILL=springboot-patterns DIR=~/src/my-service
-```
-
-That symlinks the skill into `<project>/.claude/skills/`, where it loads only for sessions in that
-project. Generated `*.prompt.md` bridges keep stack skills reachable on-demand in VS Code Copilot Chat
-via `/`. Skills and agents are deployed as on-demand slash commands, **not** always-on instructions —
+A `skills-stack/` tree once held language/framework skills here, linked per project with a
+`task skills:enable` helper. It was removed after three months in which no project ever linked one,
+while the tree still generated a bridge file and a marketplace entry apiece. Generated `*.prompt.md`
+bridges keep the remaining skills reachable on-demand in VS Code Copilot Chat via `/`. Skills and agents
+are deployed as on-demand slash commands, **not** always-on instructions —
 only `copilot-defaults.instructions.md` carries `applyTo: "**"`, keeping the always-on surface to one file.
 
 Skills and agents must stay **model-agnostic**: tier aliases (`opus`/`sonnet`/`haiku`) in `model:`
@@ -563,11 +561,10 @@ before merging.
 ## Credits
 
 This project's own code is MIT-licensed ([LICENSE](LICENSE)). Ingested upstream skills under
-`ai-tools/skills/` and `ai-tools/skills-stack/` retain their original licenses and `origin:` frontmatter;
+`ai-tools/skills/` retain their original licenses and `origin:` frontmatter;
 skills without an `origin:` line (`flow-reconciliation`, `gh-graphql-jq-pipelines`, the `ops-agent` /
 `ops-cache-scan` / `ops-chezmoi` / `ops-confluence` / `ops-nix-pitfalls` set, `sec-credentials`,
-`sec-sops-encrypt`, `shell-pitfalls`, and others) are original to this repo. `ops-repo-scan` is
-community-sourced (see its frontmatter).
+`sec-sops-encrypt`, `shell-pitfalls`, `ops-deploy-probes`, and others) are original to this repo.
 
 | Upstream | License | Borrowed |
 |---|---|---|
