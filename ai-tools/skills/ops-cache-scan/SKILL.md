@@ -41,12 +41,11 @@ real failure from these instead, in order:
 - **`SILENT FAILURES (exit-0 errors, heuristic)`** — `cache-scan` pattern-matches
   error text inside `STDOUT` and classifies it (`nullglob-miss`, `stat-dialect`,
   `cmd-not-found`, …). This is now the log's primary failure signal.
-- **The transcript**, for anything that exited non-zero. The tool result carries
-  `is_error: true` with the error text; the jsonl is at
-  `~/.config/claude/projects/<project>/<session>.jsonl` (Claude) or
-  `~/.config/copilot/session-state/<id>/events.jsonl` (Copilot). `cache-scan -t`
-  reads these for prompts, decisions, and file edits but does **not** yet extract
-  `is_error` results — scan for that field directly when the failure matters.
+- **`cache-scan -t`**, whose `TOOL ERRORS` section reads the failures out of the
+  transcript, where they *are* recorded — the failing tool, its command or path,
+  and the error text, for Claude (`is_error` tool results) and Copilot
+  (`tool.execution_complete` with `success: false`) alike. This is the real
+  failure list; reach for `-t` the moment triage is the goal.
 - **The user's own account** of what broke. When the log is silent, ask rather
   than concluding the command succeeded.
 
@@ -109,8 +108,12 @@ This is *not* something a session needs to wire up — if the host has had `home
 - **SESSIONS** (default) — one line per session: id, command / stderr / interrupt
   counts, last status + command.
 - **FAILURES** (default) — commands with `status=stderr|interrupted`. **In
-  practice always empty** on current harnesses; see "The log cannot see
-  failures" above before drawing any conclusion from it.
+  practice always empty** on current harnesses, and it says so in its own output
+  rather than printing a reassuring `none`; see "The log cannot see failures"
+  above. Only archived pre-July logs still populate it.
+- **TOOL ERRORS** (`-t`) — the tool calls that actually failed, joined from the
+  transcript back to the tool name and its command/path. The section the
+  `FAILURES` line points you to, and the one to read when triaging.
 - **ARTIFACTS** (default) — standalone plan/spec/design/handoff/note/resume
   files in the cache root (`PHASE*`, `*handoff*`, `*plan*.md*`, `*spec*.md*`,
   `*design*.md*`, `*note*.md*`, `*resume*.md*`), newest first, including `.zst`
