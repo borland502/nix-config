@@ -239,6 +239,12 @@
     # Secret management
     age
     sops
+    # Interpreter for `keepass set-attr`. keepassxc-cli cannot write custom
+    # (Advanced-tab) attributes and pykeepass cannot open a vault keyed with a
+    # YubiKey, so the two are paired: pykeepass builds a one-entry database and
+    # keepassxc-cli merges it in. Named rather than added to `python3` because
+    # nixpkgs' python3 is deliberately kept off $PATH here (see below).
+    keepassPython
     # `task lint:secrets` runs gitleaks, so without it here the full `task lint`
     # chain exits 127 on every local run — CI passed only because the workflow
     # installs it explicitly via `nix shell nixpkgs#gitleaks`.
@@ -308,6 +314,9 @@
     ++ map (p: "${homeDirectory}/${p}") (copilotInstructionPaths ++ copilotInstructionDirPaths);
   # ops-agent's model loop runs through the user's `claude` CLI (subscription
   # OAuth) — stdlib-only Python, no anthropic SDK / API key needed.
+  keepassPython = pkgs.writeShellScriptBin "keepass-python" ''
+    exec ${pkgs.python3.withPackages (ps: [ps.pykeepass])}/bin/python3 "$@"
+  '';
   opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
     exec ${pkgs.python3}/bin/python ${../ai-tools/scripts/ops-agent.py} "$@"
   '';

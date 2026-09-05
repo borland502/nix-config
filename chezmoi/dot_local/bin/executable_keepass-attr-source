@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""Build a single-entry KDBX that adds one custom attribute, for merging.
+
+Consumed by `keepass set-attr`; not useful on its own. Reads a KDBX XML export
+on stdin, clones one entry out of it into a fresh single-entry database, adds
+the requested attribute, and writes that database out. It never sees the vault
+itself and needs no vault credentials -- keepassxc-cli does the crypto.
+
+Why this exists: keepassxc-cli (2.7.x) can READ custom attributes but cannot
+write them, and pykeepass -- which can -- cannot open a vault whose composite
+key includes YubiKey challenge-response. So pykeepass builds, keepassxc-cli
+merges.
+
+Fidelity is not optional. keepassxc-cli merges entries by UUID and lets the
+newer modification time win, demoting the loser into history, so the clone must
+carry the same entry UUID, the same parent group UUID, and every field. Three
+further things must be copied or the merge causes collateral damage:
+
+  * Meta/CustomData -- a pykeepass-created database has none, and merge treats
+    the SOURCE's metadata as authoritative. Omitting it makes the merge REMOVE
+    the vault's database-level custom data, including KPXC_RANDOM_SLUG, which
+    the browser extension keys off of.
+  * the entry's Times and AutoType, and the group's Times -- otherwise the
+    merge reports spurious "Expiration, Auto-Type, Expiry time" churn.
+
+With all of them cloned, a dry-run reduces to exactly one line:
+"(Custom Attributes, History (Add local modifications to new entry))".
+`keepass set-attr` asserts on precisely that and refuses to merge otherwise.
+"""
+
+import argparse
+import base64
+import datetime
+import sys
+import uuid as uuidmod
+from xml.etree import ElementTree as ET
+
+STANDARD = ("Title", "UserName", "Password", "URL", "Notes")
+
+
+def die(msg):
+    sys.exit(f"keepass-attr-source: {msg}")
+
+
+def entry_paths(root):
+    """Map '/Group/Sub/Title' -> (group_element, entry_element)."""
+    found = {}
+
+    def walk(group, prefix):
+        name = group.findtext("Name") or ""
+        here = f"{prefix}/{name}" if name else prefix
+        for entry in group.findall("Entry"):
+            title = ""
+            for s in entry.findall("String"):
+                if s.findtext("Key") == "Title":
+                    title = (s.find("Value").text or "")
+                    break
+            found.setdefault(f"{here}/{title}", (group, entry))
+        for sub in group.findall("Group"):
+            walk(sub, here)
+
+    for top in root.findall("./Root/Group"):
+        walk(top, "")
+    return found
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--entry", required=True, help="entry path, e.g. /Inventory/example.com")
+    ap.add_argument("--attr", required=True)
+    ap.add_argument("--value-file", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--source-password-file", required=True)
+    ap.add_argument("--unprotected", action="store_true")
+    args = ap.parse_args()
+
+    try:
+        from pykeepass import create_database
+        from lxml import etree as LET
+    except ImportError:
+        die("pykeepass is unavailable; run this through `keepass set-attr`, "
+            "which resolves an interpreter that has it")
+
+    value = open(args.value_file).read()
+    src_pw = open(args.source_password_file).read().strip()
+    if not src_pw:
+        die("empty source password")
+
+    root = ET.fromstring(sys.stdin.read())
+
+    # The export names the root group too; accept the path with or without it.
+    paths = entry_paths(root)
+    key = args.entry if args.entry in paths else None
+    if key is None:
+        tail = [p for p in paths if p.endswith(args.entry)]
+        if len(tail) == 1:
+            key = tail[0]
+        elif len(tail) > 1:
+            die(f"entry path is ambiguous, matches {len(tail)}: {sorted(tail)[:5]}")
+        else:
+            die(f"entry not found in export: {args.entry}")
+    group, entry = paths[key]
+
+    entry_uuid = uuidmod.UUID(bytes=base64.b64decode(entry.findtext("UUID")))
+    group_uuid = uuidmod.UUID(bytes=base64.b64decode(group.findtext("UUID")))
+
+    strings, protected = {}, set()
+    for s in entry.findall("String"):
+        k = s.findtext("Key")
+        v_el = s.find("Value")
+        strings[k] = v_el.text or ""
+        if (v_el.get("Protected") or "").lower() == "true":
+            protected.add(k)
+
+    if args.attr in strings:
+        die(f"attribute already exists on {key}: {args.attr} "
+            "(this tool only adds; edit or remove it in the GUI first)")
+
+    n_binaries = len(entry.findall("Binary"))
+    if n_binaries:
+        die(f"entry has {n_binaries} attachment(s); merging would not carry them. "
+            "Add this attribute in the GUI instead")
+
+    kp = create_database(args.out, password=src_pw)
+    g = kp.add_group(kp.root_group, group.findtext("Name"))
+    g.uuid = group_uuid
+
+    e = kp.add_entry(
+        g,
+        strings.get("Title", ""),
+        strings.get("UserName", ""),
+        strings.get("Password", ""),
+        url=strings.get("URL") or None,
+        notes=strings.get("Notes") or None,
+    )
+    e.uuid = entry_uuid
+    for k, v in strings.items():
+        if k not in STANDARD:
+            e.set_custom_property(k, v, protect=(k in protected))
+    e.set_custom_property(args.attr, value, protect=not args.unprotected)
+
+    def adopt(src_el, parent, tag):
+        if src_el is None:
+            return 0
+        for old in parent.findall(tag):
+            parent.remove(old)
+        parent.append(LET.fromstring(ET.tostring(src_el)))
+        return len(src_el)
+
+    n_meta = adopt(root.find("./Meta/CustomData"), kp.tree.getroot().find("Meta"), "CustomData")
+    adopt(group.find("Times"), g._element, "Times")
+    src_entry = LET.fromstring(ET.tostring(entry))
+    for tag in ("Times", "AutoType"):
+        adopt(src_entry.find(tag), e._element, tag)
+
+    # Cloning Times also cloned the old modification time; bump it so the merge
+    # still prefers this version and actually applies the new attribute.
+    now = datetime.datetime.now(datetime.timezone.utc)
+    epoch = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
+    lm = e._element.find("./Times/LastModificationTime")
+    if lm is not None:
+        lm.text = base64.b64encode(
+            int((now - epoch).total_seconds()).to_bytes(8, "little")
+        ).decode()
+
+    kp.save()
+
+    # Shape only, never values.
+    print(f"entry: {key}", file=sys.stderr)
+    print(f"fields cloned: {len(strings)} | metadata items cloned: {n_meta} | "
+          f"attachments: {n_binaries}", file=sys.stderr)
+    print(f"adding: {args.attr} ({'plain' if args.unprotected else 'protected'})",
+          file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

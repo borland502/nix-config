@@ -13,9 +13,20 @@
 #              .local/state/{,keepass/,keypass/} and ~/Downloads; the other
 #              three were deleted 2026-08-22, locally and from the gdrive
 #              backup, so there is exactly one path to keep in sync now.
-#              Note the spelling: the key file is under state/keePass while
-#              the database is under share/keyPass. That mismatch is real, not
-#              a typo here.
+#   database   ~/gdrive/.local/share/keepass/secrets.kdbx — the vault the
+#              KeePassXC GUI actually keeps open, so the CLI and the GUI now
+#              agree. ~/gdrive is an rclone FUSE mount (--vfs-cache-mode
+#              writes); every save uploads to Google Drive within seconds.
+#              Two consequences worth knowing before debugging anything here:
+#                * If the mount is not up, this script fails rather than
+#                  falling back. A silent fallback would read the stale local
+#                  copy and hand back an out-of-date secret, which is worse
+#                  than an error.
+#                * ~/.local/share/keyPass/secrets.kdbx (note: keyPass with a
+#                  Y) is the OLD default and is now a stale copy, not a
+#                  mirror. It still receives the GUI's BackupBeforeSave
+#                  .old.kdbx files, which is why its mtimes still move.
+#              Point KEEPASS_DB at it deliberately if you ever need it.
 #   yubikey    HMAC-SHA1 challenge-response on slot 2.
 #
 # Why the yubikey is addressed by SLOT ONLY, never slot:serial — two YubiKeys
@@ -37,8 +48,9 @@
 # commands from the same stdin the password is piped on, so the pipe closes it
 # immediately. Run keepassxc-cli directly for that.
 set -uo pipefail
+zmodload zsh/zutil # zparseopts, for set-attr
 
-KP_DB=${KEEPASS_DB:-$HOME/.local/share/keypass/secrets.kdbx}
+KP_DB=${KEEPASS_DB:-$HOME/gdrive/.local/share/keepass/secrets.kdbx}
 KP_KEYFILE=${KEEPASS_KEYFILE:-$HOME/.local/state/keepass/secrets.keyx}
 KP_SLOT=${KEEPASS_YUBIKEY_SLOT:-2}
 KP_PASSFILE=${KEEPASS_PASSWORD_FILE:-$HOME/.config/keepass/password}
@@ -55,6 +67,7 @@ NO_DB=(generate diceware estimate --help -h --version -v)
 usage() {
 	print -r -- "usage: keepass <keepassxc-cli-subcommand> [args...]"
 	print -r -- "       keepass check"
+	print -r -- "       keepass set-attr <entry> <attr-name> [--file <path>] [--dry-run] [--unprotected]"
 	print -r -- ""
 	print -r -- "db:      $KP_DB"
 	print -r -- "keyfile: $KP_KEYFILE"
@@ -76,7 +89,14 @@ if ((${NO_DB[(Ie)$sub]})); then
 	exec keepassxc-cli "$sub" "$@"
 fi
 
-[[ -r $KP_DB ]] || die "database not readable: $KP_DB"
+if [[ ! -r $KP_DB ]]; then
+	if [[ $KP_DB == "$HOME/gdrive/"* ]] && ! mountpoint -q "$HOME/gdrive" 2>/dev/null; then
+		die "database not readable: $KP_DB
+  ~/gdrive is not mounted — start it with: rclone-mount --remote gdrive --mountpoint ~/gdrive
+  (KEEPASS_DB=~/.local/share/keypass/secrets.kdbx reads the stale local copy.)"
+	fi
+	die "database not readable: $KP_DB"
+fi
 [[ -r $KP_KEYFILE ]] || die "key file not readable: $KP_KEYFILE"
 [[ -r $KP_PASSFILE ]] || die "password file not readable: $KP_PASSFILE
   It is a sops secret — run 'task home-switch' in the nix-config repo to
@@ -89,6 +109,142 @@ if [[ $(<$KP_PASSFILE) == REPLACE-ME-* ]]; then
 	die "the sops secret still holds its placeholder value.
   Run: zsh ~/.cache/claude/2026-08-22-keepass-sops-provision.sh
   then re-run 'task home-switch'."
+fi
+
+# --- set-attr: write a custom (Advanced-tab) attribute -----------------------
+#
+# keepassxc-cli 2.7.x can READ custom attributes but has no way to write one --
+# `edit` covers only -t/-u/-p/--url/--notes. pykeepass can write them but cannot
+# open this vault, because it has no YubiKey challenge-response support and
+# slot-2 HMAC-SHA1 is part of the composite key. So the two are paired here:
+# keepassxc-cli exports and merges (it owns the crypto), pykeepass builds a
+# one-entry database to merge in (it owns the content).
+#
+# The dangerous part is the merge, and it is guarded rather than trusted. A
+# naive source database silently REMOVES the vault's Meta/CustomData -- 25
+# items here, including the browser extension's KPXC_RANDOM_SLUG. That damage is
+# visible only in --dry-run, so this always dry-runs first and refuses to
+# proceed unless the reported change is exactly one line about Custom
+# Attributes. Discovered the hard way on 2026-09-05; do not remove the check.
+if [[ $sub == set-attr ]]; then
+	zparseopts -D -E -- -file:=o_file -dry-run=o_dry -unprotected=o_plain || exit 2
+	entry=${1:-}
+	attr=${2:-}
+	[[ -n $entry && -n $attr ]] || die "usage: keepass set-attr <entry> <attr-name> [--file <path>] [--dry-run] [--unprotected]
+  The value is read from --file, or from stdin. It is never passed as an
+  argument, so it stays out of /proc/<pid>/cmdline and shell history."
+
+	command -v keepassxc-cli >/dev/null || die "keepassxc-cli not on PATH"
+
+	# pykeepass is not on the bare python3 here by design (see common.nix:
+	# nixpkgs' python3 is kept off $PATH). keepass-python is the nix-provided
+	# interpreter that has it; nix-shell is the fallback before a home-switch.
+	if command -v keepass-python >/dev/null; then
+		interp=(keepass-python)
+	elif command -v nix-shell >/dev/null; then
+		print -ru2 -- "keepass: keepass-python not found, falling back to nix-shell (slow first run)"
+		interp=(nix-shell -p "python3.withPackages(ps: [ps.pykeepass])" --run)
+	else
+		die "no interpreter with pykeepass: install keepass-python via 'task home-switch'"
+	fi
+
+	builder=${KEEPASS_ATTR_SOURCE:-${0:A:h}/keepass-attr-source}
+	[[ -r $builder ]] || die "helper not found: $builder"
+
+	# A vault the KeePassXC GUI holds open is a trap: it saves from memory, so a
+	# merge underneath it is silently discarded at the next save. On the gdrive
+	# copy that also races the rclone upload.
+	if [[ -z ${KEEPASS_ALLOW_GUI:-} ]] && pgrep -x keepassxc >/dev/null 2>&1; then
+		die "KeePassXC is running and may hold $KP_DB open.
+  A merge underneath it is discarded the next time it saves. Quit KeePassXC
+  (locking is not enough — a locked database is still open) and retry.
+  Which database it has open cannot be determined — /proc/<pid>/fd is not
+  readable — so this refuses on principle. Set KEEPASS_ALLOW_GUI=1 only when
+  the target is a throwaway copy."
+	fi
+
+	workdir=$(mktemp -d) || die "could not create a work directory"
+	chmod 700 "$workdir"
+	trap "rm -rf -- \"$workdir\"" EXIT INT TERM
+
+	valuefile="$workdir/value"
+	if (($#o_file)); then
+		[[ -r ${o_file[2]} ]] || die "value file not readable: ${o_file[2]}"
+		cp -- "${o_file[2]}" "$valuefile"
+	else
+		cat >"$valuefile"
+	fi
+	[[ -s $valuefile ]] || die "the attribute value is empty"
+
+	head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$workdir/source.pw"
+	chmod 600 "$workdir/source.pw" "$valuefile"
+
+	buildargs=(--entry "$entry" --attr "$attr" --value-file "$valuefile"
+		--out "$workdir/source.kdbx" --source-password-file "$workdir/source.pw")
+	(($#o_plain)) && buildargs+=(--unprotected)
+
+	if [[ ${interp[1]} == nix-shell ]]; then
+		# --run takes a single string; quoting an argv array into it is fragile,
+		# so hand it a script that already holds the arguments.
+		{
+			print -r -- "#!/bin/sh"
+			# Note the [@]: without it zsh joins the array into ONE quoted word and
+			# python3 sees a single nonsense argument.
+			print -r -- "exec python3 ${(q)builder} ${(qq)buildargs[@]}"
+		} >"$workdir/build.sh"
+		chmod 700 "$workdir/build.sh"
+		runner=("${interp[@]}" "$workdir/build.sh")
+	else
+		runner=("${interp[@]}" "$builder" "${buildargs[@]}")
+	fi
+	keepassxc-cli export -f xml --key-file "$KP_KEYFILE" --yubikey "$KP_SLOT" \
+		"$KP_DB" <"$KP_PASSFILE" 2>/dev/null | "${runner[@]}" || exit 1
+	[[ -s $workdir/source.kdbx ]] || die "the merge source was not built"
+
+	merge() {
+		printf '%s\n%s\n' "$(<$KP_PASSFILE)" "$(<$workdir/source.pw)" |
+			keepassxc-cli merge $1 --key-file "$KP_KEYFILE" --yubikey "$KP_SLOT" \
+				"$KP_DB" "$workdir/source.kdbx" 2>&1
+	}
+
+	preview=$(merge --dry-run)
+	preview=${preview//"Enter password to unlock $KP_DB: "/}
+	preview=${preview//"Enter password to unlock $workdir/source.kdbx: "/}
+
+	# Every line keepassxc-cli reports for a merge is indented; anything beyond
+	# the single expected entry change means collateral damage.
+	changes=(${(f)"$(print -r -- $preview | grep -E '^\s+(Modified|Added|Removed|Metadata):')"})
+	if ((${#changes} != 1)) || [[ ${changes[1]} != *"Custom Attributes"* ]]; then
+		print -ru2 -- "keepass: refusing to merge — dry-run reported unexpected changes:"
+		print -ru2 -- "$preview"
+		die "expected exactly one Custom Attributes change, got ${#changes}."
+	fi
+
+	print -r -- "dry-run: ${changes[1]#$'\t'}"
+	if (($#o_dry)); then
+		print -r -- "(--dry-run: nothing written)"
+		exit 0
+	fi
+
+	backup="${KP_DB:h}/${KP_DB:t:r}.pre-set-attr.kdbx"
+	cp -- "$KP_DB" "$backup" || die "could not back up the vault to $backup"
+	chmod 600 "$backup"
+
+	result=$(merge "")
+	if [[ $result != *"Successfully merged"* ]]; then
+		print -ru2 -- "$result"
+		die "merge failed; the vault is unchanged and backed up at $backup"
+	fi
+
+	readback=$(keepassxc-cli show -a "$attr" --key-file "$KP_KEYFILE" \
+		--yubikey "$KP_SLOT" "$KP_DB" "$entry" <"$KP_PASSFILE" 2>/dev/null |
+		tail -n1)
+	if [[ $readback == $(<$valuefile) ]]; then
+		print -r -- "set $attr on $entry (backup: $backup)"
+		exit 0
+	fi
+	die "merge reported success but the value does not read back.
+  Restore with: cp ${(q)backup} ${(q)KP_DB}"
 fi
 
 # `check` is not a keepassxc-cli subcommand; it is db-info plus a human verdict.
