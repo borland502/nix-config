@@ -1,6 +1,6 @@
 ---
 name: shell-pitfalls
-description: Use when a shell command fails with a confusing error, an alias is interfering, a zsh wrapper script has a subtle bug, or a heavily-quoted inline `zsh -c` is failing repeatedly. Also use BEFORE writing any command that loops over multi-field strings, globs a path, or passes a URL/query string as an argument. Triggering errors include "no matches found", "ambiguous argument 'A B...'", "empty string is not a valid pathspec", "read-only variable", "cannot read file system information for '%'", "jq: parse error", and a bash snippet that behaves differently under zsh.
+description: Use when a shell command fails with a confusing error, an alias interferes, or a heavily-quoted inline `zsh -c` keeps failing. Also use BEFORE any command that globs a path, loops over multi-field strings, passes a URL or query string as an argument, or waits on a long-running job. Triggering errors: "no matches found", "ambiguous argument 'A B...'", "empty string is not a valid pathspec", "read-only variable", "invalid option -- 'j'" / "cannot read file system information for '%'" (GNU-vs-BSD dialect), "jq: parse error", "ModuleNotFoundError" from an inline python3, "Blocked: sleep N followed by", a tool erroring on an empty argument, and bash snippets that behave differently under zsh.
 ---
 
 # Shell Pitfalls
@@ -111,7 +111,7 @@ credential-lifecycle failure, not a shell one — go to
 [sec-credentials](../sec-credentials/SKILL.md) for the full lookup precedence
 (sops → XDG config → legacy paths) instead of debugging the command.
 
-## `stat`: GNU shadows BSD, even on macOS
+## GNU coreutils shadow the BSD tools, even on macOS
 
 On these hosts nix `coreutils` puts **GNU `stat`** on `PATH` ahead of the macOS
 BSD `stat` — on darwin and Linux alike. So BSD format syntax silently fails:
@@ -129,6 +129,25 @@ stat -c '%A %n' ~/.aws/config     # mode + name
 If you need a portable mtime regardless of which `stat` wins, sidestep it:
 `eza -l --time-style=long-iso <file>` or `date -r <file>`. The repo's own
 scripts assume GNU `stat -c` for this reason (see `cache-scan`'s header note).
+
+**`date` has the same split, and it bites harder** because macOS documentation,
+Stack Overflow answers, and your own muscle memory all reach for BSD flags:
+
+```bash
+# Wrong on these hosts: -j/-f are BSD-only
+# → "date: invalid option -- 'j'"  … and under `set -e` the script dies mid-way,
+#   often after the arithmetic that consumed its empty output already broke
+S=$(date -u -j -f '%Y-%m-%d' "$D" +%s)
+
+# Right: GNU syntax
+S=$(date -u -d "$D" +%s)
+date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ    # relative windows for log queries
+```
+
+The same rule covers `readlink -f`, `sed -i` (GNU takes no backup suffix, BSD
+requires one), `base64 -w0`, and `find -printf`: **assume GNU syntax on every
+host in this fleet, darwin included.** When a flag error names a single letter
+you were sure about, check the dialect before rewriting the logic.
 
 ## Subshell PATH loss
 
@@ -223,21 +242,60 @@ runs at all:
 # Aborts with "zsh: no matches found: docker-compose*.yml" if none exist
 ls docker-compose*.yml
 
-# Guard 1: (N) qualifier — expands to nothing instead of erroring
-ls docker-compose*.yml(N)
+# Guard 1: null_glob in a subshell — the unmatched word vanishes, no error
+( setopt local_options null_glob; ls docker-compose*.yml )
 
-# Guard 2: let fd do the matching (no shell glob involved)
+# Guard 2: let fd do the matching (no shell glob involved) — best for one-shots
 fd -g 'docker-compose*.yml' --max-depth 1
 
-# Guard 3: test existence before globbing in scripts
-for f in docker-compose*.yml(N); do …; done
+# Guard 3: hand the quoted pattern to a tool that globs internally
+rg --glob 'docker-compose*.yml' 'needle' .
 ```
 
-Observed failures: `docker-compose*.yml` and `~/.config/ops-agent/config*`
-with no match killed whole `&&` chains. In `zsh -c` one-shots prefer `fd`; in
-committed zsh scripts add `setopt nullglob` (or the `(N)` qualifier per-glob).
+### The `(N)` qualifier does NOT work in the agent shell
+
+This is the trap inside the trap. `foo*(N)` is the answer every zsh reference
+gives, and it fails here:
+
+```zsh
+echo nomatch-probe-*.zst(N)
+# (eval):1: no matches found: nomatch-probe-*.zst(N)
+```
+
+The agent's Bash-tool shell runs with **`nobareglobqual`** set, which disables
+bare glob qualifiers entirely — so `(N)` is parsed as literal text, the word
+still matches nothing, and the abort fires anyway. Confirm on any host with:
+
+```zsh
+setopt          # agent shell prints exactly: nobareglobqual, nohashdirs
+zsh -f -c setopt  # a pristine zsh prints neither — the default is bareglobqual ON
+```
+
+That difference is why a `(N)` guard copied from an interactive session, from
+documentation, or from a committed script keeps failing when an agent runs it.
+Use Guard 1/2/3 above. If you truly need qualifiers, re-enable them first —
+`( setopt bareglobqual; ls docker-compose*.yml(N) )` — but `null_glob` is
+shorter and needs no qualifier.
+
+Observed failures: `docker-compose*.yml`, `~/.config/ops-agent/config*`,
+`session_*.log.zst(N)`, `/Applications/Brave*.app`, and
+`home-manager/modules/plasma*` with no match killed whole `&&` chains. In
+`zsh -c` one-shots prefer `fd`; in committed zsh scripts add `setopt nullglob`.
 Bash behaves differently (passes the literal pattern through), which is why a
 snippet tested in bash breaks under zsh.
+
+**The silent-truncation case is the expensive one.** A multi-target search
+where only one target is a no-match glob aborts before *any* of it runs:
+
+```zsh
+rg -n 'bareglobqual' ~/.zshrc ~/.zshenv ~/.config/zsh/* chezmoi/dot_zshrc*
+# (eval):1: no matches found: chezmoi/dot_zshrc*
+# → ~/.zshrc and ~/.zshenv were never searched. Nothing says so.
+```
+
+Reading that output as "the pattern is not in any of those files" is the wrong
+conclusion, and nothing on screen contradicts it. Quote or drop the speculative
+path rather than letting it decide whether the command runs.
 
 **How far the abort reaches** depends on the separator, and the pipeline case is
 the quiet one:
@@ -360,6 +418,93 @@ Some IDE harnesses wrap shell invocations in a capture command that tightens the
 
 Per [agent-defaults.md L25](../../../chezmoi/dot_config/instructions/agent-defaults.md), retry with the explicit interpreter form *before* assuming a real file-permission problem.
 
+## Empty command substitution poisons the next command
+
+`$(...)` that finds nothing yields an empty string, and the empty string is
+still passed as an argument. The failure surfaces one command later, wearing
+the wrong tool's name:
+
+```bash
+F=$(fd -t f 'lambda_uri.py' "$S" | head -1)
+sed -n '1,40p' "$F"        # → "sed: : No such file or directory"
+```
+
+`sed` is not the problem; `fd` matched nothing. Same shape produces
+`ls: cannot access '': …`, `Is a directory: '/tmp/r.txt'` (the variable was
+empty so a directory path got reused), and `cd: no such file or directory`.
+
+```bash
+# Guard: fail loudly at the point the assumption breaks
+F=$(fd -t f 'lambda_uri.py' "$S" | head -1)
+[ -n "$F" ] || { echo "no lambda_uri.py under $S" >&2; exit 1; }
+```
+
+Guard every `$(...)` whose result becomes a path, an ARN, an ID, or a URL —
+especially inside a chain, where the empty value travels several steps before
+anything complains.
+
+## Relative `cd` does not survive between tool calls
+
+The Bash tool keeps a working directory across calls, but a one-shot `cd` in a
+compound command does not always stick, and a *relative* `cd` in the next call
+then resolves against the wrong parent:
+
+```bash
+# Call 1
+cd /repo/root && ./do-thing
+# Call 2 — assumes call 1's cwd persisted
+cd audits/rc-validation && pytest
+# → "(eval):cd:1: no such file or directory: audits/rc-validation"
+```
+
+Use an absolute path in every `cd`, or set a variable once and reuse it
+(`W=/repo/root; cd "$W/audits/rc-validation"`). Never let one call's `cd`
+be the precondition for the next call's relative path.
+
+## `sleep N; <cmd>` is blocked — poll with Monitor instead
+
+A foreground `sleep` followed by a check is rejected by the harness:
+
+> Blocked: sleep 45 followed by: … To wait for a condition, use Monitor with an
+> until-loop
+
+This shape recurs constantly when waiting on a background build, a deploy, or a
+log file, and the retry instinct — a shorter sleep — is blocked identically.
+
+```bash
+# Wrong (blocked): sleep 90; tail -25 ~/.cache/claude/run.log
+# Right: let the harness watch the condition
+#   Monitor with:  until rg -q 'BUILD COMPLETE' ~/.cache/claude/run.log; do :; done
+# Also right: start the long job with run_in_background and let the harness
+#   re-invoke you when it exits — no polling at all.
+```
+
+If the thing you are waiting on is external and untracked (a CI run, a remote
+deploy), use the purpose-built poller — `monitor-gh-run <run-id>` for Actions —
+rather than reinventing a sleep loop.
+
+## The nix `python3` / `node` have no third-party libraries
+
+The interpreters on `PATH` come from the nix profile with a bare stdlib. An
+inline script that imports anything external dies at the import:
+
+```bash
+python3 -c "import yaml; …"    # → ModuleNotFoundError: No module named 'yaml'
+node shot.js                   # → Error: Cannot find module 'playwright'
+```
+
+This is not a broken install and `pip install` is the wrong fix (the store path
+is read-only). Options, in order of preference:
+
+1. **Use the CLI that already exists** — `yq` / `dasel` for YAML and TOML, `jq`
+   for JSON, `rg` for extraction. Almost every inline `import yaml` should have
+   been a `yq` filter.
+2. **Ask nix for the dependency for one command**:
+   `nix-shell -p 'python3.withPackages(ps: [ps.pyyaml])' --run 'python3 script.py'`
+3. **Run inside the project's own environment** — `.venv/bin/python`,
+   `npx --yes <pkg>`, or the repo's `uv run` / `bun` entry point — when the
+   library is a project dependency rather than a one-off need.
+
 ## When the problem isn't shell
 
 If you've reached this skill but none of the above patterns match, the problem probably isn't shell-level. Check:
@@ -381,11 +526,20 @@ After ruling those out, check [ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md) f
 - Credentials loaded via `kac ensure` (exit-code gated); never echoed into output.
 - Subshells launched with `-l` / explicit `PATH` when nix-profile tools are needed.
 - Any `local` on an exported variable (`local PATH=…`) followed by `export` so zsh children still inherit it.
-- zsh globs guarded (`(N)`, `fd`, or `setopt nullglob`) so no-match doesn't abort.
+- zsh globs guarded (`fd`, or `setopt local_options null_glob`) so no-match
+  doesn't abort — **not** `(N)`, which is dead under the agent shell's
+  `nobareglobqual`.
 - Every argument containing `?`, `*`, `[`, or `~` quoted — URLs and `gh api`
   paths with `?ref=…` included.
 - No reliance on implicit word splitting (`set -- $var`, `for x in $list`,
   `arr=($var)`) — zsh yields one word; use an array or `${=var}`.
+- GNU syntax assumed for `stat`/`date`/`sed`/`readlink`/`base64`/`find` on every
+  host, darwin included — no BSD `-j`, `-f`, or `stat -f`.
+- Every `$(...)` that becomes a path/ARN/ID guarded for empty before it is used.
+- Every `cd` absolute (or `"$W/sub"`), never relying on the previous call's cwd.
+- No foreground `sleep` before a check — Monitor until-loop or `run_in_background`.
+- No inline `python3`/`node` importing a third-party library — use `yq`/`jq`/`dasel`,
+  `nix-shell -p`, or the project's own env.
 
 ## References
 

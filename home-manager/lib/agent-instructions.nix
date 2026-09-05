@@ -31,13 +31,12 @@ in {
 
   # Generate one Copilot prompt file per skill so VS Code prompt discovery can
   # see the same rule content without changing the Claude plugin structure.
-  # Both the always-on core set (skills/) and the per-project opt-in set
-  # (skills-stack/) are bridged: prompt files are invoked on demand via `/`
-  # in Copilot Chat, so they carry no per-session token cost.
+  # Prompt files are invoked on demand via `/` in Copilot Chat, so they carry
+  # no per-session token cost.
   copilotSkillBridgeDir = pkgs.runCommand "copilot-skill-bridge-prompts" {} ''
     mkdir -p "$out"
 
-    for skill_dir in ${../../ai-tools/skills}/* ${../../ai-tools/skills-stack}/*; do
+    for skill_dir in ${../../ai-tools/skills}/*; do
       [ -d "$skill_dir" ] || continue
       skill_name=$(basename "$skill_dir")
       skill_file="$skill_dir/SKILL.md"
@@ -111,7 +110,7 @@ in {
 
       marketplace_entries='[]'
 
-      for skill_dir in ${../../ai-tools/skills}/* ${../../ai-tools/skills-stack}/*; do
+      for skill_dir in ${../../ai-tools/skills}/*; do
         [ -d "$skill_dir" ] || continue
         skill_name=$(basename "$skill_dir")
         skill_file="$skill_dir/SKILL.md"

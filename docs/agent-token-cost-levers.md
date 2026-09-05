@@ -23,7 +23,7 @@ tokens to save tokens.
 | Stable, single-source instruction files | `agent-defaults.md` → generated copies; `generate`/`check:agent-instructions`/`check:copilot-instructions` gates prevent drift, keeping the cached prefix stable | active |
 | Instruction-size budget | `task check:instruction-size` (in the `lint:nix` pre-commit chain) fails if `agent-defaults.md` exceeds the line/byte budget | active |
 | Lean skill set | fewer skills = smaller skill listing (Claude) / fewer bridged prompt files (Copilot); `cleanupOrphanedSkills` removes deployed orphans | active |
-| Core/stack skill split | only `ai-tools/skills/` deploys globally; stack skills live in `ai-tools/skills-stack/` and are linked per project via `task skills:enable` (pattern: khaneliman/khanelinix) | active |
+| Global skill set kept earned | `ai-tools/skills/` is the only tree that deploys globally, and a skill stays in it only while it is used; the `skills-stack/` opt-in tree was dropped after 3 months at zero enablements while still costing bridge files (pattern: khaneliman/khanelinix) | active |
 | Rules/reference split | `agent-defaults.md` carries behavioral rules only; catalogs and paths moved to `agent-reference.md`, read on demand (pattern: khanelinix tiny-root) | active |
 | Repo-level `AGENTS.md` | layout map + task targets at the repo root, so sessions here don't re-explore the repo (uncached, full-price tokens) each time | active |
 | Scheduled update PRs | `.github/workflows/update-flake.yml` bumps `flake.lock` weekly via PR, removing routine update sessions entirely (pattern: budimanjojo Renovate / wimpysworld DS automation) | active |

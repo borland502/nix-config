@@ -61,6 +61,18 @@ read that file on demand instead of asking the user.
 - For GitHub repository, issue, release, and pull request operations, prefer
   GitHub's official MCP server when available; otherwise prefer the git and gh
   CLIs over other repository MCP integrations.
+- Deployment, migration, and remote-host plans state the target's environment
+  before the first task. On a **development or non-production** target — a name
+  or tag carrying dev/test/qa/sandbox/staging/scratch/lab, a personal or lab
+  host, an ephemeral per-ticket stack — you have an active-probe budget: read
+  live state, run the real read-side call, or create a uniquely-named throwaway
+  resource to settle an assumption. Prefer that to stacking dry runs, which
+  prove template syntax and nothing about the platform's behavior. Production,
+  shared infrastructure, unregenerable data, and anything you cannot classify
+  keep the conservative path and need explicit approval. Every probe that
+  creates or mutates names its cleanup step up front. See the ops-deploy-probes
+  skill for the classification signals, the guardrails that still apply in dev,
+  and the Measured/Assumed evidence ledger a plan carries.
 - Do not merge the current branch into any target or base branch unless the user
   explicitly instructs you to perform that merge.
 - Do not add agent attribution trailers by default. If an active session policy

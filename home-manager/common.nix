@@ -100,12 +100,10 @@
   };
   # Names of skills currently in ai-tools/skills/ — baked in at eval time so
   # the cleanup activation hook can delete any directory whose name is absent.
-  # Only ai-tools/skills/ (the always-on core set) deploys globally; the
-  # stack-specific set in ai-tools/skills-stack/ is opt-in per project (see
-  # `task skills:enable`), so its names are deliberately NOT in this list —
-  # the cleanup hook below therefore evicts any stack skill that an older
-  # generation deployed globally. Pattern borrowed from khaneliman/khanelinix,
-  # which keeps the always-on agent surface to a single skill reference.
+  # This is also what evicts the former ai-tools/skills-stack/ tree from hosts
+  # that deployed it: those names are gone from the source, so the cleanup hook
+  # removes them on the next switch. Pattern borrowed from
+  # khaneliman/khanelinix, which keeps the always-on agent surface small.
   currentSkillNames = builtins.attrNames (builtins.readDir ../ai-tools/skills);
   vividTheme = import ./lib/vivid-theme.nix {inherit lib pkgs;};
   # Bake LS_COLORS at build time from the repo's monokai palette so ls/eza/tree
@@ -153,6 +151,13 @@
     # which is most IoT gear and the main blind spot of a ping sweep
     avahi # mDNS/DNS-SD browsing (avahi-browse); how Google/LIFX/Hue/Nest
     # actually announce human-readable names on a home LAN
+
+    # Sender half of Wake-on-LAN; the `wake` helper shells out to it. Shared
+    # rather than Linux-only: nixpkgs marks it platforms.all, and a magic packet
+    # is most useful from the laptop that finds a host asleep. Unprivileged — it
+    # broadcasts UDP/9 rather than forging an ethernet frame, hence this and not
+    # etherwake.
+    wakeonlan
 
     # Build tools
     gcc
@@ -366,6 +371,21 @@ in {
         source = claude;
         force = true;
       };
+      # Global commit-msg hook: strips Co-authored-by trailers naming Copilot or
+      # Claude, the "Generated with Claude Code" line, and Claude-Session
+      # trailers, from every locally-made commit. Activated by
+      # programs.git.settings.core.hooksPath below. Lives here rather than in a
+      # project's .githooks/ because some repos cannot take a committed hook.
+      # Human co-authors and prose merely mentioning either tool are preserved.
+      #
+      # A repo that sets its own core.hooksPath shadows this copy entirely --
+      # including THIS one, which does so via `task hooks:install`. Its
+      # .githooks/commit-msg is therefore a shim that delegates back to the same
+      # script, so the stripper still runs here.
+      "git/hooks/commit-msg" = {
+        source = ../ai-tools/git-hooks/commit-msg;
+        executable = true;
+      };
       # Automation scripts not meant for manual invocation live under
       # ~/.local/bin/ai-tools/ (deployed by home-manager from the top-level
       # ai-tools/scripts/ source — see home.file below); only the Copilot hook
@@ -401,9 +421,9 @@ in {
       # Single source of truth for custom agent/skill definitions is the
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
       # Token-cost note: every registered skill's description is injected into
-      # every session's system prompt, so only ai-tools/skills/ (core) is
-      # surfaced. Stack-specific skills live in ai-tools/skills-stack/ and are
-      # linked into individual projects with `task skills:enable` instead.
+      # every session's system prompt, so ai-tools/skills/ is kept to the set
+      # that earns that cost. A project needing a stack-specific skill puts it
+      # in its own <project>/.claude/skills/, where it loads only there.
       #
       # Claude deliberately does NOT get personal claude/skills or claude/agents
       # dirs: it already loads the same ai-tools content via the nix-config-tools
@@ -1066,6 +1086,14 @@ in {
         core = {
           editor = "vim";
           pager = "delta";
+          # Global hook directory (see xdg.configFile."git/hooks/commit-msg"
+          # below). Applies the agent-attribution stripper to every repo without
+          # committing anything to those repos -- needed where a project's own
+          # hooks cannot be modified. A repo that sets its own core.hooksPath
+          # (husky et al) overrides this -- nix-config included, which is why it
+          # ships .githooks/commit-msg as a shim back to the same script; a repo
+          # relying on plain .git/hooks does not run them while this is set.
+          hooksPath = "${xdgConfigHome}/git/hooks";
         };
         pull.rebase = false;
         # delta: syntax-highlighted diffs/pager. `delta` package added above.

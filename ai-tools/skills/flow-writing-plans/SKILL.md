@@ -19,6 +19,14 @@ designing the plan — this is where the strongest model earns its cost.
 
 **Context:** If working in an isolated worktree, it should have been created via the `nix-config-tools:git-worktrees` skill at execution time.
 
+**If the plan touches live infrastructure** — a deployment, a migration, a
+remote host, a cloud stack — read
+[ops-deploy-probes](../ops-deploy-probes/SKILL.md) first. It classifies the
+target environment and sets the verification budget the tasks below inherit:
+on a dev or non-production target, probe the live system to settle an
+assumption rather than stacking dry runs, and carry a Measured/Assumed ledger
+in the plan.
+
 **Save plans to:** `~/.cache/copilot/YYYY-MM-DD-<repository-or-ticket>-<feature-name>-plan.md`
 - (User preferences for plan location override this default)
 - Do not commit plans unless the user explicitly requested them as tracked repository deliverables.
