@@ -19,5 +19,16 @@
     # path awscli2's _aws takes. Bash and fish completions ship in the same
     # layout for anything that reads the profile's share dirs.
     pkgs.google-cloud-sdk
+
+    # Element, the Matrix client. Desktop GUI, so it is scoped here rather than
+    # to common.nix, which also feeds WSL and the headless hosts.
+    #
+    # Note the name: the ATTRIBUTE is element-desktop. On Arch/CachyOS the bare
+    # name `element` is a DIFFERENT program entirely -- Kushview Element, a
+    # modular audio plugin host from the pro-audio repo -- so `pacman -S
+    # element` installs the wrong thing (done accidentally on 2026-09-05). The
+    # distro package for this one is also called element-desktop. Keeping it in
+    # the flake rather than pacman avoids the collision for good.
+    pkgs.element-desktop
   ];
 }
