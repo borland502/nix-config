@@ -266,6 +266,27 @@ https://*) ;;
   ;;
 esac
 
+# The URL carries a `?rotate=<seconds>` parameter, and it is load-bearing: it is
+# what makes the panel cycle through the Overview dashboard's view tabs instead
+# of sitting on one. Rotation is implemented in Home Assistant, not here --
+# /config/www/kiosk-view-rotator.js, registered as a Lovelace `module` resource
+# -- because only code running inside the page can change view without
+# reloading the whole frontend, which over the Nabu Casa address is several
+# seconds of spinner per switch.
+#
+# The parameter is the opt-in. That resource loads for every browser that opens
+# any dashboard, so it does nothing at all unless the address asks for it; the
+# kiosk asks, phones and laptops do not. Two consequences worth knowing:
+#
+#   * Strip the parameter and the panel silently stops rotating. It keeps
+#     working, which is exactly why the failure is easy to miss.
+#   * The rotator lives in Home Assistant's config, which this repo does not
+#     manage. Restoring HA from a backup that predates it brings the panel back
+#     up static, with nothing here to indicate why.
+#
+# The view list is read from the server on every step, so tabs added or removed
+# in the UI are picked up without changing anything on this host.
+
 # 0640 root:kiosk: readable by the panel account and root, nobody else.
 #
 # Note what this does NOT protect: the launcher passes the URL as an argument to
@@ -400,6 +421,22 @@ while :; do
 	# box, and the panel already visible on the wall, that is judged acceptable
 	# -- but it is weaker than KRdp's PAM check, so do not copy this pattern to
 	# a host with untrusted local users.
+	# Re-read the URL on every iteration rather than trusting the one read at
+	# startup. A chezmoi apply that changes the panel URL -- adding ?rotate=,
+	# repointing the panel -- otherwise reaches /etc/kiosk/panel-url without
+	# reaching the browser, because this loop would keep re-launching Firefox
+	# on the value it captured when the session began. The visible symptom is a
+	# URL change that "did not apply" until someone rebooted the machine.
+	#
+	# A failed or empty re-read keeps the previous value instead of aborting:
+	# an unreadable file mid-session should not take the wall panel down when
+	# there is a perfectly good URL already in hand.
+	if new_url=$(cat "$URL_FILE" 2>/dev/null) && [ -n "$new_url" ]; then
+		url=$new_url
+	else
+		log "could not re-read $URL_FILE — keeping the URL from startup"
+	fi
+
 	export KIOSK_URL="$url" KIOSK_PROFILE="$PROFILE" KIOSK_STATE=/var/lib/kiosk
 
 	# shellcheck disable=SC2086,SC2016 # SC2086: deliberate word-split argument
