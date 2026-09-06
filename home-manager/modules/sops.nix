@@ -57,6 +57,21 @@ in {
         path = "${config.home.homeDirectory}/.config/arr/prowlarr.key";
       };
 
+      # InfluxDB write token for the local telegraf agent
+      # (home-manager/modules/telegraf.nix). Stored already formatted as a
+      # systemd EnvironmentFile line -- `INFLUX_TOKEN=...` -- so the unit points
+      # straight at this path. The token must never reach telegraf.conf itself:
+      # that file is rendered into the world-readable Nix store, while this
+      # materializes at 0400 under $HOME.
+      #
+      # Scope is write-only on the `telegraf` bucket of org `proxmox`; it is NOT
+      # the all-access token Proxmox uses for its own metric export, so the two
+      # rotate independently.
+      "telegraf/influx_env" = {
+        sopsFile = ../../secrets/telegraf.yaml;
+        path = "${config.home.homeDirectory}/.config/telegraf/influx.env";
+      };
+
       # Dedicated remoting key: the single credential for reaching these hosts
       # over ssh, and through an ssh tunnel for KRdp. It is not a general
       # identity — no service or forge auth uses it, so it can be rotated by

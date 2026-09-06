@@ -48,6 +48,7 @@ in {
     ./modules/rclone-mounts.nix # ~/gdrive + ~/caitsith + ~/alisaie FUSE mounts
     ./modules/vscode-profiles.nix # language profiles, shared with darwin
     ./modules/krdp-autostart.nix # remote desktop on by default (Plasma hosts)
+    ./modules/telegraf.nix # host metrics -> external InfluxDB (user service)
   ];
 
   home = {
