@@ -1,0 +1,20 @@
+# Standalone ignores for this project, so the folder behaves correctly when
+# opened on its own. The repo root .gitignore also covers these.
+
+# Dev virtualenv (uv sync) — the Nix build never uses it
+.venv/
+uv.lock
+
+# Build output
+dist/
+build/
+result
+result-*
+*.egg-info/
+
+# Caches
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/

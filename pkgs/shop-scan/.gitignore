@@ -1,0 +1,15 @@
+# Standalone ignores for this project, so the folder behaves correctly when
+# opened on its own. The repo root .gitignore also covers these.
+
+# Dependencies — reproducible from the tracked bun.lock
+node_modules/
+
+# Build output
+dist/
+result
+result-*
+*.tsbuildinfo
+
+# Playwright state
+.playwright/
+.playwright-cli/

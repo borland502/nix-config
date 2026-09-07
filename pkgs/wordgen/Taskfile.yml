@@ -1,0 +1,132 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+# Standalone taskfile for wordgen.
+#
+# Works on its own when pkgs/wordgen is opened directly in an editor, and is
+# also pulled into the repo root taskfile as the `wordgen:` namespace. Nix
+# targets resolve the flake through git, so they work from either entry point.
+
+vars:
+  BINARY: wordgen
+  REPO_ROOT:
+    sh: git rev-parse --show-toplevel
+
+tasks:
+  default:
+    desc: Format check, vet, and test
+    cmds:
+      - task: check
+
+  fmt:
+    desc: Format Go sources
+    cmds:
+      - go fmt ./...
+
+  fmt-check:
+    desc: Fail if any file is unformatted
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "unformatted files:" >&2
+          echo "$unformatted" >&2
+          exit 1
+        fi
+        echo "gofmt OK"
+
+  tidy:
+    desc: Tidy go.mod / go.sum
+    cmds:
+      - go mod tidy
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: Run the test suite
+    cmds:
+      - go test ./...
+
+  check:
+    desc: fmt-check + vet + test
+    cmds:
+      - task: fmt-check
+      - task: vet
+      - task: test
+
+  build:
+    desc: Build a local binary into dist/
+    cmds:
+      - mkdir -p dist
+      - go build -o dist/{{.BINARY}} .
+
+  run:
+    desc: "Run from source: task run -- <args>"
+    cmds:
+      - go run . {{.CLI_ARGS}}
+
+  nix:build:
+    desc: Build through the flake (what CI and home-manager use)
+    cmds:
+      - nix build {{.REPO_ROOT}}#{{.BINARY}}
+
+  nix:run:
+    desc: "Run the Nix-built binary: task nix:run -- <args>"
+    cmds:
+      - nix run {{.REPO_ROOT}}#{{.BINARY}} -- {{.CLI_ARGS}}
+
+  deploy:
+    desc: Build and install the binary plus a config (INSTALL_DIR / CONFIG_PATH override)
+    env:
+      INSTALL_DIR: "{{.INSTALL_DIR}}"
+      CONFIG_PATH: "{{.CONFIG_PATH}}"
+    cmds:
+      - |
+        set -eu
+        INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+        CONFIG_PATH="${CONFIG_PATH:-$HOME/.config/{{.BINARY}}/config.toml}"
+
+        mkdir -p "$INSTALL_DIR"
+        go build -o "$INSTALL_DIR/{{.BINARY}}" .
+        echo "installed $INSTALL_DIR/{{.BINARY}}"
+
+        mkdir -p "$(dirname "$CONFIG_PATH")"
+        if [ ! -e "$CONFIG_PATH" ]; then
+          cp configs/{{.BINARY}}.toml "$CONFIG_PATH"
+          # Marker records that *we* created this config, so undeploy may remove
+          # it. A config the user already had carries no marker and must survive
+          # undeploy untouched.
+          : > "$CONFIG_PATH.task-managed"
+          echo "created $CONFIG_PATH"
+        else
+          echo "kept existing $CONFIG_PATH"
+        fi
+
+  undeploy:
+    desc: Remove the installed binary, and the config only if deploy created it
+    env:
+      INSTALL_DIR: "{{.INSTALL_DIR}}"
+      CONFIG_PATH: "{{.CONFIG_PATH}}"
+    cmds:
+      - |
+        set -eu
+        INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+        CONFIG_PATH="${CONFIG_PATH:-$HOME/.config/{{.BINARY}}/config.toml}"
+
+        rm -f "$INSTALL_DIR/{{.BINARY}}"
+        echo "removed $INSTALL_DIR/{{.BINARY}}"
+
+        if [ -e "$CONFIG_PATH.task-managed" ]; then
+          rm -f "$CONFIG_PATH" "$CONFIG_PATH.task-managed"
+          echo "removed generated $CONFIG_PATH"
+        else
+          echo "preserved user-owned $CONFIG_PATH"
+        fi
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf dist result

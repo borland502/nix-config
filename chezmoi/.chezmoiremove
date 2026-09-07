@@ -9,3 +9,12 @@
 .local/bin/compress-old-cache
 .local/bin/claude-cache-stats
 .local/bin/aws-mcp-server
+
+# These three now ship from the flake (pkgs/, via localPackagesOverlay) instead
+# of ~/.local/bin. That directory precedes ~/.nix-profile/bin on PATH, so a
+# leftover copy would silently shadow the Nix one forever — technitium-dash was
+# deployed here by chezmoi, wordgen and gopwgen by their old `task deploy`.
+# Removing an absent path is a no-op, so this is safe on hosts that never had them.
+.local/bin/technitium-dash
+.local/bin/wordgen
+.local/bin/gopwgen

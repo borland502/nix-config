@@ -1,0 +1,34 @@
+# Starter configuration for gopwgen password generation.
+#
+# Preferred XDG layout:
+#   Linux:   $XDG_CONFIG_HOME/gopwgen/config.toml or ~/.config/gopwgen/config.toml
+#   macOS:   ~/Library/Application Support/gopwgen/config.toml
+#   Windows: %LOCALAPPDATA%\gopwgen\config.toml
+#
+# Generate the default file automatically with:
+#   gopwgen init-config
+#
+# Generate secure passphrases with:
+#   gopwgen password
+#   gopwgen password --word-count 6 --separator "_"
+#
+# You can also pass this file explicitly with:
+#   gopwgen password --config ./configs/gopwgen.toml
+
+[password]
+# Number of words in the passphrase (default: 5 words like Word-Word-Word-Word-Word)
+word_count = 5
+# Maximum character length per word (default: 12 characters)
+max_word_length = 12
+# Separator between words (default: -)
+separator = "-"
+# Case formatting: traincase, camelcase, lower, upper, title, none
+case_format = "traincase"
+# Append digits and special characters for common password requirements
+append_requirements = true
+require_uppercase = true
+require_lowercase = true
+require_numbers = true
+require_special = true
+# Built-in wordgen dataset with filtered words
+wordgen_dataset = "embedded://all.json.zst"

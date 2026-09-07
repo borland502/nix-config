@@ -1,0 +1,74 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+# Standalone taskfile for shop-scan.
+#
+# Works on its own when pkgs/shop-scan is opened directly in an editor, and is
+# also pulled into the repo root taskfile as the `shop-scan:` namespace. Nix
+# targets resolve the flake through git, so they work from either entry point.
+
+vars:
+  BINARY: shop-scan
+  REPO_ROOT:
+    sh: git rev-parse --show-toplevel
+
+tasks:
+  default:
+    desc: Typecheck
+    cmds:
+      - task: check
+
+  install:
+    desc: Install dependencies from bun.lock
+    cmds:
+      - bun install --frozen-lockfile
+
+  typecheck:
+    desc: tsc --noEmit (strict, noUncheckedIndexedAccess)
+    cmds:
+      - bun run typecheck
+
+  check:
+    desc: Alias for typecheck
+    cmds:
+      - task: typecheck
+
+  dev:
+    desc: "Run from source with watch: task dev -- <args>"
+    cmds:
+      - bun --watch src/shop-scan.ts {{.CLI_ARGS}}
+
+  run:
+    desc: "Run from source: task run -- search amazon 'N305 mini pc'"
+    cmds:
+      - bun run src/shop-scan.ts {{.CLI_ARGS}}
+
+  build:
+    desc: Compile a local binary into dist/
+    cmds:
+      - bun run build
+
+  relock:
+    desc: Re-resolve dependencies after editing package.json
+    cmds:
+      - bun install
+      - |
+        echo "bun.lock updated — now refresh the Nix hash:"
+        echo "  1. set outputHash = lib.fakeHash in default.nix"
+        echo "  2. nix build {{.REPO_ROOT}}#{{.BINARY}}"
+        echo "  3. paste the printed 'got:' hash back into default.nix"
+
+  nix:build:
+    desc: Build through the flake (what CI and home-manager use)
+    cmds:
+      - nix build {{.REPO_ROOT}}#{{.BINARY}}
+
+  nix:run:
+    desc: "Run the Nix-built binary: task nix:run -- <args>"
+    cmds:
+      - nix run {{.REPO_ROOT}}#{{.BINARY}} -- {{.CLI_ARGS}}
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf dist result node_modules
