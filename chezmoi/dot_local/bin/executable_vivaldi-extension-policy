@@ -80,16 +80,16 @@ EOF
 
 check_only=0
 case "${1:-}" in
-	--check) check_only=1 ;;
-	-h | --help)
-		usage
-		exit 0
-		;;
-	"") ;;
-	*)
-		usage >&2
-		exit 2
-		;;
+--check) check_only=1 ;;
+-h | --help)
+	usage
+	exit 0
+	;;
+"") ;;
+*)
+	usage >&2
+	exit 2
+	;;
 esac
 
 # Read the live values. `defaults read` exits non-zero when the key is absent,
