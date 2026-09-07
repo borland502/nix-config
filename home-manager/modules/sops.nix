@@ -57,21 +57,19 @@ in {
         path = "${config.home.homeDirectory}/.config/arr/prowlarr.key";
       };
 
-      # Home Assistant long-lived access token, minted specifically for this
-      # repo's automation rather than reused from the vault entry — so it can be
-      # revoked in the HA UI (Profile -> Long-lived access tokens, "sops-nix-config")
-      # without disturbing any interactive login. Grants full API access, which is
-      # what makes the device registry readable for LAN host identification.
-      "hassio/token" = {
-        sopsFile = ../../secrets/hassio.yaml;
-        path = "${config.home.homeDirectory}/.config/hassio/token";
-      };
-
-      # Base URL kept beside the token so consumers need no hardcoded address.
-      # This is the LAN address, not the nabu.casa remote URL.
-      "hassio/url" = {
-        sopsFile = ../../secrets/hassio.yaml;
-        path = "${config.home.homeDirectory}/.config/hassio/url";
+      # InfluxDB write token for the local telegraf agent
+      # (home-manager/modules/telegraf.nix). Stored already formatted as a
+      # systemd EnvironmentFile line -- `INFLUX_TOKEN=...` -- so the unit points
+      # straight at this path. The token must never reach telegraf.conf itself:
+      # that file is rendered into the world-readable Nix store, while this
+      # materializes at 0400 under $HOME.
+      #
+      # Scope is write-only on the `telegraf` bucket of org `proxmox`; it is NOT
+      # the all-access token Proxmox uses for its own metric export, so the two
+      # rotate independently.
+      "telegraf/influx_env" = {
+        sopsFile = ../../secrets/telegraf.yaml;
+        path = "${config.home.homeDirectory}/.config/telegraf/influx.env";
       };
 
       # Dedicated remoting key: the single credential for reaching these hosts
