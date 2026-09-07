@@ -530,7 +530,7 @@ task fmt:md fmt:sh fmt:py fmt:toml
 task lint             # every linter below
 task lint:nix         # statix + deadnix + check:copilot-instructions / agent-instructions /
                       #   instruction-size / model-agnostic  (this is the pre-commit chain)
-task lint:md          # markdownlint-cli2, 120-char lines
+task lint:md          # markdownlint-cli2 (see .markdownlint.json; MD013 off)
 task lint:sh          # shellcheck + shfmt -d
 task lint:py          # ruff check
 task lint:yaml        # yamllint

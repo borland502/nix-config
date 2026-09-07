@@ -48,7 +48,7 @@ tasks:
   fmt:md:
     desc: Auto-fix markdown files (skips ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 --fix "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
+    cmd: markdownlint-cli2 --fix "**/*.md" "#**/node_modules" "#**/.venv" "#result" "#result-*" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
 
   fmt:sh:
     desc: Format shell scripts in place (shfmt -w -i 0, skips ai-tools/ and secrets/)
