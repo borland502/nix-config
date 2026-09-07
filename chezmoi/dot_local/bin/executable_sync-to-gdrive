@@ -486,7 +486,9 @@ keep_patterns=(
 # from deletion, junk is included (+) so `rclone delete` removes exactly those.
 sync_filter="$(mktemp -t rclone-gdrive-sync.XXXXXX)"
 purge_filter="$(mktemp -t rclone-gdrive-purge.XXXXXX)"
-trap 'rm -f "$sync_filter" "$purge_filter"' EXIT
+scan_errors="$(mktemp -t rclone-gdrive-scan.XXXXXX)"
+dangling_filter="$(mktemp -t rclone-gdrive-dangling.XXXXXX)"
+trap 'rm -f "$sync_filter" "$purge_filter" "$scan_errors" "$dangling_filter"' EXIT
 for p in "${keep_patterns[@]}"; do
 	print -r -- "+ $p" >>"$sync_filter"
 	print -r -- "- $p" >>"$purge_filter"
@@ -524,6 +526,41 @@ else
 	mode="BACKUP (local -> gdrive)"
 	sync_src="$src_root"
 	sync_dst="$remote_base"
+fi
+
+# ── Dangling symlinks ─────────────────────────────────────────────────────────
+# -L makes rclone stat every link target, so ONE broken link aborts the whole
+# transfer with exit 6 and nothing is backed up. On 2026-09-07 two orphaned
+# sops-nix links (.config/hassio/{token,url}, pointing at secrets no longer in
+# the config) failed every run for a day; the junk filter already carries
+# hand-listed Electron lock symlinks for the same reason.
+#
+# Rather than re-deriving the filter here with find(1) — which would drift from
+# junk_patterns and trip over the ~6k dangling links under flatpak/Steam that
+# the filter already drops — ask rclone which links break *under the real
+# filter*, then exclude exactly those. Self-maintaining: it always matches the
+# filter in force.
+#
+# Backup direction only: on restore the source is the remote, which has no
+# symlinks to stat.
+if ((!allow_local_delete)); then
+	rclone lsf "$src_root" -R -L --filter-from "$sync_filter" \
+		--max-size "$max_size" --ignore-errors >/dev/null 2>"$scan_errors" || true
+
+	dangling=("${(@f)$(sed -n 's|^.*ERROR *: \(.*\): Listing error: symlink: stat .*$|\1|p' "$scan_errors" | sort -u)}")
+	dangling=("${dangling[@]:#}")
+
+	if [[ ${#dangling[@]} -gt 0 ]]; then
+		print -u2 -- "sync-to-gdrive: skipping ${#dangling[@]} dangling symlink(s):"
+		for p in "${dangling[@]}"; do
+			print -u2 -- "    $p"
+			# Prepended below: filters are first-match-wins, so an exclude placed
+			# after "+ /.config/**" would never be reached.
+			print -r -- "- /$p" >>"$dangling_filter"
+		done
+		cat "$sync_filter" >>"$dangling_filter"
+		mv "$dangling_filter" "$sync_filter"
+	fi
 fi
 
 print "sync-to-gdrive: ${mode}$( ((dry_run)) && print -n '  [dry-run]')"
