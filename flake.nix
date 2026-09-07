@@ -98,7 +98,17 @@
       # URL (e.g. Slack sign-in via the KDE OpenURI portal) open nothing.
       vivaldi = unstable.vivaldi.override {proprietaryCodecs = true;};
     };
-    nixpkgsOverlayModule = {nixpkgs.overlays = [unstableOverlay];};
+    # Tools built from this repo (see pkgs/). Exposed through an overlay so any
+    # home-manager or NixOS module can list them in `packages` like any other
+    # package, without threading `self` through extraSpecialArgs.
+    localPackagesOverlay = final: _prev: import ./pkgs final;
+    nixpkgsOverlayModule = {nixpkgs.overlays = [unstableOverlay localPackagesOverlay];};
+    # home-manager runs with useGlobalPkgs = false, so it instantiates its own
+    # nixpkgs and does NOT inherit `nixpkgs.overlays` from the system module.
+    # Anything home.packages references by bare name has to come through this
+    # module instead, added to every sharedModules list below. Without it the
+    # NixOS configs fail to evaluate with "undefined variable 'gopwgen'".
+    hmOverlayModule = {nixpkgs.overlays = [unstableOverlay localPackagesOverlay];};
     systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin"];
     linuxSystems = ["x86_64-linux" "aarch64-linux"];
     forAllSystems = nixpkgs.lib.genAttrs systems;
@@ -156,6 +166,7 @@
           useUserPackages = true;
           backupFileExtension = ".bak0809-1320";
           sharedModules = [
+            hmOverlayModule
             stylix.homeModules.stylix
             sops-nix.homeManagerModules.sops
           ];
@@ -175,7 +186,7 @@
           allowUnfree = true;
           allowUnfreePredicate = _: true;
         };
-        overlays = [unstableOverlay];
+        overlays = [unstableOverlay localPackagesOverlay];
       };
     repoDevShellFor = pkgs:
       pkgs.mkShell {
@@ -233,6 +244,7 @@
               useUserPackages = true;
               backupFileExtension = ".bak0809-1320";
               sharedModules = [
+                hmOverlayModule
                 # Import the plasma-manager module
                 plasma-manager.homeModules.plasma-manager
                 stylix.homeModules.stylix
@@ -275,6 +287,7 @@
               useUserPackages = true;
               backupFileExtension = ".bak0809-1320";
               sharedModules = [
+                hmOverlayModule
                 stylix.homeModules.stylix
                 sops-nix.homeManagerModules.sops
               ];
@@ -342,6 +355,9 @@
       "vscode@devcontainer" = devcontainerConfigs."x86_64-linux";
       "vscode@devcontainer-aarch64" = devcontainerConfigs."aarch64-linux";
     };
+
+    # Tools built from this repo — see pkgs/default.nix for the registry.
+    packages = forAllSystems (system: import ./pkgs (pkgsFor system));
 
     apps = forAllSystems (system: {
       home-manager = {

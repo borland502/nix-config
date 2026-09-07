@@ -40,3 +40,64 @@ result-dist
 **/pip-wheel-metadata/*
 **/wheelhouse/*
 **/site-packages/*
+
+# ---------------------------------------------------------------- JS / TS ---
+# Deps are pinned by bun.lock / package-lock.json, which ARE tracked;
+# node_modules is reproducible from them.
+node_modules/
+.npm/
+.yarn/
+.pnp.*
+*.tsbuildinfo
+bun-debug.log*
+npm-debug.log*
+yarn-error.log*
+.turbo/
+.next/
+.parcel-cache/
+
+# Playwright state (snapshots, console logs, traces, reports).
+.playwright/
+.playwright-cli/
+playwright-report/
+test-results/
+blob-report/
+
+# -------------------------------------------------------------------- Go ---
+# Compiled output and test binaries. `vendor/` is ignored because this repo
+# pins Go deps through Nix `vendorHash`, not a checked-in vendor tree.
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+go.work
+go.work.sum
+
+# ------------------------------------------------------------------ Nix ---
+result-*
+.direnv/
+.envrc.local
+
+# --------------------------------------------------------------- editors ---
+*.swp
+*.swo
+*~
+.\#*
+\#*\#
+.zed/
+.nvim.lua
+.helix/
+*.code-workspace
+
+# ------------------------------------------------------------------- OS ---
+Thumbs.db
+ehthumbs.db
+desktop.ini
+._*
+.Spotlight-V100
+.Trashes
+$RECYCLE.BIN/

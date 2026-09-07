@@ -1,0 +1,103 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+# Standalone taskfile for technitium-dash.
+#
+# Works on its own when pkgs/technitium-dash is opened directly in an editor,
+# and is also pulled into the repo root taskfile as the `technitium-dash:`
+# namespace. Nix builds the shipped artifact; uv drives the local dev loop.
+
+vars:
+  BINARY: technitium-dash
+  REPO_ROOT:
+    sh: git rev-parse --show-toplevel
+
+tasks:
+  default:
+    desc: Lint and typecheck
+    cmds:
+      - task: check
+
+  sync:
+    desc: Create/refresh the local dev virtualenv from pyproject.toml
+    cmds:
+      - uv sync
+
+  lint:
+    desc: Run ruff
+    cmds:
+      - ruff check src
+
+  fmt:
+    desc: Format with ruff
+    cmds:
+      - ruff format src
+
+  fmt-check:
+    desc: Fail if any file is unformatted
+    cmds:
+      - ruff format --check src
+
+  typecheck:
+    desc: Run mypy in strict mode
+    cmds:
+      - uv run mypy src
+
+  check:
+    desc: lint + fmt-check + typecheck
+    cmds:
+      - task: lint
+      - task: fmt-check
+      - task: typecheck
+
+  run:
+    desc: "Run from source: task run -- --once"
+    cmds:
+      - uv run python -m technitium_dash {{.CLI_ARGS}}
+
+  nix:build:
+    desc: Build through the flake (what CI and home-manager use)
+    cmds:
+      - nix build {{.REPO_ROOT}}#{{.BINARY}}
+
+  nix:run:
+    desc: "Run the Nix-built binary: task nix:run -- --once"
+    cmds:
+      - nix run {{.REPO_ROOT}}#{{.BINARY}} -- {{.CLI_ARGS}}
+
+  build:pyz:
+    desc: Build a single-file executable zipapp (dist/technitium-dash.pyz)
+    cmds:
+      - |
+        set -eu
+        out="dist/technitium-dash.pyz"
+        stage="$(mktemp -d)"
+        trap 'rm -rf "$stage"' EXIT
+        mkdir -p dist
+
+        # Runtime dependencies only — the dev group (mypy/ruff) carries compiled
+        # extensions and must never enter the artifact.
+        uv pip install --quiet --target "$stage" --no-cache .
+
+        # zipapp portability rests on every runtime dep being pure Python
+        # (py3-none-any). Assert it rather than trusting it: one compiled wheel
+        # would silently pin the artifact to this machine's arch.
+        if find "$stage" -name '*.so' -o -name '*.pyd' | grep -q .; then
+          echo "refusing to build: a compiled extension entered the runtime tree" >&2
+          find "$stage" \( -name '*.so' -o -name '*.pyd' \) >&2
+          exit 1
+        fi
+
+        rm -rf "$stage/bin" "$stage"/*.dist-info
+        python3 -m zipapp "$stage" \
+          -m "technitium_dash.cli:main" \
+          -p "/usr/bin/env python3" \
+          -c \
+          -o "$out"
+        chmod +x "$out"
+        echo "built $out ($(command du -h "$out" | cut -f1)) — runs on any Python >=3.11, any arch"
+
+  clean:
+    desc: Remove build output and the dev venv
+    cmds:
+      - rm -rf .venv result dist src/*.egg-info

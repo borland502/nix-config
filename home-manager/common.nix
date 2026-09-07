@@ -159,6 +159,21 @@
     # etherwake.
     wakeonlan
 
+    # Tools built from this repo (pkgs/), delivered through the
+    # localPackagesOverlay in flake.nix. These replace the hand-installed copies
+    # that used to live in ~/.local/bin via chezmoi or `task deploy`.
+    #
+    # Two of the four packages are deliberately absent from every profile:
+    #   * technitium-dash is host-gated to ellone, the DNS wall panel. ellone is
+    #     not a flake or chezmoi host (aarch64 Debian, no Nix), so there is no
+    #     module to gate it in — it ships as a zipapp via `task deploy:ellone:dash`
+    #     and belongs on no other machine.
+    #   * shop-scan is a ~100 MB bun binary that drives a browser, wanted rarely.
+    # Both stay registered in pkgs/default.nix, so `nix run .#<tool>` still works
+    # anywhere without putting them in the profile.
+    gopwgen
+    wordgen
+
     # Build tools
     gcc
     pkg-config

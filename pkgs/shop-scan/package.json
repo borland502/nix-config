@@ -1,0 +1,23 @@
+{
+  "name": "shop-scan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Human-paced price comparison across public storefront listings",
+  "bin": {
+    "shop-scan": "./src/shop-scan.ts"
+  },
+  "scripts": {
+    "start": "bun run src/shop-scan.ts",
+    "dev": "bun --watch src/shop-scan.ts",
+    "build": "bun build --compile src/shop-scan.ts --outfile dist/shop-scan",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  }
+}

@@ -1,0 +1,17 @@
+# Standalone ignores for this project, so the folder behaves correctly when
+# opened on its own. The repo root .gitignore also covers these.
+
+# Build output
+dist/
+result
+result-*
+
+# Go artefacts
+*.exe
+*.test
+*.out
+vendor/
+
+# Coverage
+coverage.out
+coverage.html

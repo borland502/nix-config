@@ -1,0 +1,62 @@
+# Word generation configuration for wordgen.
+#
+# Preferred XDG layout:
+#   Linux:   $XDG_CONFIG_HOME/wordgen/config.toml or ~/.config/wordgen/config.toml
+#   macOS:   ~/Library/Application Support/wordgen/config.toml
+#   Windows: %LOCALAPPDATA%\wordgen\config.toml
+#
+# Generate the default file automatically with:
+#   wordgen init-config
+#
+# You can also pass this file explicitly with:
+#   wordgen generate --config ./configs/wordgen.toml
+#
+# The [generate] section configures the CLI.
+# The [[sources]] entries below are the source-of-truth for rebuilding assets/all.json, assets/all.json.gz, and assets/all.json.zst.
+
+[generate]
+dataset = "embedded://all.json.zst"
+count = 5
+min_length = 4
+max_length = 10
+prefix = ""
+contains = ""
+sources = []
+seed = 0
+
+[[sources]]
+url = "https://people.sc.fsu.edu/~jburkardt/datasets/words/words.html"
+files = [
+    "fsu/anagram_dictionary.txt",
+    "fsu/basic_english_2000.txt",
+    "fsu/basic_english_850.txt",
+    "fsu/doublet_words.txt",
+    "fsu/gettysburg.txt",
+    "fsu/globish.txt",
+    "fsu/knuth_5.txt",
+    "fsu/knuth_words.txt",
+    "fsu/lorem_ipsum.txt",
+    "fsu/sgb_words.txt",
+    "fsu/simplified_english.txt",
+    "fsu/sowpods.txt",
+    "fsu/special_english.txt",
+    "fsu/unique_grams.txt",
+    "fsu/wordle.txt",
+    "fsu/wordlist.txt",
+    "fsu/wordlist_fives.txt",
+    "fsu/wordlist_threes.txt",
+]
+
+[[sources]]
+url = "https://apiacoa.org/publications/teaching/datasets/google-10000-english.txt"
+files = ["apiacoa/google-10000-english.txt"]
+
+[[sources]]
+url = "https://github.com/dwyl/english-words/tree/master"
+files = [
+    "dwyl/uk-us-dict.txt",
+    "dwyl/word_list_moby_README.txt",
+    "dwyl/word_list_moby_credits.txt",
+    "dwyl/words.txt",
+    "dwyl/words_alpha.txt",
+]

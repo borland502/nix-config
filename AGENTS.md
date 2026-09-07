@@ -59,5 +59,5 @@ workflows through `task` — do not hand-assemble `nixos-rebuild` /
 - For build/switch failures use the ops-nix-pitfalls skill; for chezmoi
   behavior the ops-chezmoi skill; token-cost levers are documented in
   `docs/agent-token-cost-levers.md`.
-- Markdown is linted (`task lint:md`, 120-char lines via `.markdownlint.yaml`
-  where it applies); YAML via `yamllint`.
+- Markdown is linted (`task lint:md`); config is `.markdownlint.json` — note
+  MD013 is off, so there is no line-length limit. YAML via `yamllint`.
