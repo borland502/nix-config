@@ -1,6 +1,33 @@
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: '3'
 
+includes:
+  # Quality gates split out of this file — flattened so task names are unchanged
+  # (`task lint:nix`, `task fmt:all`, ...).
+  quality:
+    taskfile: ./taskfiles/quality.yml
+    flatten: true
+
+  # Deployment to non-Nix hosts in the personal inventory (`task deploy:ellone`).
+  deploy:
+    taskfile: ./taskfiles/deploy.yml
+
+  # Tools built from this repo. Each owns a standalone Taskfile that also works
+  # when its directory is opened on its own: `task gopwgen:check`, or
+  # `cd pkgs/gopwgen && task check`.
+  gopwgen:
+    taskfile: ./pkgs/gopwgen/Taskfile.yml
+    dir: ./pkgs/gopwgen
+  shop-scan:
+    taskfile: ./pkgs/shop-scan/Taskfile.yml
+    dir: ./pkgs/shop-scan
+  technitium-dash:
+    taskfile: ./pkgs/technitium-dash/Taskfile.yml
+    dir: ./pkgs/technitium-dash
+  wordgen:
+    taskfile: ./pkgs/wordgen/Taskfile.yml
+    dir: ./pkgs/wordgen
+
 vars:
   IS_WINDOWS: '{{eq OS "windows"}}'
   IS_LINUX: '{{eq OS "linux"}}'
@@ -416,220 +443,6 @@ tasks:
     cmd: git config core.hooksPath .githooks
 
   # Development
-  check:
-    desc: Check flake for errors
-    platforms: [linux, darwin]
-    cmd: '{{.NIX_CONFIG_PREFIX}}nix flake check "path:$PWD"'
-
-  fmt:
-    desc: Format nix files (skips secrets/)
-    platforms: [linux, darwin]
-    # secrets/ is excluded from every formatter and linter in this file: those
-    # files are SOPS output, so the extension never describes the contents —
-    # sops emits JSON for some .toml/.yaml inputs. Formatting ciphertext
-    # rewrites the file and invalidates its MAC. Keep the exclusion on every
-    # fmt:*/lint:* task even where the directory holds no file of that type
-    # today; a future encrypted secrets/*.sh or *.py must not break the chain.
-    #
-    # The file list comes from fd because alejandra's own --exclude only matches
-    # exact file paths, not directories (verified on 4.0.0) — passing it
-    # `--exclude secrets` silently formats the directory anyway.
-    #
-    # The empty-list guard is load-bearing: alejandra reads stdin when given no
-    # file arguments, so a missing fd (CI runs a minimal `nix shell`) turned
-    # into "unexpected end of file" on an anonymous stdin file rather than
-    # anything pointing at fd. Fail loudly instead.
-    cmd: |
-      files=$(fd -e nix . --exclude secrets)
-      [ -n "$files" ] || { printf 'fmt: no .nix files found — is fd installed?\n' >&2; exit 1; }
-      alejandra $files
-
-  fmt:check:
-    desc: Check nix file formatting (skips secrets/)
-    platforms: [linux, darwin]
-    # See fmt: for why the list comes from fd and why the guard is required.
-    cmd: |
-      files=$(fd -e nix . --exclude secrets)
-      [ -n "$files" ] || { printf 'fmt:check: no .nix files found — is fd installed?\n' >&2; exit 1; }
-      alejandra --check $files
-
-  fmt:md:
-    desc: Auto-fix markdown files (skips ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
-    platforms: [linux, darwin]
-    cmd: markdownlint-cli2 --fix "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
-
-  fmt:sh:
-    desc: Format shell scripts in place (shfmt -w -i 0, skips ai-tools/ and secrets/)
-    platforms: [linux, darwin]
-    # -i 0 (tab indent, shfmt's default) is passed explicitly to match CI. shfmt
-    # otherwise walks parent directories for an .editorconfig; this repo has
-    # none, so a local run picks up ~/.editorconfig and reformats to 2 spaces
-    # while CI — a container with no home config — keeps tabs. Passing any
-    # formatting flag disables editorconfig lookup, making both identical.
-    cmd: |
-      shfmt -f . | awk '!/^ai-tools\// && !/^secrets\//' | while IFS= read -r f; do
-        shfmt -w -i 0 "$f"
-      done
-
-  fmt:py:
-    desc: Format Python files and apply ruff autofixes (skips ai-tools/ and secrets/)
-    platforms: [linux, darwin]
-    cmd: |
-      ruff format --exclude ai-tools,secrets .
-      ruff check --fix --exclude ai-tools,secrets .
-
-  fmt:toml:
-    desc: Format TOML files (taplo fmt, skips ai-tools/ and secrets/)
-    platforms: [linux, darwin]
-    # secrets/ is excluded deliberately: those .toml files are SOPS output, and
-    # some are emitted as JSON regardless of extension. Reformatting encrypted
-    # material rewrites the file and invalidates its MAC, so taplo must not see
-    # it. See lint:toml for the matching exclusion.
-    cmd: taplo fmt $(fd -e toml . --exclude ai-tools --exclude secrets)
-
-  fmt:all:
-    desc: Run every formatter (nix, markdown, shell, python, toml)
-    platforms: [linux, darwin]
-    cmds:
-      - task: fmt
-      - task: fmt:md
-      - task: fmt:sh
-      - task: fmt:py
-      - task: fmt:toml
-
-  lint:
-    desc: Run all linters
-    platforms: [linux, darwin]
-    cmds:
-      - task: lint:nix
-      - task: lint:md
-      - task: lint:sh
-      - task: lint:py
-      - task: lint:yaml
-      - task: lint:toml
-      - task: lint:secrets
-
-  lint:nix:
-    desc: Lint nix files (skips secrets/)
-    platforms: [linux, darwin]
-    cmd: |
-      statix check . -i secrets
-      deadnix --exclude secrets .
-      task check:copilot-instructions
-      task check:agent-instructions
-      task check:instruction-size
-      task check:model-agnostic
-      task check:secret-hygiene
-
-  check:secret-hygiene:
-    desc: Enforce that private detail stays encrypted — this repo is public
-    platforms: [linux, darwin]
-    cmd: bash scripts/check-secret-hygiene.sh
-
-  check:model-agnostic:
-    desc: Enforce model-tier aliases in ai-tools — no versioned Claude model IDs
-    platforms: [linux, darwin]
-    cmd: |
-      hits=$(rg -n 'claude-(opus|sonnet|haiku|fable|mythos)-[0-9]|claude-[0-9]|gpt-[0-9]' ai-tools/ || true)
-      if [ -n "$hits" ]; then
-        printf '%s\n' "$hits" >&2
-        printf 'Versioned model IDs found in ai-tools/. Skills and agents must stay model-agnostic:\n' >&2
-        printf 'speak in high/mid/low tiers (or Claude tier aliases in model: frontmatter) and resolve\n' >&2
-        printf 'via agent-reference.md § Model Tiers. Pins live only in chezmoi/dot_claude/settings.json\n' >&2
-        printf '(ANTHROPIC_DEFAULT_*_MODEL), common.nix (Copilot default), and that tier map.\n' >&2
-        exit 1
-      fi
-      echo 'model-agnostic OK: no versioned model IDs in ai-tools/'
-
-  lint:md:
-    desc: Lint markdown files (skips ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
-    platforms: [linux, darwin]
-    cmd: markdownlint-cli2 "**/*.md" "#node_modules" "#result" "#result-*" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
-
-  lint:sh:
-    desc: Lint and check formatting of shell scripts (skips ai-tools/ and secrets/)
-    platforms: [linux, darwin]
-    cmd: |
-      shellcheck $(fd -e sh . --exclude node_modules --exclude ai-tools --exclude secrets)
-      shfmt -f . | awk '!/^ai-tools\// && !/^secrets\//' | while IFS= read -r f; do
-        shfmt -d -i 0 "$f"
-      done
-
-  lint:py:
-    desc: Lint Python files (skips ai-tools/ and secrets/)
-    platforms: [linux, darwin]
-    cmd: ruff check --exclude ai-tools,secrets .
-
-  lint:yaml:
-    desc: Lint YAML files (skips secrets/ via .yamllint.yaml)
-    platforms: [linux, darwin]
-    cmd: yamllint .
-
-  lint:toml:
-    desc: Lint TOML files (skips ai-tools/ and secrets/)
-    platforms: [linux, darwin]
-    # secrets/*.toml are SOPS-encrypted and not valid TOML — sops writes some of
-    # them as JSON whatever the extension — so taplo reports syntax errors on
-    # ciphertext. Nothing lintable lives there. Mirrors the fmt:toml exclusion.
-    cmd: taplo lint $(fd -e toml . --exclude ai-tools --exclude secrets)
-
-  lint:secrets:
-    desc: Scan repo history for committed secrets with gitleaks
-    platforms: [linux, darwin]
-    cmd: gitleaks git --redact --no-banner --verbose
-
-  check:copilot-instructions:
-    desc: Verify duplicated Copilot instruction files stay in sync
-    cmd: bash ./scripts/check-copilot-instructions-sync.sh
-
-  check:instruction-size:
-    desc: Guard the per-turn agent instruction source against token bloat
-    platforms: [linux, darwin]
-    cmd: |
-      src="chezmoi/dot_config/instructions/agent-defaults.md"
-      max_lines=160
-      max_bytes=10000
-      lines=$(wc -l <"$src" | tr -d ' ')
-      bytes=$(wc -c <"$src" | tr -d ' ')
-      fail=0
-      if [ "$lines" -gt "$max_lines" ]; then
-        printf 'agent-defaults.md: %s lines exceeds budget %s\n' "$lines" "$max_lines" >&2
-        fail=1
-      fi
-      if [ "$bytes" -gt "$max_bytes" ]; then
-        printf 'agent-defaults.md: %s bytes exceeds budget %s\n' "$bytes" "$max_bytes" >&2
-        fail=1
-      fi
-      if [ "$fail" -ne 0 ]; then
-        printf '%s\n' "This file is rendered into every agent session's system prompt (the cached prefix); growth raises the per-turn token cost on every Claude AND Copilot session. Trim it, or raise the budget deliberately in taskfile.yaml." >&2
-        exit 1
-      fi
-      printf 'instruction size OK: %s lines / %s bytes (budget %s / %s)\n' "$lines" "$bytes" "$max_lines" "$max_bytes"
-
-  generate:agent-instructions:
-    desc: Render agent-defaults.md into chezmoi-managed files for Windows deployment
-    platforms: [linux, darwin]
-    cmd: bash scripts/render-agent-instructions.sh .
-
-  check:agent-instructions:
-    desc: Verify chezmoi agent instruction files match the rendered source
-    platforms: [linux, darwin]
-    cmd: |
-      tmp=$(mktemp -d)
-      trap 'rm -rf "$tmp"' EXIT
-      bash scripts/render-agent-instructions.sh "$tmp"
-
-      fail=0
-      diff -u "$tmp/chezmoi/dot_config/claude/CLAUDE.md" chezmoi/dot_config/claude/CLAUDE.md || fail=1
-      diff -u "$tmp/chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md" chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md || fail=1
-      diff -u "$tmp/chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" || fail=1
-      diff -u "$tmp/chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md" chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md || fail=1
-
-      if [ "$fail" -ne 0 ]; then
-        printf '%s\n' 'Stale chezmoi agent instructions. Run: task generate:agent-instructions' >&2
-        exit 1
-      fi
-
   agents:update:
     desc: Update the off-nixpkgs agent CLIs (Claude Code, Copilot CLI) to latest via their native installers
     platforms: [linux, darwin]

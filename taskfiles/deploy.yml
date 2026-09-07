@@ -1,0 +1,153 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+# Deployment to non-Nix hosts in the personal inventory.
+#
+# ellone is a Raspberry Pi (aarch64, Debian 13 trixie, root login) with NO Nix
+# installed, and this workstation has no aarch64 builder or binfmt — so Nix
+# closures cannot be produced for it here. Measured 2026-09-07:
+#
+#   uname -srm            -> Linux 6.18.39+rpt-rpi-v8 aarch64
+#   /etc/os-release       -> Debian GNU/Linux 13 (trixie)
+#   command -v nix        -> absent
+#   nix config show       -> system=x86_64-linux, no aarch64 in extra-platforms
+#   /etc/nix/machines     -> absent (no remote builder)
+#   python3 --version     -> 3.13.5
+#   uv / pipx / pip3      -> all absent
+#
+# So the deploy path is: cross-compile Go here (Go does that natively), and ship
+# the stdlib Python script as-is. Anything needing third-party Python packages
+# cannot be installed on that host today.
+
+vars:
+  ELLONE_HOST: ellone
+  ELLONE_BINDIR: /usr/local/bin
+  ELLONE_GOARCH: arm64
+  STAMP:
+    sh: date +%Y%m%d-%H%M%S
+
+tasks:
+  ellone:preflight:
+    desc: Probe ellone before deploying (read-only, no changes)
+    cmds:
+      - |
+        set -eu
+        echo "== reachability and identity =="
+        ssh -o BatchMode=yes -o ConnectTimeout=12 {{.ELLONE_HOST}} '
+          hostname
+          uname -srm
+          . /etc/os-release && echo "$PRETTY_NAME"
+          echo "bindir: $(test -d {{.ELLONE_BINDIR}} && echo present || echo MISSING)"
+          echo "writable: $(test -w {{.ELLONE_BINDIR}} && echo yes || echo NO)"
+          echo "python3: $(python3 --version 2>&1)"
+        '
+        echo
+        echo "== currently installed =="
+        ssh -o BatchMode=yes {{.ELLONE_HOST}} '
+          for b in wordgen gopwgen technitium-dash; do
+            p=$(command -v "$b" 2>/dev/null || echo -)
+            printf "  %-18s %s\n" "$b" "$p"
+          done
+        '
+
+  ellone:go:
+    desc: Cross-compile the Go tools for aarch64 and install them on ellone
+    cmds:
+      - task: _ellone:go:one
+        vars: {TOOL: gopwgen}
+      - task: _ellone:go:one
+        vars: {TOOL: wordgen}
+
+  _ellone:go:one:
+    internal: true
+    label: "deploy {{.TOOL}} -> ellone"
+    dir: "{{.ROOT_DIR}}/pkgs/{{.TOOL}}"
+    cmds:
+      - |
+        set -eu
+        out="$(mktemp -d)/{{.TOOL}}"
+        echo "== building {{.TOOL}} for linux/{{.ELLONE_GOARCH}} =="
+        CGO_ENABLED=0 GOOS=linux GOARCH={{.ELLONE_GOARCH}} \
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/borland502/{{.TOOL}}/internal/version.Version=$(git -C '{{.ROOT_DIR}}' describe --tags --always --dirty 2>/dev/null || echo dev) -X github.com/borland502/{{.TOOL}}/internal/version.Commit=$(git -C '{{.ROOT_DIR}}' rev-parse --short HEAD 2>/dev/null || echo unknown) -X github.com/borland502/{{.TOOL}}/internal/version.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "$out" .
+        file "$out" | sed 's/^/  /'
+
+        echo "== installing to {{.ELLONE_HOST}}:{{.ELLONE_BINDIR}}/{{.TOOL}} =="
+        # Land in a temp path and mv into place: a half-copied binary on PATH is
+        # worse than the old one, and mv within a filesystem is atomic.
+        scp -q "$out" {{.ELLONE_HOST}}:{{.ELLONE_BINDIR}}/.{{.TOOL}}.incoming
+        ssh {{.ELLONE_HOST}} '
+          set -eu
+          if [ -f {{.ELLONE_BINDIR}}/{{.TOOL}} ]; then
+            cp -a {{.ELLONE_BINDIR}}/{{.TOOL}} {{.ELLONE_BINDIR}}/{{.TOOL}}.bak-{{.STAMP}}
+          fi
+          chmod 0755 {{.ELLONE_BINDIR}}/.{{.TOOL}}.incoming
+          mv {{.ELLONE_BINDIR}}/.{{.TOOL}}.incoming {{.ELLONE_BINDIR}}/{{.TOOL}}
+        '
+        echo "== verifying on target =="
+        ssh {{.ELLONE_HOST}} '{{.ELLONE_BINDIR}}/{{.TOOL}} version' | sed 's/^/  /'
+
+  ellone:dash:
+    desc: Build the technitium-dash zipapp and install it on ellone
+    cmds:
+      - task: :technitium-dash:build:pyz
+      - |
+        set -eu
+        src='{{.ROOT_DIR}}/pkgs/technitium-dash/dist/technitium-dash.pyz'
+        test -f "$src"
+        echo "== installing $(command du -h "$src" | cut -f1) zipapp -> {{.ELLONE_HOST}}:{{.ELLONE_BINDIR}}/technitium-dash =="
+        # A zipapp, not a Nix closure: ellone is aarch64 with no Nix, and this
+        # workstation has no aarch64 builder. Every runtime dep is pure Python
+        # (py3-none-any), so one artifact runs on both architectures.
+        # Piped over ssh rather than scp because some targets in this inventory
+        # have no sftp-server.
+        ssh {{.ELLONE_HOST}} '
+          set -eu
+          if [ -f {{.ELLONE_BINDIR}}/technitium-dash ]; then
+            cp -a {{.ELLONE_BINDIR}}/technitium-dash {{.ELLONE_BINDIR}}/technitium-dash.bak-{{.STAMP}}
+          fi
+          cat > {{.ELLONE_BINDIR}}/.technitium-dash.incoming
+        ' < "$src"
+        ssh {{.ELLONE_HOST}} '
+          set -eu
+          chmod 0755 {{.ELLONE_BINDIR}}/.technitium-dash.incoming
+          # Prove the artifact runs on the target before it replaces a working
+          # panel; a bad zipapp must not reach the service.
+          {{.ELLONE_BINDIR}}/.technitium-dash.incoming --version >/dev/null
+          mv {{.ELLONE_BINDIR}}/.technitium-dash.incoming {{.ELLONE_BINDIR}}/technitium-dash
+        '
+        echo "== restarting the wall panel =="
+        ssh {{.ELLONE_HOST}} '
+          systemctl restart technitium-dash
+          sleep 2
+          systemctl is-active technitium-dash
+        '
+        echo "== installed version =="
+        ssh {{.ELLONE_HOST}} '{{.ELLONE_BINDIR}}/technitium-dash --version' | sed 's/^/  /'
+
+  ellone:
+    desc: Deploy every supported repo tool to ellone (preflight, then install)
+    cmds:
+      - task: ellone:preflight
+      - task: ellone:go
+      - task: ellone:dash
+      - |
+        echo
+        echo "deployed to {{.ELLONE_HOST}}. Rollback: each replaced file was copied to"
+        echo "  {{.ELLONE_BINDIR}}/<tool>.bak-{{.STAMP}}"
+
+  ellone:rollback:
+    desc: "Restore the most recent backup on ellone: task deploy:ellone:rollback -- <tool>"
+    cmds:
+      - |
+        set -eu
+        tool='{{.CLI_ARGS}}'
+        test -n "$tool" || { echo "usage: task deploy:ellone:rollback -- <tool>" >&2; exit 1; }
+        ssh {{.ELLONE_HOST}} "
+          set -eu
+          latest=\$(ls -1t {{.ELLONE_BINDIR}}/${tool}.bak-* 2>/dev/null | head -1)
+          test -n \"\$latest\" || { echo 'no backup found for ${tool}' >&2; exit 1; }
+          echo \"restoring \$latest\"
+          cp -a \"\$latest\" {{.ELLONE_BINDIR}}/${tool}
+        "
