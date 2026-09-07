@@ -144,16 +144,34 @@ in {
   #
   # Whole-file TOML secrets: sops-nix extracts individual keys, but these tools
   # expect a complete config.toml, so we decrypt the whole file via activation.
+  #
+  # Every decrypt below writes to a temp file and moves it into place, rather
+  # than redirecting sops' stdout at the destination. A plain `sops -d > dest`
+  # truncates dest BEFORE sops runs, so any decryption failure -- a corrupt
+  # ciphertext, a missing recipient, a bad key -- replaces a working config
+  # with an empty file. That is not hypothetical: a merge of secrets/hosts.toml
+  # on 2026-09-05 kept the branch's ciphertext with main's wrapped data key, and
+  # the file stopped decrypting; only the fact that nothing had re-activated
+  # since kept the deployed ssh inventory intact. Failing loudly and leaving the
+  # previous copy alone is strictly better, and matches what
+  # renderSshHostConfig below already does with its own output.
   home.activation = {
     decryptGkionConfig = lib.hm.dag.entryAfter ["writeBoundary"] ''
       _age_key="${config.home.homeDirectory}/.config/sops/age/keys.txt"
       if [ -f "$_age_key" ]; then
         ${pkgs.coreutils}/bin/mkdir -p "${config.home.homeDirectory}/.config/gkion"
-        SOPS_AGE_KEY_FILE="$_age_key" \
+        _dest="${config.home.homeDirectory}/.config/gkion/config.toml"
+        _tmp="$_dest.tmp"
+        if SOPS_AGE_KEY_FILE="$_age_key" \
           ${pkgs.sops}/bin/sops --decrypt \
           ${../../secrets/gkion.toml} \
-          > "${config.home.homeDirectory}/.config/gkion/config.toml"
-        ${pkgs.coreutils}/bin/chmod 600 "${config.home.homeDirectory}/.config/gkion/config.toml"
+          > "$_tmp"; then
+          ${pkgs.coreutils}/bin/chmod 600 "$_tmp"
+          ${pkgs.coreutils}/bin/mv "$_tmp" "$_dest"
+        else
+          ${pkgs.coreutils}/bin/rm -f "$_tmp"
+          echo "decryptGkionConfig: sops could not decrypt secrets/gkion.toml; kept the previous $_dest" >&2
+        fi
       fi
     '';
 
@@ -181,12 +199,19 @@ in {
       _age_key="${config.home.homeDirectory}/.config/sops/age/keys.txt"
       if [ -f "$_age_key" ]; then
         ${pkgs.coreutils}/bin/mkdir -p "${config.home.homeDirectory}/.config/ssh"
-        SOPS_AGE_KEY_FILE="$_age_key" \
+        _dest="${config.home.homeDirectory}/.config/ssh/hosts.toml"
+        _tmp="$_dest.tmp"
+        if SOPS_AGE_KEY_FILE="$_age_key" \
           ${pkgs.sops}/bin/sops --decrypt \
           --input-type binary --output-type binary \
           ${../../secrets/hosts.toml} \
-          > "${config.home.homeDirectory}/.config/ssh/hosts.toml"
-        ${pkgs.coreutils}/bin/chmod 600 "${config.home.homeDirectory}/.config/ssh/hosts.toml"
+          > "$_tmp"; then
+          ${pkgs.coreutils}/bin/chmod 600 "$_tmp"
+          ${pkgs.coreutils}/bin/mv "$_tmp" "$_dest"
+        else
+          ${pkgs.coreutils}/bin/rm -f "$_tmp"
+          echo "decryptSshHosts: sops could not decrypt secrets/hosts.toml; kept the previous $_dest" >&2
+        fi
       fi
     '';
 
@@ -206,7 +231,13 @@ in {
       _dir="${config.home.homeDirectory}/.ssh/config.d"
       if [ -r "$_hosts" ]; then
         ${pkgs.coreutils}/bin/mkdir -p "$_dir"
-        if ${pkgs.taplo}/bin/taplo get -f "$_hosts" -o json 'hosts' \
+        # Each stage is checked separately, and the result must be non-empty.
+        # A pipeline's exit status is only its LAST command: if taplo fails it
+        # writes nothing, jq reads empty input and still exits 0, and an EMPTY
+        # fragment would be installed -- the very outcome this guard exists to
+        # prevent.
+        if _json=$(${pkgs.taplo}/bin/taplo get -f "$_hosts" -o json 'hosts') \
+           && printf '%s' "$_json" \
              | ${pkgs.jq}/bin/jq -r '
                  to_entries[]
                  | "Host \(.key)",
@@ -215,7 +246,8 @@ in {
                      | select(.key != "desktop" and .key != "mac")
                      | "  \(.key) \(.value)" ),
                    ""
-               ' > "$_dir/hosts.tmp"; then
+               ' > "$_dir/hosts.tmp" \
+           && [ -s "$_dir/hosts.tmp" ]; then
           ${pkgs.coreutils}/bin/mv "$_dir/hosts.tmp" "$_dir/hosts"
           ${pkgs.coreutils}/bin/chmod 600 "$_dir/hosts"
         else
@@ -233,11 +265,18 @@ in {
       _age_key="${config.home.homeDirectory}/.config/sops/age/keys.txt"
       if [ -f "$_age_key" ]; then
         ${pkgs.coreutils}/bin/mkdir -p "${config.home.homeDirectory}/.config/technitiumdns-cli"
-        SOPS_AGE_KEY_FILE="$_age_key" \
+        _dest="${config.home.homeDirectory}/.config/technitiumdns-cli/config.toml"
+        _tmp="$_dest.tmp"
+        if SOPS_AGE_KEY_FILE="$_age_key" \
           ${pkgs.sops}/bin/sops --decrypt \
           ${../../secrets/technitiumdns-cli.toml} \
-          > "${config.home.homeDirectory}/.config/technitiumdns-cli/config.toml"
-        ${pkgs.coreutils}/bin/chmod 600 "${config.home.homeDirectory}/.config/technitiumdns-cli/config.toml"
+          > "$_tmp"; then
+          ${pkgs.coreutils}/bin/chmod 600 "$_tmp"
+          ${pkgs.coreutils}/bin/mv "$_tmp" "$_dest"
+        else
+          ${pkgs.coreutils}/bin/rm -f "$_tmp"
+          echo "decryptTechnitiumConfig: sops could not decrypt secrets/technitiumdns-cli.toml; kept the previous $_dest" >&2
+        fi
       fi
     '';
   };
