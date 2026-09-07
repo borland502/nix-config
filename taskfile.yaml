@@ -23,6 +23,11 @@ vars:
         "Darwin:"*) echo "darwin" ;;
         "Linux:nixos"|"Linux:wsl") echo "wsl" ;;
         "Linux:linux") echo "linux" ;;
+        # Non-NixOS hosts with a host-scoped homeConfiguration of their own.
+        # Only HOME_ATTR/HOME_FLAKE consume this: there is no `.#tifa` system
+        # attr, and IS_NIXOS is false there, so switch/build never reach
+        # SYSTEM_FLAKE. Other generic Linux hosts still fall through to "linux".
+        "Linux:tifa") echo "tifa" ;;
         "Linux:"*)
           if grep -qi microsoft /proc/version 2>/dev/null && [ -f /etc/os-release ]; then
             distro_id=$(. /etc/os-release 2>/dev/null && echo "$ID")

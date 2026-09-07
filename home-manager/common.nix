@@ -144,6 +144,13 @@
     # Network
     curl
     wget
+    nmap # port/service scanning and NSE scripts; also the `ncat`/`ndiff` tools
+    prettyping # readable ping; note the shell aliases `ping` to it, so a script
+    # that needs machine-parsable output must call /bin/ping explicitly
+    arp-scan # L2 sweep with an OUI vendor database — finds hosts that drop ICMP,
+    # which is most IoT gear and the main blind spot of a ping sweep
+    avahi # mDNS/DNS-SD browsing (avahi-browse); how Google/LIFX/Hue/Nest
+    # actually announce human-readable names on a home LAN
 
     # Sender half of Wake-on-LAN; the `wake` helper shells out to it. Shared
     # rather than Linux-only: nixpkgs marks it platforms.all, and a magic packet
@@ -237,6 +244,12 @@
     # Secret management
     age
     sops
+    # Interpreter for `keepass set-attr`. keepassxc-cli cannot write custom
+    # (Advanced-tab) attributes and pykeepass cannot open a vault keyed with a
+    # YubiKey, so the two are paired: pykeepass builds a one-entry database and
+    # keepassxc-cli merges it in. Named rather than added to `python3` because
+    # nixpkgs' python3 is deliberately kept off $PATH here (see below).
+    keepassPython
     # `task lint:secrets` runs gitleaks, so without it here the full `task lint`
     # chain exits 127 on every local run — CI passed only because the workflow
     # installs it explicitly via `nix shell nixpkgs#gitleaks`.
@@ -306,6 +319,9 @@
     ++ map (p: "${homeDirectory}/${p}") (copilotInstructionPaths ++ copilotInstructionDirPaths);
   # ops-agent's model loop runs through the user's `claude` CLI (subscription
   # OAuth) — stdlib-only Python, no anthropic SDK / API key needed.
+  keepassPython = pkgs.writeShellScriptBin "keepass-python" ''
+    exec ${pkgs.python3.withPackages (ps: [ps.pykeepass])}/bin/python3 "$@"
+  '';
   opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
     exec ${pkgs.python3}/bin/python ${../ai-tools/scripts/ops-agent.py} "$@"
   '';
