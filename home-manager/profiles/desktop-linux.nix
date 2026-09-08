@@ -42,7 +42,6 @@
   desktopPackages = with pkgs; [
     # Web browsers
     firefox
-    vivaldi
 
     # Media
     vlc
@@ -96,6 +95,24 @@
   #     (CachyOS) as SIGABRT in libQt6Core on every launch, with
   #     "MESA-LOADER: failed to open dri: /run/opengl-driver/lib/gbm/dri_gbm.so"
   #     in ~/.zoom/logs/zoom_stdout_stderr.log.
+  #   * vivaldi finds no usable GL and silently degrades to software instead
+  #     of crashing, which is why it went unnoticed long after the other two
+  #     here were caught. vivaldi://gpu reports every row Disabled or
+  #     "Software only":
+  #     OpenGL, Vulkan, WebGL, WebGPU, rasterization, video decode. The GPU
+  #     process runs with `--use-gl=disabled` and holds no /dev/dri handle.
+  #     The user-visible symptom is not "slow" — WebGL-gated features vanish
+  #     entirely: RomM hides its in-browser player behind
+  #     `gl instanceof WebGLRenderingContext`, so no game shows a Play button
+  #     and a direct /rom/<id>/ejs URL aborts with EmulatorJS reading `GLctx`
+  #     of undefined. Confirmed 2026-09-07 on Tifa: the host's own
+  #     /usr/bin/glxinfo reports Mesa Intel UHD with direct rendering, while a
+  #     Nix-built glxinfo on the same box fails with "couldn't find RGB GLX
+  #     visual or fbconfig". Pointing LIBGL_DRIVERS_PATH at /usr/lib/dri does
+  #     NOT help: the host's iris_dri.so cannot load into Nix's Mesa.
+  #     Taking vivaldi from the host also retires the LD_LIBRARY_PATH hazard
+  #     described further down, since a host binary hands no Nix libc to the
+  #     helpers it spawns. (The shims stay — firefox is still a Nix build.)
   #   * kitty is linked against Nix's own glibc and cannot safely load either
   #     vendor's driver .so on this hybrid Intel/NVIDIA host — doing so pulls
   #     the host glibc into the same process and hits a GLIBC_PRIVATE symbol
@@ -109,10 +126,15 @@
   #            and the default-terminal association straight to
   #            kitty.desktop, which comes up blank if the package is absent)
   #   zoom  -> `flatpak install --user flathub us.zoom.Zoom`
+  #   vivaldi -> `sudo pacman -S vivaldi` on Arch/CachyOS (also vivaldi-ffmpeg-codecs
+  #            for H.264/AAC). The host package ships its own vivaldi-stable.desktop,
+  #            which is the id Vivaldi self-checks against, so the note below about
+  #            not adding a custom desktopEntries.vivaldi still applies.
   # kitty keeps its chezmoi config (chezmoi/dot_config/kitty) and stylix
   # theming via stylix.targets.kitty either way — this guards only the package.
   nixosOnlyPackages = with pkgs; [
     kitty
+    vivaldi
     zoom-us
   ];
 
