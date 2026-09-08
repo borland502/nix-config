@@ -15,8 +15,8 @@
 #
 # What is skipped (omitted from upload):
 #   * Secrets (sops/ops-agent/confluence/gkion/technitiumdns-cli/gh/rclone and
-#     the KeePass master password), browser password + sync-crypto stores, and
-#     agent session transcripts.
+#     the KeePass master password + key file), browser password + sync-crypto
+#     stores, and agent session transcripts.
 #   * ~/gdrive and ~/"Google Drive" — the backup target itself, reached through
 #     an rclone FUSE mount (Linux) or the Drive Desktop client (darwin).
 #   * Large regenerable dirs (nix, nvm, agent caches, colima VM disks, Discord
@@ -197,23 +197,25 @@ junk_patterns=(
 	'/.config/gkion/**'
 	'/.config/technitiumdns-cli/**'
 	'/.config/gh/**'
-	# KeePass: the vault and its key file are intentionally SYNCED for
-	# portability — the vault via keep_patterns below, the key file simply by
-	# living under .local/state, which nothing here excludes. The master
-	# password is NOT. /.config/keepass/password is the sops-materialized
-	# secret, and because this script runs `rclone copy -L`, that symlink is
-	# FOLLOWED and its plaintext content uploaded. The /.config/sops-nix/**
-	# rule further down does not cover it: that excludes the link's target,
-	# not the link.
+	# KeePass: this script carries no part of the vault any more. Since the
+	# 2026-09-08 cutover the vault is a single live file at
+	# gdrive:keepass/secrets.kdbx, edited in place by both hosts and the phone;
+	# the key file is carried in sops and materialized per host; and the master
+	# password never belonged here at all.
 	#
-	# It was uploaded on every run from 2026-08-22 (when the sops secret was
-	# added) until 2026-09-08, which put three of the four factors — vault,
-	# key file, password — in one Drive folder and left the YubiKey as the
-	# only thing between a Drive breach and the vault. The YubiKey is the
-	# intended linchpin and the password was deliberately not rotated; it is
-	# withheld from here on, and the purge pass removes the copy already on
-	# the remote.
-	'/.config/keepass/**' # sops master password (a symlink, and -L follows it)
+	# The master password is the one worth spelling out. /.config/keepass/
+	# password is the sops-materialized secret, and because this script runs
+	# `rclone copy -L`, that symlink is FOLLOWED and its plaintext content
+	# uploaded. The /.config/sops-nix/** rule further down does not cover it:
+	# that excludes the link's target, not the link. It went up on every run
+	# from 2026-08-22 (when the sops secret was added) until 2026-09-08, which
+	# put three of the four factors — vault, key file, password — in one Drive
+	# folder and left the YubiKey as the only thing between a Drive breach and
+	# the vault. The YubiKey is the intended linchpin and the password was
+	# deliberately not rotated; all three are withheld from here on, and the
+	# copies already on the remote were purged.
+	'/.config/keepass/**'      # sops master password (a symlink, and -L follows it)
+	'/.local/state/keepass/**' # key file — now carried in sops, per host
 	'**/yubikey.serial'
 	'/.config/keepassxc/**' # secret_token, browser-integration secret
 	'/.config/gcloud/**'    # credentials.db / access_tokens.db
@@ -486,26 +488,19 @@ junk_patterns=(
 	'*.log'
 )
 
-# Force-synced exceptions: kept even though a broader junk rule (the blanket
-# /.local/share exclude) would otherwise drop them. Targeting the specific dir
-# (not **/*.kdbx) keeps the scan from descending the rest of .local/share.
+# No force-synced exceptions, deliberately. There were two, both KeePass vault
+# directories under .local/share carved back in past the blanket /.local/share
+# exclude. The 2026-09-08 cutover removed the need for either: the vault is one
+# live file at gdrive:keepass/secrets.kdbx, edited in place, so this script
+# neither carries it nor should. The superseded copies under
+# 42245/dotfiles/.local/share/ were retired at the same time, and the dated
+# pre-merge archives moved to gdrive:keepass/archive/, which nothing here
+# touches.
 #
-# TRANSITIONAL (2026-09-08). The vault is moving to ~/gdrive/keepass/secrets.kdbx
-# — one file, edited in place on Drive by both hosts and the phone — after which
-# this script has no business carrying it at all. The entry stays until that
-# cutover is verified, for a reason that is easy to miss: keep_patterns is also
-# what PROTECTS a path from the purge pass. /.local/share/** is a junk pattern,
-# so the moment this line goes, the next run's `rclone delete` takes
-# 42245/dotfiles/.local/share/keypass/ with it — the live vault backup and the
-# dated pre-merge archives included. Remove it only once the canonical copy is
-# proven; see the cutover plan named in the header.
-#
-# /.local/share/keepassxc/** was dropped the same day. It never matched anything
-# local on either host: it named the legacy Drive-ROOT tree, which this script
-# has never written to.
-keep_patterns=(
-	'/.local/share/keypass/**'
-)
+# Before re-adding an entry, note it does two things: keep_patterns is ALSO what
+# protects a path from the purge pass below. Adding one exempts the path from
+# deletion; removing one hands it to `rclone delete` on the very next run.
+keep_patterns=()
 
 # Local paths that are not part of this machine: ~/gdrive is the Drive itself —
 # an rclone FUSE mount on Linux, a symlink into ~/Library/CloudStorage on darwin
