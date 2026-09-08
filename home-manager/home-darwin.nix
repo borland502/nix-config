@@ -169,6 +169,7 @@ in {
   imports = [
     ./common.nix # Import common configuration
     ./modules/gdrive-sync.nix # daily launchd agent for sync-to-gdrive
+    ./modules/keepass-snapshot.nix # weekly dated snapshots of the vault on Drive
     ./modules/vscode-profiles.nix # language profiles, shared with Linux
     # Homebrew is reserved for macOS-only GUI apps and formulae without a clean Nix path.
   ];

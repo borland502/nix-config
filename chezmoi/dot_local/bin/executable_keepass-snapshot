@@ -1,0 +1,132 @@
+#!/usr/bin/env zsh
+# keepass-snapshot — dated snapshots of the KeePass vault, kept on Drive.
+#
+# The vault at gdrive:keepass/secrets.kdbx is a LIVE document: every host and
+# the phone open it in place, and nothing copies it anywhere. sync-to-gdrive
+# deliberately does not carry it (see the no_traverse_patterns there), so the
+# additive archive trail that the old backup gave us for free is gone. This
+# replaces it.
+#
+# What this protects against, and what it does not:
+#   * Drive's own version history already covers an accidental save — it is
+#     per-file, retained ~30 days, and reachable from the Drive UI.
+#   * It does NOT cover damage noticed late: a merge that quietly moved 14
+#     entries to the Recycle Bin (which is exactly what a 2026-09-07 dry run
+#     caught), or a corrupted write discovered three weeks on. That needs dated
+#     copies that outlive the version window, which is what this makes.
+#
+# Cost: the vault is ~27.8 MB and is NOT being shrunk (entry history and
+# attachments dominate it; purging them was explicitly out of scope). That makes
+# the snapshot the whole safety net rather than a nicety, and it is also why the
+# copy is server-side: source and destination are both on the gdrive remote, so
+# `rclone copyto` asks Drive to duplicate the file and no bytes cross the wire.
+# A naive download-and-reupload would move 55 MB per run for nothing.
+#
+# Retention is age-based with a floor. --retain-days alone would be a trap: if
+# the vault stops being edited and every snapshot ages out, an age-only prune
+# empties the directory precisely when the snapshots are the only copy left. So
+# the newest --min-keep are never pruned regardless of age.
+#
+# Usage:
+#   keepass-snapshot [--dry-run] [--retain-days N] [--min-keep N]
+
+set -euo pipefail
+
+remote_name="gdrive"
+vault="${remote_name}:keepass/secrets.kdbx"
+snap_dir="${remote_name}:keepass/snapshots"
+retain_days=90
+min_keep=6
+log_file="$HOME/.cache/claude/keepass-snapshot.log"
+
+usage() {
+	print -r -- "Usage: keepass-snapshot [--dry-run] [--retain-days N] [--min-keep N]"
+}
+
+dry_run=0
+while (($#)); do
+	case "$1" in
+	--dry-run) dry_run=1 ;;
+	--retain-days)
+		[[ "${2:-}" == <-> ]] || {
+			print -u2 "keepass-snapshot: --retain-days needs a whole number"
+			exit 2
+		}
+		retain_days="$2"
+		shift
+		;;
+	--min-keep)
+		[[ "${2:-}" == <-> ]] || {
+			print -u2 "keepass-snapshot: --min-keep needs a whole number"
+			exit 2
+		}
+		min_keep="$2"
+		shift
+		;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*)
+		print -u2 "keepass-snapshot: unknown argument: $1"
+		usage
+		exit 2
+		;;
+	esac
+	shift
+done
+
+# ── Preflight ────────────────────────────────────────────────────────────────
+# Each of these exits 0, not 1. This runs unattended on every host that has the
+# script, including ones that have never configured the remote; a host that
+# cannot snapshot should be quiet, not a failed unit to explain away at each
+# login. A real failure below still exits non-zero.
+if ! command -v rclone >/dev/null 2>&1; then
+	print "keepass-snapshot: rclone not found — nothing to do."
+	exit 0
+fi
+
+if ! rclone listremotes 2>/dev/null | grep -qx "${remote_name}:"; then
+	print "keepass-snapshot: remote '${remote_name}:' not configured here — nothing to do."
+	exit 0
+fi
+
+if ! rclone lsf "$vault" --timeout 30s >/dev/null 2>&1; then
+	print -u2 "keepass-snapshot: cannot see $vault — remote offline, token expired,"
+	print -u2 "  or the vault has not been seeded. Try: rclone config reconnect ${remote_name}:"
+	exit 0
+fi
+
+mkdir -p "${log_file:h}"
+
+args=(--log-file "$log_file" --log-level INFO)
+((dry_run)) && args+=(--dry-run)
+
+stamp="$(date +%F)"
+target="$snap_dir/secrets-${stamp}.kdbx"
+
+print "keepass-snapshot: $vault -> $target$( ((dry_run)) && print -n '  [dry-run]')"
+
+# Server-side: both ends are the same remote, so Drive duplicates the file and
+# nothing is transferred. copyto (not copy) so the destination filename is the
+# dated one rather than the source basename.
+rclone copyto "$vault" "$target" "${args[@]}"
+
+# ── Prune ────────────────────────────────────────────────────────────────────
+# Age-based, with the floor described in the header. Count first: rclone has no
+# "keep the newest N" flag, so the floor has to be enforced here.
+# `rclone lsf` exits 3 when the directory does not exist, which is exactly the
+# state before the first snapshot ever runs. Combined with `set -o pipefail`
+# that is fatal inside a command substitution, so the count is taken
+# defensively rather than letting a normal first run abort here.
+if ! snap_count=$(rclone lsf "$snap_dir" --include '*.kdbx' 2>/dev/null | wc -l | tr -d ' '); then
+	snap_count=0
+fi
+if ((snap_count > min_keep)); then
+	print "keepass-snapshot: pruning snapshots older than ${retain_days}d (${snap_count} present, floor ${min_keep})"
+	rclone delete "$snap_dir" --include '*.kdbx' --min-age "${retain_days}d" "${args[@]}"
+else
+	print "keepass-snapshot: ${snap_count} snapshot(s) present, at or below the floor of ${min_keep} — not pruning"
+fi
+
+print "keepass-snapshot: done at $(date -Iseconds)"

@@ -45,6 +45,7 @@ in {
     ./profiles/development-linux.nix
     ./profiles/desktop-linux.nix
     ./modules/gdrive-sync.nix # daily systemd timer for sync-to-gdrive
+    ./modules/keepass-snapshot.nix # weekly dated snapshots of the vault on Drive
     ./modules/rclone-mounts.nix # ~/gdrive + ~/caitsith + ~/alisaie FUSE mounts
     ./modules/vscode-profiles.nix # language profiles, shared with darwin
     ./modules/krdp-autostart.nix # remote desktop on by default (Plasma hosts)
