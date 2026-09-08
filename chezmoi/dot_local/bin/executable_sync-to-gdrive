@@ -14,8 +14,11 @@
 #     .local/pipx, .config/nix, and every cache are filtered out.
 #
 # What is skipped (omitted from upload):
-#   * Secrets (sops/ops-agent/confluence/gkion/technitiumdns-cli/gh/rclone),
-#     browser password + sync-crypto stores, and agent session transcripts.
+#   * Secrets (sops/ops-agent/confluence/gkion/technitiumdns-cli/gh/rclone and
+#     the KeePass master password + key file), browser password + sync-crypto
+#     stores, and agent session transcripts.
+#   * ~/gdrive and ~/"Google Drive" — the backup target itself, reached through
+#     an rclone FUSE mount (Linux) or the Drive Desktop client (darwin).
 #   * Large regenerable dirs (nix, nvm, agent caches, colima VM disks, Discord
 #     native modules, .local/{bin,share,lib,src,pipx}).
 #   * Steam and docker config/data (.config/{steam,Steam,docker}; Steam & docker
@@ -194,10 +197,25 @@ junk_patterns=(
 	'/.config/gkion/**'
 	'/.config/technitiumdns-cli/**'
 	'/.config/gh/**'
-	# KeePass DB + keyfile are intentionally SYNCED for portability (carved back
-	# in via keep_patterns below); only the yubikey serial is withheld. Even if
-	# gdrive is breached the DB needs the yubikey (challenge-response) AND the
-	# master password to open — neither is on the remote.
+	# KeePass: this script carries no part of the vault any more. Since the
+	# 2026-09-08 cutover the vault is a single live file at
+	# gdrive:keepass/secrets.kdbx, edited in place by both hosts and the phone;
+	# the key file is carried in sops and materialized per host; and the master
+	# password never belonged here at all.
+	#
+	# The master password is the one worth spelling out. /.config/keepass/
+	# password is the sops-materialized secret, and because this script runs
+	# `rclone copy -L`, that symlink is FOLLOWED and its plaintext content
+	# uploaded. The /.config/sops-nix/** rule further down does not cover it:
+	# that excludes the link's target, not the link. It went up on every run
+	# from 2026-08-22 (when the sops secret was added) until 2026-09-08, which
+	# put three of the four factors — vault, key file, password — in one Drive
+	# folder and left the YubiKey as the only thing between a Drive breach and
+	# the vault. The YubiKey is the intended linchpin and the password was
+	# deliberately not rotated; all three are withheld from here on, and the
+	# copies already on the remote were purged.
+	'/.config/keepass/**'      # sops master password (a symlink, and -L follows it)
+	'/.local/state/keepass/**' # key file — now carried in sops, per host
 	'**/yubikey.serial'
 	'/.config/keepassxc/**' # secret_token, browser-integration secret
 	'/.config/gcloud/**'    # credentials.db / access_tokens.db
@@ -470,25 +488,48 @@ junk_patterns=(
 	'*.log'
 )
 
-# Force-synced exceptions: kept even though a broader junk rule (the blanket
-# /.local/share exclude) would otherwise drop them. Encrypted KeePass databases
-# live under .local/share; carve them back in for portability. Targeting the
-# specific dirs (not **/*.kdbx) keeps the scan from descending the rest of
-# .local/share.
-keep_patterns=(
-	'/.local/share/keepassxc/**'
-	'/.local/share/keypass/**'
+# No force-synced exceptions, deliberately. There were two, both KeePass vault
+# directories under .local/share carved back in past the blanket /.local/share
+# exclude. The 2026-09-08 cutover removed the need for either: the vault is one
+# live file at gdrive:keepass/secrets.kdbx, edited in place, so this script
+# neither carries it nor should. The superseded copies under
+# 42245/dotfiles/.local/share/ were retired at the same time, and the dated
+# pre-merge archives moved to gdrive:keepass/archive/, which nothing here
+# touches.
+#
+# Before re-adding an entry, note it does two things: keep_patterns is ALSO what
+# protects a path from the purge pass below. Adding one exempts the path from
+# deletion; removing one hands it to `rclone delete` on the very next run.
+keep_patterns=()
+
+# Local paths that are not part of this machine: ~/gdrive is the Drive itself —
+# an rclone FUSE mount on Linux, a symlink into ~/Library/CloudStorage on darwin
+# — and ~/"Google Drive" is an older symlink to the same account. Backing up the
+# backup target is nonsense, and with -L in force a walk into either means
+# listing the whole of Drive over FUSE or FileProvider. The trailing "- *" may
+# already prune them, but nothing in the filter says so out loud. These go to
+# the sync filter ONLY: they describe local paths not to traverse, not remote
+# junk to delete.
+no_traverse_patterns=(
+	'/gdrive/**'
+	'/Google Drive/**'
 )
 
-# Filters are first-match-wins. sync_filter: keep_patterns win (+) over the junk
-# excludes (-), then only the two dotfile trees are included and all else at
-# $HOME dropped. purge_filter is the inverse — keep_patterns are protected (-)
-# from deletion, junk is included (+) so `rclone delete` removes exactly those.
+# Filters are first-match-wins. sync_filter: no_traverse_patterns are excluded
+# ahead of everything (nothing below should ever be able to pull ~/gdrive back
+# in), then keep_patterns win (+) over the junk excludes (-), then only the two
+# dotfile trees are included and all else at $HOME dropped. purge_filter is the
+# inverse — keep_patterns are protected (-) from deletion, junk is included (+)
+# so `rclone delete` removes exactly those — and no_traverse_patterns have no
+# place in it at all, being local-side concerns.
 sync_filter="$(mktemp -t rclone-gdrive-sync.XXXXXX)"
 purge_filter="$(mktemp -t rclone-gdrive-purge.XXXXXX)"
 scan_errors="$(mktemp -t rclone-gdrive-scan.XXXXXX)"
 dangling_filter="$(mktemp -t rclone-gdrive-dangling.XXXXXX)"
 trap 'rm -f "$sync_filter" "$purge_filter" "$scan_errors" "$dangling_filter"' EXIT
+for p in "${no_traverse_patterns[@]}"; do
+	print -r -- "- $p" >>"$sync_filter"
+done
 for p in "${keep_patterns[@]}"; do
 	print -r -- "+ $p" >>"$sync_filter"
 	print -r -- "- $p" >>"$purge_filter"
