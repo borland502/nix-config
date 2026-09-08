@@ -45,7 +45,8 @@ Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
                    --classify)
   --date DATE      Only show records whose header timestamp starts with DATE
   --session ID     Restrict to session log files matching ID
-  --limit N        Timeline / decision length (default: 10)
+  --limit N        Timeline / decision length (default: 10); also raises the
+                   ARTIFACTS row cap when above its floor of 12
   -t|--transcript  Enrich with native data the Bash log never sees: your typed
                    prompts, the assistant's decision text, the files changed,
                    the non-Bash tool tally, and TOOL ERRORS — the tool calls
@@ -419,18 +420,36 @@ fi
 # turns that into exit 141 — which under `set -e` aborted the whole run before
 # the enrichment section, silently, and only once the window held enough files
 # to keep `sort` writing after `head` had gone. Same shape guarded below.
-echo "ARTIFACTS (plans/specs/designs/handoffs/notes/resumes incl. .zst; newest first)"
+# Every markdown file in the cache root, not a keyword list. The old predicate
+# (plan/spec/design/note/resume/handoff/PHASE) matched 154 of 336 cached .md
+# docs; the 182 it missed were reports, briefs, task breakdowns, PR bodies,
+# progress and summary docs — exactly the historical context this section
+# exists to surface, silently dropped because of how they happened to be named.
+# A keyword list can only ever be extended after a doc has already been missed.
+# .txt stays out: that is where raw tool-output spill lands, not authored docs.
+# PHASE*/handoff* remain extension-agnostic for the non-.md cases.
+#
+# The wider net only competes for slots once the window is wide: at the default
+# --days 2 the row cap does not bind at all. Past roughly a week it does, so
+# --limit raises this section too, with 12 as a floor to keep default output
+# byte-identical to before. Deep historical digs want `--days 30 --limit 40`.
+# if, not `((...)) && art_cap=$limit`: a false arithmetic test returns 1, and
+# under this script's set -e that non-zero AND-list aborts the whole run.
+art_cap=12
+if ((limit > art_cap)); then
+	art_cap=$limit
+fi
+echo "ARTIFACTS (markdown context docs — plans/specs/reports/briefs/summaries, incl. .zst; newest first)"
 art_out=$(find "${roots[@]}" -maxdepth 2 -type f \
-	\( -iname 'PHASE*' -o -iname '*handoff*' -o -iname '*plan*.md*' \
-	-o -iname '*spec*.md*' -o -iname '*design*.md*' -o -iname '*note*.md*' \
-	-o -iname '*resume*.md*' \) \
+	\( -iname 'PHASE*' -o -iname '*handoff*' \
+	-o -iname '*.md' -o -iname '*.md.zst' \) \
 	-mtime "-$days" 2>/dev/null |
 	while read -r p; do
 		ts=$(stat -c '%Y' "$p" 2>/dev/null || echo 0)
 		d=$(date -d "@$ts" +%F 2>/dev/null || echo '?')
 		[[ -n "$date_filter" && "$d" != "$date_filter"* ]] && continue
 		printf '%s\t%s\t%s\n' "$ts" "$d" "$p"
-	done | sort -rn | head -n 12 |
+	done | sort -rn | head -n "$art_cap" |
 	while IFS=$'\t' read -r _ts d p; do printf '  %s  %s\n' "$d" "${p/#$HOME/\~}"; done || true)
 if [[ -n "$art_out" ]]; then
 	printf '%s\n' "$art_out"
