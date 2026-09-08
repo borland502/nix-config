@@ -13,20 +13,36 @@
 #              .local/state/{,keepass/,keypass/} and ~/Downloads; the other
 #              three were deleted 2026-08-22, locally and from the gdrive
 #              backup, so there is exactly one path to keep in sync now.
-#   database   ~/gdrive/.local/share/keepass/secrets.kdbx — the vault the
-#              KeePassXC GUI actually keeps open, so the CLI and the GUI now
-#              agree. ~/gdrive is an rclone FUSE mount (--vfs-cache-mode
-#              writes); every save uploads to Google Drive within seconds.
-#              Two consequences worth knowing before debugging anything here:
-#                * If the mount is not up, this script fails rather than
-#                  falling back. A silent fallback would read the stale local
-#                  copy and hand back an out-of-date secret, which is worse
-#                  than an error.
-#                * ~/.local/share/keyPass/secrets.kdbx (note: keyPass with a
-#                  Y) is the OLD default and is now a stale copy, not a
-#                  mirror. It still receives the GUI's BackupBeforeSave
-#                  .old.kdbx files, which is why its mtimes still move.
-#              Point KEEPASS_DB at it deliberately if you ever need it.
+#   database   ~/gdrive/keepass/secrets.kdbx — THE vault. One file, living on
+#              Drive, opened in place by the KeePassXC GUI, this CLI, and the
+#              phone. It is not backed up by sync-to-gdrive and must not be:
+#              it is already on Drive, and a second copy is how the mess below
+#              started.
+#
+#              ~/gdrive is the Drive root on both platforms, by different
+#              means — an rclone FUSE mount (--vfs-cache-mode writes) on
+#              Linux, a symlink into ~/Library/CloudStorage on darwin, which
+#              is why no macFUSE is needed there. Every save uploads within
+#              seconds either way.
+#
+#              If the path is not readable this script fails rather than
+#              falling back. A silent fallback would read one of the stale
+#              copies and hand back an out-of-date secret, which is worse than
+#              an error.
+#
+#              History, because four copies of a 27 MB vault accumulated and
+#              two of them still exist on Drive as of the 2026-09-08 cutover:
+#                * gdrive:.local/share/keepass/ and .../keepassxc/ (Drive
+#                  ROOT) are the dead ones. That root is a home directory
+#                  dumped there around 2020-2022; sync-to-gdrive has never
+#                  written to it. This script pointed at the first of them
+#                  until 2026-09-08, which meant the CLI was reading a vault
+#                  superseded by the 2026-09-07 merge.
+#                * gdrive:42245/dotfiles/.local/share/keypass/ was the live
+#                  BACKUP, written daily from ~/.local/share/keypass/. It is
+#                  the source the canonical file above was seeded from, and it
+#                  keeps the dated pre-merge archives.
+#              Set KEEPASS_DB deliberately if you ever need to read one.
 #   yubikey    HMAC-SHA1 challenge-response on slot 2.
 #
 # Why the yubikey is addressed by SLOT ONLY, never slot:serial — two YubiKeys
@@ -50,7 +66,7 @@
 set -uo pipefail
 zmodload zsh/zutil # zparseopts, for set-attr
 
-KP_DB=${KEEPASS_DB:-$HOME/gdrive/.local/share/keepass/secrets.kdbx}
+KP_DB=${KEEPASS_DB:-$HOME/gdrive/keepass/secrets.kdbx}
 KP_KEYFILE=${KEEPASS_KEYFILE:-$HOME/.local/state/keepass/secrets.keyx}
 KP_SLOT=${KEEPASS_YUBIKEY_SLOT:-2}
 KP_PASSFILE=${KEEPASS_PASSWORD_FILE:-$HOME/.config/keepass/password}
@@ -89,13 +105,34 @@ if ((${NO_DB[(Ie)$sub]})); then
 	exec keepassxc-cli "$sub" "$@"
 fi
 
+# An absent ~/gdrive is the common failure, and the remedy differs per platform.
+# `mountpoint` is not the test for either one: it does not exist on macOS, and it
+# means nothing against a symlink. `-d` is, and it fails correctly in both bad
+# states — including the nasty Linux one where a killed rclone leaves the path in
+# place but every stat under it returns ENOTCONN.
 if [[ ! -r $KP_DB ]]; then
-	if [[ $KP_DB == "$HOME/gdrive/"* ]] && ! mountpoint -q "$HOME/gdrive" 2>/dev/null; then
-		die "database not readable: $KP_DB
-  ~/gdrive is not mounted — start it with: rclone-mount --remote gdrive --mountpoint ~/gdrive
-  (KEEPASS_DB=~/.local/share/keypass/secrets.kdbx reads the stale local copy.)"
+	if [[ $KP_DB == "$HOME/gdrive/"* && ! -d $HOME/gdrive ]]; then
+		case $OSTYPE in
+		darwin*)
+			die "database not readable: $KP_DB
+  ~/gdrive is missing. On darwin it is a symlink to the Drive Desktop mount:
+    ln -s ~/Library/CloudStorage/GoogleDrive-*/'My Drive' ~/gdrive
+  Check that Google Drive is running, and that the keepass folder is marked
+  available offline so a cold read does not stall."
+			;;
+		*)
+			die "database not readable: $KP_DB
+  ~/gdrive is not mounted — start it with:
+    systemctl --user start rclone-mount-gdrive
+  or: rclone-mount --remote gdrive --mountpoint ~/gdrive"
+			;;
+		esac
 	fi
-	die "database not readable: $KP_DB"
+	die "database not readable: $KP_DB
+  ~/gdrive is present, so it is the vault that is missing from it. If the
+  cutover to the canonical path has not run on this host yet, the vault is
+  still at gdrive:42245/dotfiles/.local/share/keypass/secrets.kdbx — point
+  KEEPASS_DB at it."
 fi
 [[ -r $KP_KEYFILE ]] || die "key file not readable: $KP_KEYFILE"
 [[ -r $KP_PASSFILE ]] || die "password file not readable: $KP_PASSFILE
