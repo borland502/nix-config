@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+# Centralize agent-written assets into the single scannable cache root.
+#
+# Both harnesses write agent-authored files into session-scoped directories
+# that no cache tooling reaches: Copilot into
+# $COPILOT_HOME/session-state/<id>/files/, Claude into
+# $CLAUDE_CONFIG_DIR/projects/<slug>/<session>/tool-results/ and the
+# $TMPDIR/claude-<uid>/<slug>/<session>/scratchpad/ tree. cache-scan reads
+# artifacts at -maxdepth 2 and scripts at -maxdepth 1, and compress-old-cache
+# only compresses top-level files, so anything left in place is invisible to
+# both. This sweep copies those assets to the cache root at depth 1 under a
+# <date>-<session8>-<name> label, where the existing tooling already looks.
+#
+# Copy, not move: the harness owns those directories and uses them for session
+# rewind and checkpoints. --prune deletes the source afterwards, and then only
+# for sessions with no active lock.
+#
+# Nested directories inside a files/ tree (Playwright trace bundles, cloned
+# repos) are archived as one <date>-<session8>-<name>.tar.zst rather than
+# flattened, so a single trace cannot spill thousands of jpegs into the root.
+#
+# Env: AGENT_NAME, CACHE_DIR, COPILOT_HOME, CLAUDE_CONFIG_DIR,
+#      SWEEP_AGENT_ASSETS_MIN_INTERVAL_SEC, SWEEP_MAX_BUNDLE_MB.
+# Flags: --dry-run (print, change nothing), --prune (remove swept sources),
+#        --force (ignore the throttle), --backfill (walk every session, not
+#        just those touched in the last day).
+set -euo pipefail
+
+dry_run=0
+prune=0
+force=0
+backfill=0
+for arg in "$@"; do
+	case "$arg" in
+	--dry-run) dry_run=1 ;;
+	--prune) prune=1 ;;
+	--force) force=1 ;;
+	--backfill)
+		backfill=1
+		force=1
+		;;
+	*)
+		printf 'sweep-agent-assets: unknown flag %s\n' "$arg" >&2
+		exit 2
+		;;
+	esac
+done
+
+# Resolve agent/cache target. Mirrors compress-old-cache so both hooks agree on
+# which root they are maintaining. ~/.cache/claude is a symlink to
+# ~/.cache/copilot on this host, so either agent lands in the same real dir.
+agent_raw="${AGENT_NAME:-claude}"
+agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
+[[ -n "$agent" ]] || agent="claude"
+cache_dir="${CACHE_DIR:-${HOME}/.cache/${agent}}"
+
+[ -d "$cache_dir" ] || exit 0
+command -v zstd >/dev/null 2>&1 || exit 0
+
+max_bundle_mb="${SWEEP_MAX_BUNDLE_MB:-512}"
+[[ "$max_bundle_mb" =~ ^[0-9]+$ ]] || max_bundle_mb=512
+
+# Throttle repeated invocations from per-tool hooks (default 30 min).
+min_interval_sec="${SWEEP_AGENT_ASSETS_MIN_INTERVAL_SEC:-1800}"
+[[ "$min_interval_sec" =~ ^[0-9]+$ ]] || min_interval_sec=1800
+stamp_file="$cache_dir/.sweep-agent-assets.last_run"
+now_epoch=$(date +%s)
+if ((force == 0)) && [[ -f "$stamp_file" ]]; then
+	last_epoch=$(tr -d '[:space:]' <"$stamp_file" 2>/dev/null || echo 0)
+	[[ "$last_epoch" =~ ^[0-9]+$ ]] || last_epoch=0
+	if ((now_epoch - last_epoch < min_interval_sec)); then
+		exit 0
+	fi
+fi
+
+# stat(1) differs between GNU and BSD; try both rather than assuming a dialect.
+file_epoch() {
+	stat -c %Y -- "$1" 2>/dev/null || stat -f %m -- "$1" 2>/dev/null || printf '%s' "$now_epoch"
+}
+
+du_mb() {
+	du -sm -- "$1" 2>/dev/null | cut -f1
+}
+
+swept=0
+skipped=0
+
+note() {
+	if ((dry_run)); then
+		printf 'would sweep: %s\n' "$1"
+	fi
+}
+
+# Place one file at the cache root as <date>-<session8>-<basename>.
+#
+# Idempotency has to account for compress-old-cache having already zstd'd a
+# previous sweep of the same file: check both <dest> and <dest>.zst before
+# deciding this is new work, or every run after the first re-copies everything.
+place_file() {
+	local src="$1" label="$2" base dest stamp
+	base=$(basename -- "$src")
+	stamp=$(date -d "@$(file_epoch "$src")" +%Y%m%d 2>/dev/null ||
+		date -r "$(file_epoch "$src")" +%Y%m%d 2>/dev/null ||
+		date +%Y%m%d)
+	dest="$cache_dir/${stamp}-${label}-${base}"
+
+	if [[ -e "$dest.zst" ]]; then
+		skipped=$((skipped + 1))
+		return 0
+	fi
+	if [[ -e "$dest" ]]; then
+		if cmp -s -- "$src" "$dest"; then
+			skipped=$((skipped + 1))
+			return 0
+		fi
+		local n=2
+		while [[ -e "${dest%.*}-${n}.${base##*.}" ]]; do n=$((n + 1)); done
+		dest="${dest%.*}-${n}.${base##*.}"
+	fi
+
+	note "$src -> $dest"
+	if ((dry_run == 0)); then
+		cp -p -- "$src" "$dest" || return 0
+	fi
+	swept=$((swept + 1))
+}
+
+# Archive a nested directory as a single top-level .tar.zst.
+place_bundle() {
+	local src="$1" label="$2" base dest size stamp
+	base=$(basename -- "$src")
+	size=$(du_mb "$src")
+	if [[ -n "$size" ]] && ((size > max_bundle_mb)); then
+		printf 'sweep-agent-assets: skipping %s (%s MB > %s MB cap)\n' \
+			"$src" "$size" "$max_bundle_mb" >&2
+		skipped=$((skipped + 1))
+		return 0
+	fi
+	stamp=$(date -d "@$(file_epoch "$src")" +%Y%m%d 2>/dev/null ||
+		date -r "$(file_epoch "$src")" +%Y%m%d 2>/dev/null ||
+		date +%Y%m%d)
+	dest="$cache_dir/${stamp}-${label}-${base}.tar.zst"
+
+	if [[ -e "$dest" ]]; then
+		skipped=$((skipped + 1))
+		return 0
+	fi
+
+	note "$src -> $dest (bundle)"
+	if ((dry_run == 0)); then
+		# tar -I/--use-compress-program split GNU from BSD tar; pipe instead.
+		if ! tar -cf - -C "$(dirname -- "$src")" "$base" 2>/dev/null |
+			zstd -q -o "$dest" 2>/dev/null; then
+			rm -f -- "$dest"
+			return 0
+		fi
+	fi
+	swept=$((swept + 1))
+}
+
+# Sweep one asset directory: direct children flattened, subdirectories bundled.
+sweep_dir() {
+	local dir="$1" label="$2" entry
+	[ -d "$dir" ] || return 0
+
+	# Leave a session that still holds a lock alone when pruning; copying is
+	# safe either way.
+	local locked=0
+	if compgen -G "$(dirname -- "$dir")/inuse.*.lock" >/dev/null 2>&1; then
+		locked=1
+	fi
+
+	for entry in "$dir"/*; do
+		[ -e "$entry" ] || continue
+		if [ -d "$entry" ]; then
+			place_bundle "$entry" "$label"
+		else
+			place_file "$entry" "$label"
+		fi
+	done
+
+	if ((prune)) && ((dry_run == 0)) && ((locked == 0)); then
+		rm -rf -- "${dir:?}"/*
+	fi
+}
+
+short_id() {
+	printf '%s' "${1:0:8}"
+}
+
+# Only look at sessions touched in the last day unless --backfill, so the
+# routine hook path stays cheap on a cache with dozens of old sessions.
+recent_enough() {
+	((backfill)) && return 0
+	local dir="$1" age
+	age=$((now_epoch - $(file_epoch "$dir")))
+	((age <= 86400))
+}
+
+# --- Copilot: <home>/session-state/<id>/files/ ---------------------------
+for copilot_home in "${COPILOT_HOME:-$HOME/.config/copilot}" "$HOME/.copilot"; do
+	[ -d "$copilot_home/session-state" ] || continue
+	for session in "$copilot_home"/session-state/*/; do
+		[ -d "$session/files" ] || continue
+		recent_enough "$session/files" || continue
+		sweep_dir "$session/files" "$(short_id "$(basename -- "$session")")"
+	done
+done
+
+# --- Claude: projects/<slug>/<session>/tool-results/ ---------------------
+claude_config="${CLAUDE_CONFIG_DIR:-$HOME/.config/claude}"
+if [ -d "$claude_config/projects" ]; then
+	for results in "$claude_config"/projects/*/*/tool-results/; do
+		[ -d "$results" ] || continue
+		recent_enough "$results" || continue
+		sweep_dir "$results" "$(short_id "$(basename -- "$(dirname -- "$results")")")"
+	done
+fi
+
+# --- Claude: $TMPDIR/claude-<uid>/<slug>/<session>/scratchpad/ -----------
+# /tmp is a symlink to /private/tmp on darwin, so resolve before iterating or
+# the same scratchpad is walked twice.
+seen_roots=""
+for tmp_root in "${TMPDIR:-/tmp}" /tmp /private/tmp; do
+	[ -d "$tmp_root" ] || continue
+	tmp_real=$(cd -- "$tmp_root" 2>/dev/null && pwd -P) || continue
+	case ":$seen_roots:" in
+	*":$tmp_real:"*) continue ;;
+	esac
+	seen_roots="$seen_roots:$tmp_real"
+	for pad in "$tmp_real"/claude-*/*/*/scratchpad/; do
+		[ -d "$pad" ] || continue
+		recent_enough "$pad" || continue
+		sweep_dir "$pad" "$(short_id "$(basename -- "$(dirname -- "$pad")")")"
+	done
+done
+
+# --- Claude: file-history (bundled whole; 250+ small undo snapshots) -----
+if [ -d "$claude_config/file-history" ]; then
+	if ((backfill)) || ! compgen -G "$cache_dir/*-claude-file-history.tar.zst" >/dev/null 2>&1; then
+		place_bundle "$claude_config/file-history" "claude"
+	fi
+fi
+
+if ((dry_run == 0)); then
+	printf '%s\n' "$now_epoch" >"$stamp_file"
+fi
+
+if ((swept > 0)) || ((dry_run)); then
+	printf 'sweep-agent-assets: %d swept, %d already present\n' "$swept" "$skipped" >&2
+fi

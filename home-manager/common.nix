@@ -54,6 +54,15 @@
         command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/compress-old-cache"'';
         timeoutSec = 20;
       }
+      # Copilot writes agent-authored files into session-state/<id>/files/,
+      # which no cache tooling reaches. Copy them to the cache root before
+      # compress-old-cache archives that root. Self-throttled to 30 min, so
+      # running it per-tool-call is cheap.
+      {
+        type = "command";
+        command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/sweep-agent-assets"'';
+        timeoutSec = 30;
+      }
     ];
   };
   copilotLogSkillHook = builtins.toJSON {
@@ -85,6 +94,12 @@
         command = ''bash "${xdgBinHome}/ai-tools/compress-old-cache"'';
         env.AGENT_NAME = "copilot";
         timeout = 20;
+      }
+      {
+        type = "command";
+        command = ''bash "${xdgBinHome}/ai-tools/sweep-agent-assets"'';
+        env.AGENT_NAME = "copilot";
+        timeout = 30;
       }
     ];
   };
@@ -353,6 +368,7 @@
     "log-instructions.sh"
     "log-skill.sh"
     "log-thinking.sh"
+    "sweep-agent-assets"
   ];
 in {
   nixpkgs.config = {
@@ -583,6 +599,17 @@ in {
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
           jq \
             '.hooks.SessionEnd |= (. // []) + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/ai-tools/claude-cache-stats","async":true}]}]' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+        # SessionEnd: copy agent-written assets into the cache root. Claude
+        # spills large tool output to projects/<slug>/<session>/tool-results/
+        # and scratch files to $TMPDIR/claude-<uid>/**/scratchpad/ — both below
+        # the depth cache-scan reads, so neither is discoverable without this.
+        # Copies rather than moves; the harness still owns those directories.
+        if ! jq -e '.hooks.SessionEnd[]? | .hooks[]? | select(.command | test("sweep-agent-assets"))' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq \
+            '.hooks.SessionEnd |= (. // []) + [{"hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/ai-tools/sweep-agent-assets\"","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
         # Claude reasoning capture via log-thinking.sh is DISABLED. Claude Code

@@ -30,6 +30,16 @@
                     }
                 ]
             }
+        ],
+        "SessionEnd": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "$HOME/.local/bin/ai-tools/sweep-agent-assets"
+                    }
+                ]
+            }
         ]
     }
 }
