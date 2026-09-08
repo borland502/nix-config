@@ -18,3 +18,10 @@
 .local/bin/technitium-dash
 .local/bin/wordgen
 .local/bin/gopwgen
+
+# Their source checkouts, too. Both upstream repos were deleted when the
+# sources moved into pkgs/, so the externals that cloned them failed on every
+# apply; the external entries are gone and these leftover clones are dead
+# weight. Content is preserved in pkgs/wordgen and pkgs/gopwgen.
+.local/src/wordgen
+.local/src/gopwgen
