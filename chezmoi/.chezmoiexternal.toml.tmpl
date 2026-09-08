@@ -2,25 +2,17 @@
 # Source checkouts for borland502 Go CLIs. The companion script
 # run_install-go-tools.sh.tmpl builds binaries from these into ~/.local/bin.
 #
+# wordgen and gopwgen are deliberately absent: their upstream repos were
+# deleted when the sources moved into pkgs/, so cloning them failed on every
+# apply. They now build from the flake via localPackagesOverlay, and
+# .chezmoiremove deletes the stale ~/.local/bin copies that would otherwise
+# shadow the Nix ones. go-sea has no pkgs/ equivalent, so it stays here.
+#
 # chezmoi pulls each repo on first apply, then re-pulls once refreshPeriod
 # has elapsed. Run `chezmoi update` (alias for `chezmoi apply --refresh-externals`)
 # to force a refresh sooner.
 #
 # refreshPeriod is set to 720h (~1 month) across all externals.
-
-[".local/src/wordgen"]
-    type = "git-repo"
-    url = "https://github.com/borland502/wordgen.git"
-    refreshPeriod = "720h"
-    [".local/src/wordgen".pull]
-        args = ["--ff-only"]
-
-[".local/src/gopwgen"]
-    type = "git-repo"
-    url = "https://github.com/borland502/gopwgen.git"
-    refreshPeriod = "720h"
-    [".local/src/gopwgen".pull]
-        args = ["--ff-only"]
 
 [".local/src/go-sea"]
     type = "git-repo"

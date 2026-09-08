@@ -33,7 +33,11 @@ bin_dir="${HOME}/.local/bin"
 state_dir="${HOME}/.local/state/go-tools"
 mkdir -p "$bin_dir" "$state_dir"
 
-names=(wordgen gopwgen go-sea)
+# wordgen and gopwgen build from the flake (pkgs/) now. Leaving them here
+# re-created ~/.local/bin/<name> on every apply, immediately undoing the
+# .chezmoiremove entries that exist to stop those copies shadowing the Nix
+# binaries — the two mechanisms fought, and the stale copy always won.
+names=(go-sea)
 
 for name in "${names[@]}"; do
   dir="${src_root}/${name}"
