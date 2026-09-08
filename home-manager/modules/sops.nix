@@ -101,21 +101,32 @@ in {
         mode = "0600";
       };
 
-      # KeePassXC master password.  The database at
-      # ~/.local/share/keypass/secrets.kdbx needs all three of password, key
-      # file (~/.local/state/keepass/secrets.keyx) and a YubiKey slot-2
-      # challenge-response; only the password is a secret this repo can hold.
-      # The key file is deliberately kept out of sops: it is mirrored to Drive
-      # by sync-to-gdrive for portability, so putting it here would create a
-      # second, diverging copy.
+      # KeePassXC composite key. The vault at ~/gdrive/keepass/secrets.kdbx
+      # needs all three of master password, key file and a YubiKey slot-2
+      # challenge-response. Two of the three are carried here; the YubiKey is
+      # the factor that never leaves hardware, and is what makes holding the
+      # other two acceptable at all.
       #
       # mode 0600 rather than sops-nix's 0400 default, for the same reason as
-      # alisaie/smb_password: ~/.local/bin/keepass redirects this file onto
-      # keepassxc-cli's stdin on every call, and 0400 invites a later "fix"
-      # that rewrites it wholesale.
+      # alisaie/smb_password: ~/.local/bin/keepass feeds these to
+      # keepassxc-cli on every call, and 0400 invites a later "fix" that
+      # rewrites them wholesale.
       "keepassxc/master_password" = {
         sopsFile = ../../secrets/keepassxc.yaml;
         path = "${config.home.homeDirectory}/.config/keepass/password";
+        mode = "0600";
+      };
+
+      # The key file was previously kept OUT of sops, on the reasoning that
+      # sync-to-gdrive already mirrored it to Drive and a second copy would
+      # diverge. That had two costs: darwin ended up with no key file at all,
+      # so `keepass` could not run there, and it parked a second composite-key
+      # factor next to the vault on Drive. It is carried here instead, and the
+      # Drive copy is retired once this has materialized on both hosts — see
+      # ~/.cache/claude/2026-09-08-keepass-vault-unification-plan.md.
+      "keepassxc/key_file" = {
+        sopsFile = ../../secrets/keepassxc.yaml;
+        path = "${config.home.homeDirectory}/.local/state/keepass/secrets.keyx";
         mode = "0600";
       };
 

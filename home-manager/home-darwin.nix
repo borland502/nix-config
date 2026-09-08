@@ -1,4 +1,5 @@
 {
+  config,
   pkgs,
   lib,
   ...
@@ -184,6 +185,21 @@ in {
       # available through macOS's system CA bundle.
       SSL_CERT_FILE = "/etc/ssl/cert.pem";
     };
+
+    # ~/gdrive is the Drive root on every host, so one path —
+    # ~/gdrive/keepass/secrets.kdbx — resolves everywhere: the KeePass vault is
+    # opened in place there by both hosts and the phone, never copied. On Linux
+    # that path is an rclone FUSE mount (modules/rclone-mounts.nix); here it is
+    # a symlink into the Drive Desktop client's mount, which is precisely what
+    # makes macFUSE unnecessary — rclone mount on darwin needs a kernel
+    # extension behind a reboot and a security prompt, which is why
+    # rclone-mounts.nix is Linux-only.
+    #
+    # mkOutOfStoreSymlink, not a plain `source`: the target must stay a live
+    # path. A plain source would copy the whole of Drive into /nix/store.
+    file."gdrive".source =
+      config.lib.file.mkOutOfStoreSymlink
+      "${config.home.homeDirectory}/Library/CloudStorage/GoogleDrive-jhettenh@gmail.com/My Drive";
 
     activation = {
       # Remove stale *.instructions.md files from macOS skill/agent bridge
