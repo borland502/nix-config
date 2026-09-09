@@ -1020,7 +1020,14 @@ in {
             exit 1
           ''
         ];
-        StartInterval = 14400;
+        # Kion issues a four-hour session (the API returns duration = 14400),
+        # so refreshing every 14400s left exactly zero margin: each run landed
+        # as the previous session died, and any drift — a late run, a sleeping
+        # laptop, a slow call — put expired credentials on disk. Halving the
+        # interval keeps a valid session in ~/.aws/credentials continuously
+        # instead of instantaneously. `kac ensure` still refreshes on demand for
+        # shells; this is what non-shell consumers depend on.
+        StartInterval = 7200;
         StandardOutPath = "${xdgCacheHome}/kion-aws-refresh.log";
         StandardErrorPath = "${xdgCacheHome}/kion-aws-refresh.log";
       };

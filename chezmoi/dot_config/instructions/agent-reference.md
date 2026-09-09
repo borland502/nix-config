@@ -98,11 +98,15 @@ Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
 - **Confluence**: token at `~/.config/confluence/token`, base URL at
   `~/.config/confluence/base-url` (same SOPS source)
 - **AWS**: `~/.aws/config` and `~/.aws/credentials`; Kion session cache at
-  `~/.cache/kion-aws-cache/`. Credentials in `~/.aws/credentials`,
-  `AWS_PROFILE`, and `aws --profile <name>` are frequently stale and produce
-  `ExpiredTokenException`.
-  Source `kac` (must be sourced; works from bash or zsh) to load from cache or
-  refresh automatically via `kion-aws-refresh` if the cache is stale:
+  `~/.cache/kion-aws-cache/`. `kion-aws-refresh` now maintains **both**: it
+  writes the cache and mirrors the same session into `~/.aws/credentials` as
+  the `default` and `<account>_<car>` profiles, every two hours against a
+  four-hour Kion session. So an SDK, IDE, container or launchd job that cannot
+  inherit a sourced shell reads valid credentials from the file directly — that
+  is the supported path for non-shell consumers, and it no longer needs `kac`.
+  What the file cannot promise is freshness *at the moment you call*: it is
+  only as current as the last timer run. For a shell, still source `kac`, which
+  validates live and refreshes on demand:
 
   ```sh
   source ~/.local/bin/kac ensure
@@ -110,11 +114,13 @@ Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
 
   Do this **before** the first `aws` call, not after one fails, and gate on its
   exit code — for a one-shot, chain both:
-  `zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws …'`. Do **not**
-  `cat` the cache files into `export`s (no freshness guarantee — the observed
-  stale-creds anti-pattern; `kac ensure` reads the same files and validates
-  them). Do not `aws sso login` or `find`/`zstdcat` for the cache path; `kac`
-  owns it.
+  `zsh -lc 'source ~/.local/bin/kac ensure >/dev/null && aws …'`. On
+  `ExpiredTokenException`, re-source `kac` rather than editing
+  `~/.aws/credentials`: that file is machine-written and a hand edit is
+  overwritten within two hours. Do **not** `cat` the cache files into `export`s
+  (no freshness guarantee — the observed stale-creds anti-pattern; `kac ensure`
+  reads the same files and validates them). Do not `aws sso login` or
+  `find`/`zstdcat` for the cache path; `kac` owns it.
 
 - **GitHub (gh CLI)**: `~/.config/gh/hosts.yml`
 - **SOPS age key** (decrypts all nix-managed secrets):

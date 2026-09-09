@@ -1,3 +1,4 @@
+import configparser
 import contextlib
 import fcntl
 import importlib.machinery
@@ -453,6 +454,63 @@ class KionAwsRefreshTests(unittest.TestCase):
                 for credential in (*NEW_CREDENTIALS.values(), "fixture-app-key"):
                     self.assertNotIn(credential, output.getvalue())
                 opener.assert_called_once()
+
+    def test_aws_credentials_file_preserves_unrelated_profiles(self):
+        aws_path = self.home_dir / ".aws" / "credentials"
+        aws_path.parent.mkdir(parents=True)
+        aws_path.write_text(
+            "[someone-elses-profile]\naws_access_key_id = keep-me\n", encoding="utf-8"
+        )
+
+        self.module.write_aws_credentials_file(
+            aws_path, NEW_CREDENTIALS, "123456789012", "fixture-car"
+        )
+
+        parser = configparser.RawConfigParser()
+        parser.read(aws_path, encoding="utf-8")
+        # The file belongs to the user; a refresh must not truncate profiles
+        # this tool knows nothing about.
+        self.assertEqual(parser["someone-elses-profile"]["aws_access_key_id"], "keep-me")
+        for profile in ("default", "123456789012_fixture-car"):
+            self.assertEqual(
+                parser[profile]["aws_access_key_id"], NEW_CREDENTIALS["access_key"]
+            )
+            self.assertEqual(
+                parser[profile]["aws_session_token"], NEW_CREDENTIALS["session_token"]
+            )
+        self.assertEqual(aws_path.stat().st_mode & 0o777, 0o600)
+
+    def test_aws_credentials_file_failure_does_not_fail_the_refresh(self):
+        self.settings(
+            "cloudtamer.example.test",
+            "fixture-app-key",
+            "123456789012",
+            "fixture-alias",
+            "fixture-car",
+            load=False,
+        )
+        # ~/.aws occupied by a regular file: mkdir raises, the mirror fails.
+        (self.home_dir / ".aws").write_text("not a directory", encoding="utf-8")
+
+        output = io.StringIO()
+        opener = Mock(return_value=FakeResponse(201, {"status": 201, "data": NEW_CREDENTIALS}))
+        with (
+            patch.object(
+                self.module.pathlib.Path, "home", return_value=self.home_dir
+            ),
+            patch.object(self.module.request_credentials, "__defaults__", (opener,)),
+            contextlib.redirect_stdout(output),
+            contextlib.redirect_stderr(output),
+        ):
+            # The cache is the contract kac loads from; a credentials-file
+            # problem must not take the shell path down with it.
+            self.assertEqual(self.module.main(), 0)
+
+        rendered = output.getvalue()
+        self.assertIn("warning", rendered.lower())
+        self.assertIn("completed", rendered.lower())
+        for credential in (*NEW_CREDENTIALS.values(), "fixture-app-key"):
+            self.assertNotIn(credential, rendered)
 
     def test_main_reports_the_chained_status_without_the_app_key(self):
         self.settings(
