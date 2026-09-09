@@ -1,3 +1,4 @@
+import configparser
 import contextlib
 import fcntl
 import importlib.machinery
@@ -7,7 +8,9 @@ import json
 import os
 import pathlib
 import tempfile
+import time
 import unittest
+import urllib.error
 from unittest.mock import Mock, patch
 
 
@@ -451,6 +454,160 @@ class KionAwsRefreshTests(unittest.TestCase):
                 for credential in (*NEW_CREDENTIALS.values(), "fixture-app-key"):
                     self.assertNotIn(credential, output.getvalue())
                 opener.assert_called_once()
+
+    def test_aws_credentials_file_preserves_unrelated_profiles(self):
+        aws_path = self.home_dir / ".aws" / "credentials"
+        aws_path.parent.mkdir(parents=True)
+        aws_path.write_text(
+            "[someone-elses-profile]\naws_access_key_id = keep-me\n", encoding="utf-8"
+        )
+
+        self.module.write_aws_credentials_file(
+            aws_path, NEW_CREDENTIALS, "123456789012", "fixture-car"
+        )
+
+        parser = configparser.RawConfigParser()
+        parser.read(aws_path, encoding="utf-8")
+        # The file belongs to the user; a refresh must not truncate profiles
+        # this tool knows nothing about.
+        self.assertEqual(parser["someone-elses-profile"]["aws_access_key_id"], "keep-me")
+        for profile in ("default", "123456789012_fixture-car"):
+            self.assertEqual(
+                parser[profile]["aws_access_key_id"], NEW_CREDENTIALS["access_key"]
+            )
+            self.assertEqual(
+                parser[profile]["aws_session_token"], NEW_CREDENTIALS["session_token"]
+            )
+        self.assertEqual(aws_path.stat().st_mode & 0o777, 0o600)
+
+    def test_aws_credentials_file_failure_does_not_fail_the_refresh(self):
+        self.settings(
+            "cloudtamer.example.test",
+            "fixture-app-key",
+            "123456789012",
+            "fixture-alias",
+            "fixture-car",
+            load=False,
+        )
+        # ~/.aws occupied by a regular file: mkdir raises, the mirror fails.
+        (self.home_dir / ".aws").write_text("not a directory", encoding="utf-8")
+
+        output = io.StringIO()
+        opener = Mock(return_value=FakeResponse(201, {"status": 201, "data": NEW_CREDENTIALS}))
+        with (
+            patch.object(
+                self.module.pathlib.Path, "home", return_value=self.home_dir
+            ),
+            patch.object(self.module.request_credentials, "__defaults__", (opener,)),
+            contextlib.redirect_stdout(output),
+            contextlib.redirect_stderr(output),
+        ):
+            # The cache is the contract kac loads from; a credentials-file
+            # problem must not take the shell path down with it.
+            self.assertEqual(self.module.main(), 0)
+
+        rendered = output.getvalue()
+        self.assertIn("warning", rendered.lower())
+        self.assertIn("completed", rendered.lower())
+        for credential in (*NEW_CREDENTIALS.values(), "fixture-app-key"):
+            self.assertNotIn(credential, rendered)
+
+    def test_main_reports_the_chained_status_without_the_app_key(self):
+        self.settings(
+            "cloudtamer.example.test",
+            "fixture-app-key",
+            "123456789012",
+            "fixture-alias",
+            "fixture-car",
+            load=False,
+        )
+        # A dead App API key is the common case, and 401 is the only thing that
+        # distinguishes it from a wrong account or CAR. Losing that status to a
+        # generic "refresh failed" is what this asserts against.
+        unauthorized = urllib.error.HTTPError(
+            "https://cloudtamer.example.test/api/v3/temporary-credentials/cloud-access-role",
+            401,
+            "Unauthorized",
+            {},
+            None,
+        )
+
+        def raise_unauthorized(*_args, **_kwargs):
+            raise unauthorized
+
+        output = io.StringIO()
+        with (
+            patch.object(
+                self.module.pathlib.Path, "home", return_value=self.home_dir
+            ),
+            patch.object(
+                self.module.request_credentials,
+                "__defaults__",
+                (raise_unauthorized,),
+            ),
+            contextlib.redirect_stdout(output),
+            contextlib.redirect_stderr(output),
+        ):
+            self.assertEqual(self.module.main(), 1)
+
+        rendered = output.getvalue()
+        self.assertIn("failed", rendered.lower())
+        self.assertIn("401", rendered)
+        self.assertNotIn("fixture-app-key", rendered)
+
+    def test_main_warns_before_an_unrotated_key_expires(self):
+        self.settings(
+            "cloudtamer.example.test",
+            "fixture-app-key",
+            "123456789012",
+            "fixture-alias",
+            "fixture-car",
+            load=False,
+        )
+        stale = time.time() - (self.module.APP_KEY_WARN_AGE_DAYS + 1) * 86400
+        os.utime(self.kion_path, (stale, stale))
+
+        output = io.StringIO()
+        opener = Mock(return_value=FakeResponse(201, {"status": 201, "data": NEW_CREDENTIALS}))
+        with (
+            patch.object(
+                self.module.pathlib.Path, "home", return_value=self.home_dir
+            ),
+            patch.object(self.module.request_credentials, "__defaults__", (opener,)),
+            contextlib.redirect_stdout(output),
+            contextlib.redirect_stderr(output),
+        ):
+            self.assertEqual(self.module.main(), 0)
+
+        rendered = output.getvalue()
+        # The warning has to survive an otherwise successful run: a stalled
+        # rotation is invisible until the key dies, and by then it is too late.
+        self.assertIn("days old", rendered)
+        self.assertNotIn("fixture-app-key", rendered)
+
+    def test_main_is_quiet_about_a_freshly_rotated_key(self):
+        self.settings(
+            "cloudtamer.example.test",
+            "fixture-app-key",
+            "123456789012",
+            "fixture-alias",
+            "fixture-car",
+            load=False,
+        )
+
+        output = io.StringIO()
+        opener = Mock(return_value=FakeResponse(201, {"status": 201, "data": NEW_CREDENTIALS}))
+        with (
+            patch.object(
+                self.module.pathlib.Path, "home", return_value=self.home_dir
+            ),
+            patch.object(self.module.request_credentials, "__defaults__", (opener,)),
+            contextlib.redirect_stdout(output),
+            contextlib.redirect_stderr(output),
+        ):
+            self.assertEqual(self.module.main(), 0)
+
+        self.assertNotIn("days old", output.getvalue())
 
     def test_write_cache_failure_before_publish_preserves_original_generation(self):
         original_generation = self.create_generation(
