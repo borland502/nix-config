@@ -38,31 +38,19 @@
   # Git worktree management: not in nixpkgs' vscode-extensions set, so pinned
   # from the marketplace like sublimeKeymap above. jackiotyu.git-worktree-manager
   # is the most-installed genuine worktree manager (30.3k installs, 5.0/8
-  # ratings, last published 2026-08-11); GitWorktrees.git-worktrees is second at
-  # 22.6k. letmaik.git-tree-compare outranks both on a "worktree" search with
-  # 253k installs but is unrelated — it diffs the working tree against a branch
-  # and manages no worktrees.
+  # ratings, last published 2026-08-11). It is the only worktree extension
+  # declared here, on every profile including default: GitWorktrees.git-worktrees
+  # (second at 22.6k) was dropped because its publisher ID names nobody and the
+  # .vsix leaves author/homepage/bugs null — the only attribution is the repo
+  # owner and an MIT copyright line. letmaik.git-tree-compare outranks both on a
+  # "worktree" search with 253k installs but is unrelated — it diffs the working
+  # tree against a branch and manages no worktrees.
   gitWorktreeManager = pkgs.vscode-utils.extensionsFromVscodeMarketplace [
     {
       name = "git-worktree-manager";
       publisher = "jackiotyu";
       version = "3.27.0";
       sha256 = "sha256-L1Hpv/d8lRNCEhy64s4G3l1KK9u7xV5pGqNEECDKwHc=";
-    }
-  ];
-
-  # The worktree extension actually in use on the default profile. Declared
-  # separately from gitWorktreeManager above so the language profiles keep
-  # jackiotyu and the default profile gets this one; previously the default
-  # profile had no worktree extension at all and this was hand-installed from
-  # the marketplace, which does not survive a switch once any non-default
-  # profile is declared (see the note at the bottom of this file).
-  gitWorktrees = pkgs.vscode-utils.extensionsFromVscodeMarketplace [
-    {
-      name = "git-worktrees";
-      publisher = "GitWorktrees";
-      version = "2.16.0";
-      sha256 = "sha256-wCGXBsQwfdCCZfuSFO9hPKWVbJyXgI/5wHuC2F/noD8=";
     }
   ];
 
@@ -100,6 +88,7 @@
   languageProfileBase =
     (with pkgs.vscode-extensions; [
       mhutchie.git-graph
+      donjayamanne.githistory
       pkief.material-icon-theme
       usernamehw.errorlens
       editorconfig.editorconfig
@@ -198,9 +187,11 @@
       userSettings =
         baseUserSettings
         // {
-          # No JDK is on PATH in this config, and jdt.ls will not start without
-          # one. Point it at the Nix JDK directly rather than adding a ~300 MB
-          # java/javac to every host's user profile.
+          # home-darwin.nix now puts pkgs.jdk on PATH, but jdt.ls is still pinned to
+          # the store path explicitly: VS Code launched from the Dock inherits
+          # launchd's environment, not the shell's, so PATH is not a reliable
+          # way to hand the language server a JDK. Pinning also keeps the
+          # server on 21 (its minimum) no matter what a workspace puts first.
           "java.jdt.ls.java.home" = pkgs.jdk.home;
           "java.import.gradle.java.home" = pkgs.jdk.home;
           "java.configuration.runtimes" = [
@@ -426,11 +417,18 @@ in {
   programs.vscode = lib.mkIf vscodeEnabled {
     profiles =
       {
-        # Kept deliberately lean: Git Graph, the Material icon theme, and
-        # Tailwind IntelliSense now live only in the language profiles that
-        # actually need them.
+        # Kept deliberately lean: the Material icon theme and Tailwind
+        # IntelliSense live only in the language profiles that actually need
+        # them. The git tooling is the exception — the two history viewers
+        # below, plus the sublimeKeymap and gitWorktreeManager appended after
+        # this list, are wanted everywhere, so they duplicate what
+        # languageProfileBase already gives the language profiles.
         default.extensions =
           (with pkgs.vscode-extensions; [
+            # Git history
+            mhutchie.git-graph
+            donjayamanne.githistory
+
             # Python development
             ms-python.python
 
@@ -445,7 +443,7 @@ in {
             tamasfe.even-better-toml
           ])
           ++ sublimeKeymap
-          ++ gitWorktrees;
+          ++ gitWorktreeManager;
       }
       // languageProfiles;
     # Never declared here, and no longer present after a switch either: the
