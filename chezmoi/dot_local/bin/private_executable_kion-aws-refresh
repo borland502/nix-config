@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import configparser
 import contextlib
 import json
 import os
@@ -37,6 +38,18 @@ CACHE_FILES = {
     "session_token": "AWS_SESSION_TOKEN",
 }
 ENDPOINT = "/api/v3/temporary-credentials/cloud-access-role"
+
+# Kion hands back a four-hour session (the API's own `duration`, 14400s). The
+# cache under ~/.cache/kion-aws-cache stays the contract kac loads from, but it
+# only reaches processes that inherit a shell which sourced it. GUI apps, IDEs,
+# launchd jobs and containers read the SDK-native file instead, so mirror the
+# same session there. Profiles: `default` so an un-configured caller just
+# works, plus <account>_<car> for explicit selection.
+AWS_CREDENTIALS_KEYS = (
+    ("aws_access_key_id", "access_key"),
+    ("aws_secret_access_key", "secret_access_key"),
+    ("aws_session_token", "session_token"),
+)
 
 
 class RefreshError(Exception):
@@ -640,6 +653,67 @@ def _warn_if_app_key_is_stale(key_path: pathlib.Path) -> None:
     )
 
 
+def write_aws_credentials_file(
+    path: pathlib.Path, credentials: dict[str, str], account: str, car: str
+) -> None:
+    """Mirror the session into ~/.aws/credentials without disturbing anything else.
+
+    Read-modify-write through configparser rather than truncating: the file is
+    the user's, and may carry profiles this tool knows nothing about. The write
+    is staged through a temp file in the same directory and published with
+    os.replace, so a crash mid-write cannot leave a half-written credentials
+    file behind — the same discipline write_cache uses.
+    """
+
+    parser = configparser.RawConfigParser()
+    if path.exists():
+        try:
+            parser.read(path, encoding="utf-8")
+        except (OSError, configparser.Error) as error:
+            raise RefreshError(
+                "Existing AWS credentials file could not be read"
+            ) from error
+
+    # The CAR arrives as a display name ("MDP Developer Admin"), and a profile
+    # with spaces in it is legal but miserable to pass on a command line. Slug
+    # it to match the convention already present in these files.
+    profiles = ["default"]
+    derived = "_".join(
+        slug
+        for slug in (
+            re.sub(r"[^A-Za-z0-9]+", "-", part).strip("-").lower()
+            for part in (account, car)
+        )
+        if slug
+    )
+    if derived and derived not in profiles:
+        profiles.append(derived)
+
+    for profile in profiles:
+        if not parser.has_section(profile):
+            parser.add_section(profile)
+        for option, credential_key in AWS_CREDENTIALS_KEYS:
+            parser.set(profile, option, credentials[credential_key])
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=str(path.parent), prefix=".credentials."
+        )
+        temporary_path = pathlib.Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                parser.write(handle)
+            os.chmod(temporary_path, 0o600)
+            os.replace(temporary_path, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                temporary_path.unlink()
+            raise
+    except OSError as error:
+        raise RefreshError("AWS credentials file could not be written") from error
+
+
 def main() -> int:
     home_dir = pathlib.Path.home()
     key_path = home_dir / ".kion.yml"
@@ -658,6 +732,19 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    # Deliberately non-fatal: the cache is what kac loads and what this tool
+    # promises. A credentials file that could not be written is worth a warning,
+    # not a failed refresh that would leave the shell path broken too.
+    try:
+        write_aws_credentials_file(
+            home_dir / ".aws" / "credentials", credentials, settings[2], settings[4]
+        )
+    except RefreshError as error:
+        print(
+            f"Warning: {_cause_summary(error, secrets)}",
+            file=sys.stderr,
+        )
 
     print("Kion AWS credential refresh completed.")
     return 0

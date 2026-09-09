@@ -112,7 +112,7 @@ The key expires on an absolute clock of roughly **seven days from issuance** —
 
 ## Don't
 
-- **Don't fix this in `~/.aws/credentials`, `AWS_PROFILE`, or `aws sso login`.** Kion owns auth; those are the stale-credential trap (see sec-credentials).
+- **Don't hand-edit `~/.aws/credentials`, and don't reach for `aws sso login`.** `kion-aws-refresh` writes that file from the same session it caches, so an edit is overwritten within two hours and a dead App API key stops both paths at once. Kion owns auth (see sec-credentials).
 - **Don't `cat` the cache files into `export`s** — no freshness guarantee.
 - **Don't re-run `kac ensure` hoping it self-heals** a 401. It cannot. Two failures in a row means read the status.
 - **Don't stop at "the job exists".** `launchctl list` showing the label proves registration, not execution — read `runs` and `last exit reason`.

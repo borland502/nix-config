@@ -31,7 +31,14 @@ Use this skill when a task needs a credential and you don't yet know where to fi
 
 ## AWS credentials (Kion)
 
-**Do not trust `~/.aws/credentials`, `AWS_PROFILE`, or `aws --profile <name>`** — the `--profile` flag is the same stale-credential path as the env var — they are usually stale and produce `ExpiredTokenException`. The live AWS session lives in the Kion credential cache at `~/.cache/kion-aws-cache/`. Prefer the `kac` helper, which loads from that cache and auto-refreshes via `kion-aws-refresh` when it's empty or expired:
+`kion-aws-refresh` maintains two copies of the same session: the Kion cache at `~/.cache/kion-aws-cache/`, and `~/.aws/credentials` as the `default` and `<account>_<car>` profiles. It runs every two hours against a four-hour Kion session, so the file is normally valid.
+
+**Which one to use depends on who is calling.**
+
+- **A process that cannot inherit a sourced shell** — an SDK, IDE, container, launchd job, or anything started before you sourced anything — reads `~/.aws/credentials` natively and needs no help. This is the supported path; don't contort it into sourcing `kac`.
+- **A shell — including yours** — should still source `kac`. The file is only as fresh as the last timer run; `kac ensure` validates live and refreshes at the moment of the call. That difference is why the interval is half the session length rather than equal to it.
+
+Never hand-edit `~/.aws/credentials` to fix an expiry: it is machine-written and your edit is gone within two hours. Re-source `kac` instead.
 
 ```bash
 # Preferred: load valid creds into the current shell (must be sourced; works
@@ -75,7 +82,7 @@ Anti-patterns (observed wasting time in real sessions):
   pattern. `kac ensure` reads the same files *and* validates/refreshes them;
   there is no situation where the raw `cat` is the better move.
 
-If an `aws` call fails with an expired-token error, the inherited env vars (`AWS_ACCESS_KEY_ID`, etc.) are likely overriding the cache — clear them and re-source `kac` rather than editing `~/.aws/credentials`. Full `kac` subcommand reference is in `agent-reference.md`.
+If an `aws` call fails with an expired-token error, the inherited env vars (`AWS_ACCESS_KEY_ID`, etc.) are likely overriding both the cache and the file — clear them and re-source `kac`. If it fails with no AWS env vars set, the App API key underneath has probably died; see **sec-kion-credential-recovery**. Full `kac` subcommand reference is in `agent-reference.md`.
 
 ## Quick checks
 
