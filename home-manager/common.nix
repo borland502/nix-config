@@ -178,6 +178,10 @@
     gcc
     pkg-config
     go-task
+    # maven is shared, but the JDK it runs on is not: `jdk` lives in
+    # home-darwin.nix, since only the Mac does Java work today. Nix's maven
+    # wrapper carries its own JDK reference, so `mvn` works on the Linux and
+    # WSL hosts even with no `java` on PATH there.
     maven
 
     # Go toolchain

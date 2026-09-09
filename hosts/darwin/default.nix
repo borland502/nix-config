@@ -323,8 +323,6 @@ in {
     # Casks that must stay in Homebrew (2026-07-09 audit — everything else
     # migrated to systemPackages above):
     #   vivaldi/chromium        no aarch64-darwin build in nixpkgs
-    #   corretto@11             corretto11 attr isn't aarch64-darwin; swap to
-    #                           temurin-bin-11 only after checking the consumer
     #   jetbrains-toolbox       self-updater fights the read-only nix store
     #   keepassxc               nixpkgs aarch64-darwin build doesn't detect the
     #                           YubiKey/hardware key even with the recommended
@@ -333,8 +331,10 @@ in {
     # Homebrew stable + insiders casks were dropped 2026-07-10: two VS Code
     # versions racing on one ~/Library/Application Support/Code profile corrupted
     # webview service workers, and nixpkgs has no insiders channel to keep synced.
+    # corretto@11 was dropped 2026-09-08 together with SDKMAN: the only JDK is
+    # now pkgs.jdk (Zulu 21), and Java 11 output comes from `--release 11` in a
+    # project's own build files rather than a second JDK on the machine.
     casks = [
-      "corretto@11" # AWS Corretto 11 JDK for Java tooling compatibility
       "chromium" # Chromium Browser
       "jetbrains-toolbox" # JetBrains Toolbox
       "keepassxc" # Password manager — Homebrew build detects the YubiKey

@@ -187,9 +187,11 @@
       userSettings =
         baseUserSettings
         // {
-          # No JDK is on PATH in this config, and jdt.ls will not start without
-          # one. Point it at the Nix JDK directly rather than adding a ~300 MB
-          # java/javac to every host's user profile.
+          # home-darwin.nix now puts pkgs.jdk on PATH, but jdt.ls is still pinned to
+          # the store path explicitly: VS Code launched from the Dock inherits
+          # launchd's environment, not the shell's, so PATH is not a reliable
+          # way to hand the language server a JDK. Pinning also keeps the
+          # server on 21 (its minimum) no matter what a workspace puts first.
           "java.jdt.ls.java.home" = pkgs.jdk.home;
           "java.import.gradle.java.home" = pkgs.jdk.home;
           "java.configuration.runtimes" = [

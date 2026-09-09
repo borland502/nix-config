@@ -157,6 +157,14 @@
     zoom-us # Zoom has a clean Nix path on darwin, so no Homebrew cask needed
     kitty # default terminal; stylix themes it and kitty.conf is managed here
     mermaidCli # mmdc — mermaid diagram renderer (Chrome-wrapped above)
+
+    # `java`/`javac` on PATH for the Mac's Java work, and the JDK the shared
+    # maven from common.nix runs on. Darwin-only for now: the Linux and WSL
+    # hosts do no Java work, and maven's wrapper finds its own JDK there.
+    # SDKMAN used to supply this and was dropped 2026-09-08. On darwin pkgs.jdk
+    # is Azul's Zulu 21 — the same store path modules/vscode-profiles.nix pins
+    # jdt.ls to, so the editor and the shell cannot disagree about versions.
+    jdk
   ]);
 in {
   _module.args.isWsl = lib.mkDefault false;
@@ -220,27 +228,15 @@ in {
         fi
       '';
 
-      # Install SDKMAN! on macOS so Java toolchains can be managed declaratively
-      installSdkman = lib.hm.dag.entryAfter ["writeBoundary"] ''
-        sdkman_dir="$HOME/.sdkman"
-        if [ ! -s "$sdkman_dir/bin/sdkman-init.sh" ]; then
-          echo "Installing SDKMAN! into $sdkman_dir"
-          tmp_home="$(${pkgs.coreutils}/bin/mktemp -d)"
-          cleanup() {
-            ${pkgs.coreutils}/bin/rm -rf "$tmp_home"
-          }
-          trap cleanup EXIT INT TERM
-          install_env_path="${pkgs.unzip}/bin:${pkgs.zip}/bin:${pkgs.gnutar}/bin:${pkgs.curl}/bin:${pkgs.coreutils}/bin:${pkgs.gnused}/bin:${pkgs.gawk}/bin:$PATH"
-          env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
-            ${pkgs.curl}/bin/curl -sSf "https://get.sdkman.io?rcupdate=false" -o "$tmp_home/install-sdkman.sh"
-          env PATH="$install_env_path" HOME="$tmp_home" ZDOTDIR="$tmp_home" SDKMAN_DIR="$sdkman_dir" \
-            ${pkgs.bash}/bin/bash "$tmp_home/install-sdkman.sh"
-          cleanup
-          trap - EXIT INT TERM
-        else
-          echo "SDKMAN! already present"
-        fi
-      '';
+      # SDKMAN! was removed on 2026-09-08. It installed itself by curling
+      # get.sdkman.io outside the store, and its shell init prepended
+      # ~/.sdkman/candidates to PATH — which shadowed the Nix-managed maven
+      # from common.nix and made JAVA_HOME point at a JDK 11 that no longer
+      # meets redhat.java's minimum of 21. The single JDK is now pkgs.jdk
+      # (Zulu 21 on darwin), referenced by path from modules/vscode-profiles.nix;
+      # Nix's maven wrapper finds it with no JAVA_HOME set. Projects that must
+      # emit Java 11 bytecode do it with `--release 11` in their own build
+      # files, which needs no JDK 11 on the machine.
 
       # Keep Node.js off Homebrew on macOS; install the latest release through nvm instead.
       installNvmNode = lib.hm.dag.entryAfter ["writeBoundary"] ''
@@ -395,10 +391,9 @@ in {
       # Make sure locally installed CLI tools (pipx, npm, etc.) are reachable
       export PATH="$HOME/.local/bin:$PATH"
 
-      export SDKMAN_DIR="$HOME/.sdkman"
-      if [ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
-        source "$SDKMAN_DIR/bin/sdkman-init.sh"
-      fi
+      # No SDKMAN init here on purpose — see the note by installNvmNode above.
+      # Leaving it sourced would keep ~/.sdkman/candidates ahead of the Nix
+      # profile on PATH even after the installer is gone.
 
       export NVM_DIR="$HOME/.nvm"
       if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
