@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import tomllib
 import urllib.error
 import urllib.parse
@@ -21,6 +22,13 @@ from kion_aws_cache_lock import (  # noqa: E402
     CacheLockError,
     cache_lock,
 )
+
+
+# The App API key dies on an absolute clock measured from issuance, not after
+# a stretch of disuse: an observed key expired at 6d15h while this refresher
+# used it successfully every four hours throughout. Warn with two days to
+# spare so a stalled rotation is visible before it costs anyone AWS access.
+APP_KEY_WARN_AGE_DAYS = 5
 
 
 CACHE_FILES = {
@@ -590,16 +598,65 @@ def write_cache(cache_dir: pathlib.Path, credentials: dict[str, str]) -> None:
         _cleanup_stale_state(cache_dir)
 
 
+def _cause_summary(error: Exception, secrets: tuple[str, ...] = ()) -> str:
+    """Render an exception and its ``__cause__`` chain as one short line.
+
+    RefreshError deliberately carries a generic message, so the status that
+    actually identifies the fault — 401 for a dead App API key, 403/404 for a
+    wrong account or CAR — lives only on the chained cause. Without this the
+    caller sees "refresh failed" and has to reach for a debugger to learn
+    which of those it was.
+    """
+
+    parts = [str(error)]
+    cause = error.__cause__
+    while cause is not None:
+        label = type(cause).__name__
+        code = getattr(cause, "code", None)
+        if code is not None and str(code) not in str(cause):
+            label = f"{label} {code}"
+        parts.append(f"{label}: {str(cause)[:120]}")
+        cause = cause.__cause__
+
+    summary = " <- ".join(part for part in parts if part)
+    for secret in secrets:
+        if secret:
+            summary = summary.replace(secret, "***")
+    return summary[:400]
+
+
+def _warn_if_app_key_is_stale(key_path: pathlib.Path) -> None:
+    try:
+        age_days = (time.time() - key_path.stat().st_mtime) / 86400
+    except OSError:
+        return
+    if age_days < APP_KEY_WARN_AGE_DAYS:
+        return
+    print(
+        f"Warning: Kion App API key is {age_days:.1f} days old; rotation has "
+        "likely stalled and the key expires near seven days. Check the "
+        "kion-api-key-rotate agent.",
+        file=sys.stderr,
+    )
+
+
 def main() -> int:
     home_dir = pathlib.Path.home()
+    key_path = home_dir / ".kion.yml"
+    secrets: tuple[str, ...] = ()
+    _warn_if_app_key_is_stale(key_path)
     try:
         settings = load_settings(
-            home_dir / ".kion.yml", home_dir / ".config" / "gkion" / "config.toml"
+            key_path, home_dir / ".config" / "gkion" / "config.toml"
         )
+        secrets = (settings[1],)
         credentials = request_credentials(*settings)
         write_cache(home_dir / ".cache" / "kion-aws-cache", credentials)
-    except RefreshError:
-        print("Kion AWS credential refresh failed.", file=sys.stderr)
+    except RefreshError as error:
+        print(
+            f"Kion AWS credential refresh failed: {_cause_summary(error, secrets)}",
+            file=sys.stderr,
+        )
         return 1
 
     print("Kion AWS credential refresh completed.")
