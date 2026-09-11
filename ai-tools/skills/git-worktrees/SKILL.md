@@ -1,15 +1,15 @@
 ---
 name: git-worktrees
-description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback
+description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists in the one shared worktree location every harness and the editor agree on
 ---
 
 # Using Git Worktrees
 
 ## Overview
 
-Ensure work happens in an isolated workspace. Prefer your platform's native worktree tools. Fall back to manual git worktrees only when no native tool is available.
+Ensure work happens in an isolated workspace, in the one location every harness and the editor agree on.
 
-**Core principle:** Detect existing isolation first. Then use native tools. Then fall back to git. Never fight the harness.
+**Core principle:** Detect existing isolation first. Then pick the location yourself and create the worktree with git. Then let a native tool bind the session to it. Never let the harness pick the location — that is what scatters a repository's worktrees across per-harness directories nobody can enumerate.
 
 **Announce at start:** "I'm using the git-worktrees skill to set up an isolated workspace."
 
@@ -47,21 +47,16 @@ Honor any existing declared preference without asking. If the user declines cons
 
 ## Step 1: Create Isolated Workspace
 
-**You have two mechanisms. Try them in this order.**
+**Location is chosen first, on every harness. Then the worktree is created.
+Then the session is bound to it.** Do these three sub-steps in order.
 
-### 1a. Native Worktree Tools (preferred)
+Every harness must land worktrees in the *same* directory, so a native tool
+that also picks the location is used only for the binding in Step 1c — never to
+place the directory. A harness-chosen location is what splits one repository's
+worktrees across `.claude/worktrees/`, a per-harness cache, and the repo, until
+no tool and no human can see them all in one place.
 
-The user has asked for an isolated workspace (Step 0 consent). Do you already have a way to create a worktree? It might be a tool with a name like `EnterWorktree`, `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag. If you do, use it and skip to Step 2.
-
-Native tools handle directory placement, branch creation, and cleanup automatically. Using `git worktree add` when you have a native tool creates phantom state your harness can't see or manage.
-
-Only proceed to Step 1b if you have no native worktree tool available.
-
-### 1b. Git Worktree Fallback
-
-**Only use this if Step 1a does not apply** — you have no native worktree tool available. Create a worktree manually using git.
-
-#### Directory Selection
+### 1a. Directory Selection
 
 Follow this priority order. Explicit user preference always beats observed filesystem state.
 
@@ -70,25 +65,36 @@ Follow this priority order. Explicit user preference always beats observed files
    confirm it is already ignored. Reject an unignored repository-local
    preference; do not alter repository ignore rules.
 
-2. **Check for an existing project-local worktree directory:**
-   ```bash
-   ls -d .worktrees 2>/dev/null     # Preferred (hidden)
-   ls -d worktrees 2>/dev/null      # Alternative
-   ```
-   Use `.worktrees/` only when `git check-ignore -q .worktrees` succeeds;
-   otherwise use `worktrees/` only when `git check-ignore -q worktrees`
-   succeeds. If both qualify, `.worktrees/` wins.
+2. **`.worktrees/` at the repository root — the default.** Use it whenever
+   `git check-ignore -q .worktrees` succeeds, and **create it if it does not
+   exist yet**; an ignored directory is safe to create, and waiting for someone
+   else to create it first is what scattered these worktrees to begin with.
+   `.worktrees/` is ignored globally here (`~/.config/git/ignore`, set by
+   `programs.git.ignores` in the nix-config repo), so this normally succeeds in
+   every repository, including ones whose own `.gitignore` says nothing.
 
-3. **Otherwise, default outside the repository:**
-   `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>-<root-hash>`.
+   If a repository somehow un-ignores it, fall back to `worktrees/` only when
+   `git check-ignore -q worktrees` succeeds and it already exists.
+
+3. **Otherwise, outside the repository:**
+   `${XDG_CACHE_HOME:-$HOME/.cache}/git-worktrees/<repository>-<root-hash>`.
    The creation block calculates the physical root and collision-safe cache
-   location itself.
+   location itself. This path is deliberately harness-neutral: a Claude session
+   and a Copilot session working the same repository must arrive at the same
+   directory, so it is never `.../claude/...` or `.../copilot/...`.
 
 **Why critical:** A repository-local worktree must already be ignored to
 prevent accidental tracking. Cache fallback preserves that safety without
 modifying repository files.
 
-#### Create the Worktree
+**This directory is also what the editor uses.** The
+`jackiotyu.git-worktree-manager` VS Code extension is configured to propose
+`$BASE_PATH/.worktrees/$REF_NAME` (see
+`home-manager/lib/code-editor-user-settings.nix`), so a worktree made by hand
+in the editor lands beside the ones made here. Changing the priority above
+without changing that setting re-splits them.
+
+### 1b. Create the Worktree
 
 Run this entire block in one shell call so selection state cannot be lost
 between turns. Replace `BRANCH_NAME`; set `PREFERRED_LOCATION` only when
@@ -115,8 +121,9 @@ if [[ -n "$PREFERRED_LOCATION" ]]; then
       ;;
   esac
   LOCATION="$PREFERRED_LOCATION"
-elif [[ -d "$ROOT/.worktrees" ]] &&
-  git check-ignore -q "$ROOT/.worktrees/"; then
+elif git check-ignore -q "$ROOT/.worktrees/"; then
+  # No -d test: an ignored .worktrees/ is created on first use. mkdir -p below
+  # does it. Requiring it to pre-exist is what pushed sessions to the cache.
   LOCATION="$ROOT/.worktrees"
 elif [[ -d "$ROOT/worktrees" ]] &&
   git check-ignore -q "$ROOT/worktrees/"; then
@@ -125,7 +132,7 @@ else
   REPOSITORY=$(printf '%s' "$(basename "$ROOT")" |
     LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-80)
   ROOT_HASH=$(printf '%s' "$ROOT" | git hash-object --stdin)
-  CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees"
+  CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/git-worktrees"
   mkdir -p "$CACHE_WORKTREE_ROOT"
   CACHE_WORKTREE_ROOT=$(cd "$CACHE_WORKTREE_ROOT" && pwd -P)
   LOCATION="$CACHE_WORKTREE_ROOT/${REPOSITORY}-${ROOT_HASH}"
@@ -151,10 +158,43 @@ printf 'WORKTREE_PATH=%s\n' "$WORKTREE_PATH"
 Use that printed absolute path explicitly as the working directory for every
 later shell call. A terminal `cd` does not persist across tool invocations.
 
+### 1c. Bind the Session to It
+
+The worktree now exists at the shared location. If your harness has a native
+worktree tool, use it here — to **enter** the directory Step 1b just created,
+never to create one of its own.
+
+**Claude Code (`EnterWorktree`):** pass `path`, never `name`.
+
+```
+EnterWorktree(path="<WORKTREE_PATH printed by Step 1b>")
+```
+
+`name` creates a *new* worktree under `.claude/worktrees/` and ignores your
+chosen location entirely — that is the split this skill exists to prevent.
+`path` moves the session into an existing worktree and only requires the path
+to appear in `git worktree list`, which Step 1b guarantees. Two consequences
+worth knowing:
+
+- Entry by `path` must happen from the launch directory, before any other
+  worktree switch this session. Once the session has switched worktrees, later
+  `path` targets are restricted to `.claude/worktrees/`.
+- `ExitWorktree` will **not** remove a worktree entered by `path`; use
+  `action: "keep"` to return. Cleanup stays with the Cleanup block below, which
+  is what you want — the directory is shared with other tools and other
+  harnesses, not owned by one session.
+
+**Copilot CLI and anything else with no native worktree tool:** there is
+nothing to bind. Use the printed `WORKTREE_PATH` as the explicit working
+directory for every later call, as above.
+
+Either way both harnesses are now working in the same directory, and the VS
+Code extension lists and creates alongside them.
+
 #### Cleanup
 
 The workflow owns cache-hosted worktrees under
-`${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/`; they are removed for
+`${XDG_CACHE_HOME:-$HOME/.cache}/git-worktrees/`; they are removed for
 merge and discard choices. After the user chooses to merge or discard the
 work, run this from any checkout of the same repository:
 
@@ -169,7 +209,7 @@ GIT_COMMON=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd -P)
 REPOSITORY=$(printf '%s' "$(basename "$ROOT")" |
   LC_ALL=C tr -cs '[:alnum:]._-' '-' | cut -c1-80)
 ROOT_HASH=$(printf '%s' "$ROOT" | git hash-object --stdin)
-CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees"
+CACHE_WORKTREE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/git-worktrees"
 CACHE_WORKTREE_ROOT=$(cd "$CACHE_WORKTREE_ROOT" && pwd -P)
 EXPECTED_PARENT="$CACHE_WORKTREE_ROOT/${REPOSITORY}-${ROOT_HASH}"
 EXPECTED_WORKTREE_PATH="$EXPECTED_PARENT/$BRANCH_NAME"
@@ -250,13 +290,14 @@ Ready to implement <feature-name>
 |-----------|--------|
 | Already in linked worktree | Skip creation (Step 0) |
 | In a submodule | Treat as normal repo (Step 0 guard) |
-| Native worktree tool available | Use it (Step 1a) |
-| No native tool | Git worktree fallback (Step 1b) |
+| Any harness | Pick location (1a) → `git worktree add` (1b) → bind (1c) |
+| Native worktree tool available | Use it in 1c to *enter* the path from 1b, never to create |
+| Claude Code | `EnterWorktree(path=…)`; `name` would force `.claude/worktrees/` |
+| No native tool (Copilot CLI) | Nothing to bind; use the printed path explicitly |
 | Explicit directory preference | Use it only if repository-local path is already ignored |
-| `.worktrees/` exists | Use it only if already ignored |
-| `worktrees/` exists | Use it only if already ignored |
-| Both existing directories qualify | Use `.worktrees/` |
-| No qualifying local directory | Use `${XDG_CACHE_HOME:-$HOME/.cache}/copilot/worktrees/<repository>-<root-hash>`, then append branch once |
+| `.worktrees/` ignored | Use it, creating it if absent — the default |
+| `worktrees/` exists | Use it only if already ignored and `.worktrees/` did not qualify |
+| No qualifying local directory | Use `${XDG_CACHE_HOME:-$HOME/.cache}/git-worktrees/<repository>-<root-hash>`, then append branch once |
 | Directory not ignored | Reject repository-local path; use cache fallback |
 | Merge or discard cache worktree | Recompute and validate its root-hash/branch path, remove it, then prune |
 | Permission error on create | Sandbox fallback, work in place |
@@ -265,10 +306,21 @@ Ready to implement <feature-name>
 
 ## Common Mistakes
 
-### Fighting the harness
+### Letting the harness pick the location
+
+- **Problem:** Calling `EnterWorktree(name=…)` (or any native tool's create
+  mode) because it is one call and it works. It does work — into
+  `.claude/worktrees/`, while the Copilot sessions on the same repository go to
+  the cache and the editor goes to `.worktrees/`. Nothing errors; the worktrees
+  simply stop being in one place, and only `git worktree list` can still find
+  them all.
+- **Fix:** Choose the location in Step 1a, create it in Step 1b, and use the
+  native tool in Step 1c with `path` to enter what you already made.
+
+### Creating a second worktree for work already isolated
 
 - **Problem:** Using `git worktree add` when the platform already provides isolation
-- **Fix:** Step 0 detects existing isolation. Step 1a defers to native tools.
+- **Fix:** Step 0 detects existing isolation and skips straight to Step 2.
 
 ### Skipping detection
 
@@ -284,8 +336,8 @@ Ready to implement <feature-name>
 ### Assuming directory location
 
 - **Problem:** Creates inconsistency, violates project conventions
-- **Fix:** Follow priority: qualifying explicit preference > qualifying
-  existing project-local directory > cache fallback
+- **Fix:** Follow priority: qualifying explicit preference > ignored
+  `.worktrees/` at the repository root > cache fallback
 
 ### Leaving cache worktrees behind
 
@@ -315,7 +367,9 @@ Ready to implement <feature-name>
 
 **Never:**
 - Create a worktree when Step 0 detects existing isolation
-- Use `git worktree add` when you have a native worktree tool (e.g., `EnterWorktree`). This is the #1 mistake — if you have it, use it.
+- Let a native tool choose the location. `EnterWorktree(name=…)` is the #1
+  mistake — it silently plants the worktree in `.claude/worktrees/` instead of
+  the shared directory. Pass `path` to a worktree you already created.
 - Skip Step 1a by jumping straight to Step 1b's git commands
 - Create worktree without verifying it's ignored (project-local)
 - Create or change repository ignore rules for worktree storage
@@ -325,8 +379,8 @@ Ready to implement <feature-name>
 
 **Always:**
 - Run Step 0 detection first
-- Prefer native tools over git fallback
-- Follow directory priority: explicit preference > existing ignored local directory > cache fallback
+- Use native tools to *enter* the worktree you created, never to place it
+- Follow directory priority: explicit preference > ignored `.worktrees/` at the repository root > cache fallback
 - Verify directory is ignored for project-local
 - Remove cache-hosted worktrees for merge and discard choices
 - Auto-detect and run project setup

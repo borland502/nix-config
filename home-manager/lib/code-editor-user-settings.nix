@@ -150,6 +150,26 @@
   "git.openRepositoryInParentFolders" = "always";
   "git.terminalAuthentication" = false;
 
+  # jackiotyu.git-worktree-manager (pinned in modules/vscode-profiles.nix).
+  # Its stock defaults propose "<repo>.worktrees/<repo-name><n>" -- a sibling
+  # parent directory that exists in no repo here, so every "Create Worktree"
+  # starts by inventing a new parent instead of landing beside the worktrees
+  # the agent skills already made. Point it at "<repo>/.worktrees/<branch>",
+  # which is what ai-tools/skills/git-worktrees picks for both harnesses once
+  # that directory exists and is ignored (programs.git.ignores in common.nix
+  # makes it ignored everywhere). Only $BASE_PATH (repo root) and $BASE_ROOT
+  # (its parent) are substituted here, so the cache layout the skill falls
+  # back to -- ~/.cache/copilot/worktrees/<repo>-<root-hash>/ -- is not
+  # expressible: it carries a per-repo hash. The extension's tree view lists
+  # worktrees from `git worktree list` regardless of where they live, so the
+  # older scattered ones stay visible either way.
+  "git-worktree-manager.worktreePathTemplate" = "$BASE_PATH/.worktrees";
+  # $REF_NAME is the branch (or tag) being created; the extension replaces
+  # "/" with "-" itself, so feature/x becomes feature-x. Stock default is
+  # "$BASE_NAME$INDEX", which numbers off the repo folder name (myrepo1,
+  # myrepo2, ...) instead of naming the branch.
+  "git-worktree-manager.worktreeSubdirectoryTemplate" = "$REF_NAME";
+
   # Files. The association makes chezmoi's dot_-prefixed shell sources
   # highlight correctly when editing this repo's chezmoi/ tree.
   "files.associations" = {

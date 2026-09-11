@@ -170,7 +170,12 @@ WORKTREE_PATH=$(git rev-parse --show-toplevel)
 
 **If `GIT_DIR == GIT_COMMON`:** Normal repo, no worktree to clean up. Done.
 
-**If worktree path is under `.worktrees/` or `worktrees/`:** Superpowers created this worktree — we own cleanup.
+**If the worktree path is under `.worktrees/`, `worktrees/`, or
+`${XDG_CACHE_HOME:-$HOME/.cache}/git-worktrees/`:** the
+[git-worktrees](../git-worktrees/SKILL.md) skill created this worktree — we own
+cleanup. That holds on Claude too: a worktree entered with
+`EnterWorktree(path=…)` is *not* harness-owned, and `ExitWorktree` explicitly
+refuses to remove it, so nothing else will.
 
 ```bash
 MAIN_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
@@ -214,7 +219,10 @@ git worktree prune  # Self-healing: clean up any stale registrations
 
 **Cleaning up harness-owned worktrees**
 - **Problem:** Removing a worktree the harness created causes phantom state
-- **Fix:** Only clean up worktrees under `.worktrees/` or `worktrees/`
+- **Fix:** Only clean up worktrees under `.worktrees/`, `worktrees/`, or
+  `${XDG_CACHE_HOME:-$HOME/.cache}/git-worktrees/`. A worktree under
+  `.claude/worktrees/` was placed by `EnterWorktree(name=…)` and is harness-owned
+  — leave it and use `ExitWorktree`.
 
 **No confirmation for discard**
 - **Problem:** Accidentally delete work

@@ -1201,6 +1201,17 @@ in {
     # Common Git configuration
     git = {
       enable = true;
+      # Global excludes (~/.config/git/ignore). ".worktrees/" is here so the
+      # worktree parent directory is ignored in every repo, not just the ones
+      # that happen to list it: ai-tools/skills/git-worktrees refuses a
+      # repository-local worktree path that `git check-ignore` does not already
+      # confirm, and the git-worktree-manager templates in
+      # lib/code-editor-user-settings.nix propose that same path. Without this
+      # the two agree only in repos whose own .gitignore covers it.
+      ignores = [
+        "**/.claude/settings.local.json"
+        ".worktrees/"
+      ];
       settings = {
         user = {
           name = "jhettenh";
