@@ -1556,4 +1556,54 @@ JSON
   fi
 fi
 
+# --- 11. chrome homepage/startup policy -------------------------------------
+#
+# Google Chrome has no per-user, unprivileged way to set the homepage: unlike
+# Vivaldi/Firefox's own settings.json/prefs.js, HomepageLocation is a
+# tamper-protected "managed" preference guarded by Chrome's own MAC/hash
+# integrity check on Preferences, specifically to stop malware from silently
+# hijacking it. Writing it directly to Preferences would just get the browser
+# to detect tampering and reset it. The managed-policy JSON below is the only
+# lever the browser will not argue with -- same reasoning as the Vivaldi
+# extension policy above, different mechanism because it's a different
+# vendor's enterprise-policy schema.
+#
+# `/etc/opt/chrome/policies/managed` is Google's documented Linux managed
+# policy path and is honored by the Flatpak build too (Chrome's Flatpak
+# manifest grants it read access to /etc for exactly this reason -- fleets
+# that manage Flatpak Chrome rely on it). There is no equivalent bundled
+# nixpkgs mechanism, which is why this lives in host provisioning rather than
+# in home-manager/profiles/desktop-linux.nix.
+#
+# RestoreOnStartup=4 ("open a list of URLs") makes the homepage load on
+# launch too, matching Firefox's browser.startup.homepage behavior configured
+# in home-manager/profiles/desktop-linux.nix -- Firefox's pref does double
+# duty as both the Home-button target and the startup page, so Chrome is
+# brought in line rather than left to open a blank/NTP tab on launch.
+if command -v flatpak >/dev/null 2>&1 && flatpak info com.google.Chrome >/dev/null 2>&1; then
+  chrome_policy_dir=/etc/opt/chrome/policies/managed
+  chrome_policy=$chrome_policy_dir/10-homepage.json
+  chrome_policy_want=$(
+    cat <<'JSON'
+{
+  "HomepageLocation": "https://dashy.technohouser.com",
+  "HomepageIsNewTabPage": false,
+  "RestoreOnStartup": 4,
+  "RestoreOnStartupURLs": ["https://dashy.technohouser.com"]
+}
+JSON
+  )
+
+  if [ -f "$chrome_policy" ] && [ "$(cat "$chrome_policy")" = "$chrome_policy_want" ]; then
+    :
+  elif ensure_root; then
+    $SUDO mkdir -p "$chrome_policy_dir"
+    printf '%s\n' "$chrome_policy_want" | $SUDO tee "$chrome_policy" >/dev/null
+    $SUDO chmod 644 "$chrome_policy"
+    note "chrome: homepage policy written — https://dashy.technohouser.com (restart Chrome to apply)"
+  else
+    warn "chrome: homepage policy NOT written — Chrome will keep its default homepage"
+  fi
+fi
+
 note "done"

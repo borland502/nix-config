@@ -130,11 +130,21 @@
   #            for H.264/AAC). The host package ships its own vivaldi-stable.desktop,
   #            which is the id Vivaldi self-checks against, so the note below about
   #            not adding a custom desktopEntries.vivaldi still applies.
+  #   chrome -> `flatpak install --user flathub com.google.Chrome`. There is no
+  #            Arch/CachyOS repo package (Google Chrome is AUR-only, and no AUR
+  #            helper is provisioned here), so flatpak is the only install path
+  #            that doesn't also require standing up an AUR build toolchain.
+  #            home-manager/modules/sops.nix's renderChromeBookmarks looks for
+  #            it at the flatpak id com.google.Chrome first; the homepage/
+  #            startup policy in chezmoi/run_onchange_provision-linux-host.sh.tmpl
+  #            (section 11) is written to /etc/opt/chrome/policies/managed,
+  #            which the flatpak build also reads.
   # kitty keeps its chezmoi config (chezmoi/dot_config/kitty) and stylix
   # theming via stylix.targets.kitty either way — this guards only the package.
   nixosOnlyPackages = with pkgs; [
     kitty
     vivaldi
+    google-chrome
     zoom-us
   ];
 
