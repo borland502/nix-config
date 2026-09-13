@@ -371,11 +371,19 @@ in {
               # generic Linux host activating through the standalone
               # jhettenh@linux homeConfiguration there is no steam.desktop for
               # KService to resolve and plasmashell prunes the pin anyway.
+              #
+              # com.google.Chrome.desktop is the Flatpak app id (tifa; see
+              # nixosOnlyPackages in home-manager/profiles/desktop-linux.nix).
+              # A NixOS host installing nixpkgs' google-chrome instead ships a
+              # differently-named google-chrome.desktop, so this pin would not
+              # resolve there and would just get pruned like steam's above --
+              # acceptable today since tifa is the only host with Chrome.
               iconTasks.launchers = [
                 "applications:systemsettings.desktop"
                 "applications:org.kde.dolphin.desktop"
                 "applications:code.desktop"
                 "preferred://browser"
+                "applications:com.google.Chrome.desktop"
                 "applications:kitty.desktop"
                 "applications:org.keepassxc.KeePassXC.desktop"
                 "applications:slack.desktop"

@@ -1606,4 +1606,74 @@ JSON
   fi
 fi
 
+# --- 12. chrome extensions (force-install Claude in Chrome, KeePassXC-Browser)
+#
+# Chrome ships with no browser-automation or password-autofill extension
+# pre-installed. Vivaldi gets both by the user installing them by hand and
+# section 10's allowlist just letting them through the VPN-blocking
+# deny-by-default; Chrome has no such blocklist to get past, so a plain
+# manual install would already work, but "by default" means no interaction at
+# all and survives a profile reset -- ExtensionInstallForcelist is the
+# managed-policy lever for that: it installs, pins (the user cannot remove it
+# while the policy exists), and reinstalls the extension if deleted out from
+# under the profile.
+#
+# Same extension IDs as Vivaldi's allowlist in section 10 -- Chrome Web Store
+# extension IDs are the same across every Chromium-based browser:
+#   fcoeoabgfenejglbffodgkkbkcdhcgfn  Claude in Chrome
+#   oboonakemofpalcgghocfoadofidjkkk  KeePassXC-Browser
+# update_url is the Chrome Web Store's fixed endpoint; ExtensionInstallForcelist
+# requires the "id;url" form regardless of which browser is installing it.
+#
+# KeePassXC-Browser also needs a native-messaging manifest and a sandbox
+# filesystem grant to actually reach KeePassXC once installed -- see
+# home-manager/profiles/desktop-linux.nix (the Chrome NativeMessagingHosts
+# home.file entry) and section 13 below.
+if command -v flatpak >/dev/null 2>&1 && flatpak info com.google.Chrome >/dev/null 2>&1; then
+  chrome_ext_policy_dir=/etc/opt/chrome/policies/managed
+  chrome_ext_policy=$chrome_ext_policy_dir/20-extensions.json
+  chrome_ext_policy_want=$(
+    cat <<'JSON'
+{
+  "ExtensionInstallForcelist": [
+    "fcoeoabgfenejglbffodgkkbkcdhcgfn;https://clients2.google.com/service/update2/crx",
+    "oboonakemofpalcgghocfoadofidjkkk;https://clients2.google.com/service/update2/crx"
+  ]
+}
+JSON
+  )
+
+  if [ -f "$chrome_ext_policy" ] && [ "$(cat "$chrome_ext_policy")" = "$chrome_ext_policy_want" ]; then
+    :
+  elif ensure_root; then
+    $SUDO mkdir -p "$chrome_ext_policy_dir"
+    printf '%s\n' "$chrome_ext_policy_want" | $SUDO tee "$chrome_ext_policy" >/dev/null
+    $SUDO chmod 644 "$chrome_ext_policy"
+    note "chrome: extension force-install policy written — Claude in Chrome, KeePassXC-Browser (restart Chrome to apply)"
+  else
+    warn "chrome: extension force-install policy NOT written — install Claude in Chrome and KeePassXC-Browser manually"
+  fi
+fi
+
+# --- 13. chrome flatpak sandbox: nix store access for the KeePassXC proxy ---
+#
+# KeePassXC-Browser's native-messaging manifest (home-manager/profiles/
+# desktop-linux.nix) points at ${pkgs.keepassxc}/bin/keepassxc-proxy, a
+# /nix/store path. Chrome's Flatpak sandbox does not expose /nix/store by
+# default (`flatpak info --show-permissions com.google.Chrome` lists only
+# host-etc plus a handful of xdg-* dirs), so without this override Chrome
+# would find the manifest, try to exec the proxy, and fail silently -- the
+# extension would sit on "Checking status..." forever with no error, the same
+# failure mode the Vivaldi comment above describes for a missing `[Browser]
+# Enabled=true`, just one layer further down the stack.
+#
+# `flatpak override` writes to ~/.local/share/flatpak/overrides/com.google.Chrome
+# and is idempotent -- safe to run on every provisioning pass with no
+# before/after diff needed, unlike the JSON policy files above. Read-only:
+# the proxy only needs to be executed, never written to.
+if command -v flatpak >/dev/null 2>&1 && flatpak info com.google.Chrome >/dev/null 2>&1; then
+  flatpak override --user --filesystem=/nix/store:ro com.google.Chrome
+  note "chrome: flatpak sandbox can now read /nix/store (needed for the KeePassXC proxy)"
+fi
+
 note "done"
