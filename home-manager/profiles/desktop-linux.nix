@@ -130,11 +130,21 @@
   #            for H.264/AAC). The host package ships its own vivaldi-stable.desktop,
   #            which is the id Vivaldi self-checks against, so the note below about
   #            not adding a custom desktopEntries.vivaldi still applies.
+  #   chrome -> `flatpak install --user flathub com.google.Chrome`. There is no
+  #            Arch/CachyOS repo package (Google Chrome is AUR-only, and no AUR
+  #            helper is provisioned here), so flatpak is the only install path
+  #            that doesn't also require standing up an AUR build toolchain.
+  #            home-manager/modules/sops.nix's renderChromeBookmarks looks for
+  #            it at the flatpak id com.google.Chrome first; the homepage/
+  #            startup policy in chezmoi/run_onchange_provision-linux-host.sh.tmpl
+  #            (section 11) is written to /etc/opt/chrome/policies/managed,
+  #            which the flatpak build also reads.
   # kitty keeps its chezmoi config (chezmoi/dot_config/kitty) and stylix
   # theming via stylix.targets.kitty either way — this guards only the package.
   nixosOnlyPackages = with pkgs; [
     kitty
     vivaldi
+    google-chrome
     zoom-us
   ];
 
@@ -210,14 +220,42 @@
   plasmaBrowserIntegrationShim = hostHelperShim "plasma-browser-integration-host";
 in {
   # Desktop applications
-  home.packages =
-    availablePackages
-    ++ lib.optionals (!isNixos) [
-      qdbusShim
-      xdgSettingsShim
-      plasmaBrowserIntegrationShim
-    ];
-  home.sessionVariables.BROWSER = "vivaldi";
+  home = {
+    packages =
+      availablePackages
+      ++ lib.optionals (!isNixos) [
+        qdbusShim
+        xdgSettingsShim
+        plasmaBrowserIntegrationShim
+      ];
+    sessionVariables.BROWSER = "vivaldi";
+
+    # Chrome's own copy of the KeePassXC bridge. Chrome here is the Flatpak
+    # build (see nixosOnlyPackages above), which is sandboxed: it reads native
+    # messaging manifests from its own app-data profile dir, NOT from
+    # ~/.config/google-chrome like a native install, and the plasma-integration
+    # manifest already sitting there (dropped by
+    # plasma-browser-integration-flatpak-integrator, not this repo) confirms
+    # that's the path Chrome actually scans.
+    #
+    # The manifest alone is not enough: the sandbox also has to be able to see
+    # keepassxc-proxy's nix store path at all, since /nix/store is outside its
+    # default filesystem grants (unlike KDE's plasma-integration bridge, which
+    # dodges the sandbox entirely by calling back over the session D-Bus
+    # instead of exec'ing a host binary). See chezmoi/run_onchange_provision-
+    # linux-host.sh.tmpl section 13 for the `flatpak override` that grants it.
+    file.".var/app/com.google.Chrome/config/google-chrome/NativeMessagingHosts/org.keepassxc.keepassxc_browser.json" = lib.mkIf (!isNixos) {
+      text = builtins.toJSON {
+        name = "org.keepassxc.keepassxc_browser";
+        description = "KeePassXC integration with native messaging support";
+        path = "${pkgs.keepassxc}/bin/keepassxc-proxy";
+        type = "stdio";
+        allowed_origins = [
+          "chrome-extension://oboonakemofpalcgghocfoadofidjkkk/"
+        ];
+      };
+    };
+  };
 
   # Note: System monitoring tools (htop, btop, iotop) moved to platform-specific configs
   # Note: Removed duplicated discord entry

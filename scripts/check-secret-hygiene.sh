@@ -20,6 +20,23 @@ set -euo pipefail
 
 fail=0
 
+# A handful of values that live under a url/host-ish key in some secrets file
+# purely for bookmark-list bookkeeping (secrets/bookmarks.toml groups a whole
+# bookmark bar, most of it genuinely internal, but not every entry in it is
+# actually private) rather than because the value itself needs to stay off
+# grep's radar. Keep this list short and justify every entry -- it's the one
+# place this script trusts a human judgment call instead of a mechanical rule.
+is_exempt_value() {
+	case "$1" in
+	localhost) return 0 ;;                       # loopback; identifies nothing
+	github.com) return 0 ;;                      # public multi-tenant host; identifies nothing on its own
+	"https://github.com/borland502") return 0 ;; # the repo owner's own public GitHub
+		# profile -- already this repo's own git remote (`git remote -v`), so it
+		# is maximally public already, not a leak
+	*) return 1 ;;
+	esac
+}
+
 # --- Rule A: the private work tree stays encrypted ---------------------------
 if [ -d chezmoi/Development ]; then
 	while IFS= read -r f; do
@@ -88,6 +105,8 @@ else
 			esac
 
 			for needle in "${needles[@]}"; do
+				is_exempt_value "$needle" && continue
+
 				# --word-regexp, not a bare substring match. Without it a
 				# value that is a PREFIX of an unrelated one flags forever:
 				# quistis at 192.168.2.22 matched inside 192.168.2.223 in

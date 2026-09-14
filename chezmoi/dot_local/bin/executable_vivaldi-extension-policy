@@ -44,6 +44,8 @@ die() {
 #   inomeogfingihgjfjlpeplalcfajhgai  Chrome Remote Desktop
 #   cimiefiiaegbelhefglklhhakcgmhkai  Plasma Integration  (Linux only; harmless
 #                                     here, and keeps the two lists identical)
+#   fcoeoabgfenejglbffodgkkbkcdhcgfn  Claude in Chrome    (Claude Code browser
+#                                     integration)
 #
 # Deliberately absent, and removed by deny-by-default without being named:
 #   jplgfhpmjnbigmhklmmbgecoobifkmpa  Proton VPN          <- the whole point
@@ -53,6 +55,7 @@ ALLOW=(
 	oboonakemofpalcgghocfoadofidjkkk
 	inomeogfingihgjfjlpeplalcfajhgai
 	cimiefiiaegbelhefglklhhakcgmhkai
+	fcoeoabgfenejglbffodgkkbkcdhcgfn
 )
 
 # The machine-level policy domain. NOT /Library/Managed Preferences: that path

@@ -138,6 +138,20 @@ in {
     };
   };
 
+  # Chrome bookmark bar source of truth. Like secrets/hosts.toml, nothing in
+  # here is a credential -- the exposure it prevents is reconnaissance: the
+  # Homelab links are internal LAN hostnames/IPs and the Work links are
+  # internal-only CMS/MDP endpoints, and this repo is PUBLIC (CLAUDE.md: never
+  # commit an internal URL/hostname to it in the clear). Encrypted the same
+  # way and for the same reason as hosts.toml -- see decryptSshHosts's comment
+  # above for the binary-mode rationale (preserves the source comments) and
+  # the "write to tmp then mv" rationale (a failed decrypt must never truncate
+  # the previous copy).
+  #
+  # `path` in each [[link]] entry is a "/"-separated bookmark-bar folder
+  # breadcrumb; home-manager/modules/chrome-bookmarks.jq turns the flat list
+  # into Chrome's native folder tree. Edit with `sops secrets/bookmarks.toml`.
+
   # rclone gdrive OAuth client credentials live encrypted at
   # secrets/rclone-gdrive.json ({installed:{client_id, client_secret}}).
   # Only the *static* app credentials are stored — the per-device OAuth token
@@ -287,6 +301,107 @@ in {
         else
           ${pkgs.coreutils}/bin/rm -f "$_tmp"
           echo "decryptTechnitiumConfig: sops could not decrypt secrets/technitiumdns-cli.toml; kept the previous $_dest" >&2
+        fi
+      fi
+    '';
+
+    decryptBookmarks = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      _age_key="${config.home.homeDirectory}/.config/sops/age/keys.txt"
+      if [ -f "$_age_key" ]; then
+        ${pkgs.coreutils}/bin/mkdir -p "${config.home.homeDirectory}/.config/bookmarks"
+        _dest="${config.home.homeDirectory}/.config/bookmarks/bookmarks.toml"
+        _tmp="$_dest.tmp"
+        if SOPS_AGE_KEY_FILE="$_age_key" \
+          ${pkgs.sops}/bin/sops --decrypt \
+          --input-type binary --output-type binary \
+          ${../../secrets/bookmarks.toml} \
+          > "$_tmp"; then
+          ${pkgs.coreutils}/bin/chmod 600 "$_tmp"
+          ${pkgs.coreutils}/bin/mv "$_tmp" "$_dest"
+        else
+          ${pkgs.coreutils}/bin/rm -f "$_tmp"
+          echo "decryptBookmarks: sops could not decrypt secrets/bookmarks.toml; kept the previous $_dest" >&2
+        fi
+      fi
+    '';
+
+    # Render the decrypted link list into Chrome's native Bookmarks JSON and
+    # drop it straight into Chrome's profile -- there is no policy-level lever
+    # for bookmarks the way there is for Vivaldi's extension allowlist (see
+    # chezmoi/run_onchange_provision-linux-host.sh.tmpl section 10), so this
+    # writes the profile file directly, the same way a bookmark sync tool
+    # would.
+    #
+    # Guarded on Chrome not currently running: Chrome only writes Bookmarks
+    # back out on exit, so overwriting it while Chrome is open just means our
+    # write gets silently discarded at the next quit (the same "rewrites on
+    # exit" hazard called out for Vivaldi's Preferences file). Skipping is
+    # strictly better than racing it.
+    #
+    # Only the bookmark_bar root is ours; other/synced/trash are read back
+    # from whatever Bookmarks file is already there (or defaulted) and passed
+    # through untouched, so bookmarks added by hand outside the bar survive an
+    # activation.
+    #
+    # Flatpak Chrome and a natively-packaged Chrome keep separate profile
+    # directories; try the flatpak path first since that's how Chrome is
+    # provisioned on generic Linux hosts (see nixosOnlyPackages in
+    # home-manager/profiles/desktop-linux.nix).
+    renderChromeBookmarks = lib.hm.dag.entryAfter ["decryptBookmarks"] ''
+      _links_toml="${config.home.homeDirectory}/.config/bookmarks/bookmarks.toml"
+      _profile_dir=""
+      # Home Manager's activation script runs with its own narrow PATH (nix
+      # store paths only -- see the `export PATH=` line at the top of the
+      # generated activate script), so host tools like flatpak and Chrome
+      # itself are invoked by absolute path here rather than bare name, the
+      # same way hostHelperShim in home-manager/profiles/desktop-linux.nix
+      # hardcodes /usr/bin/* for host binaries it re-execs.
+      if [ -x /usr/bin/flatpak ] && /usr/bin/flatpak info com.google.Chrome >/dev/null 2>&1; then
+        _profile_dir="${config.home.homeDirectory}/.var/app/com.google.Chrome/config/google-chrome/Default"
+      elif [ -x /usr/bin/google-chrome-stable ] || [ -x /usr/bin/google-chrome ] \
+        || [ -x "${config.home.homeDirectory}/.nix-profile/bin/google-chrome-stable" ]; then
+        # The last check covers a NixOS/WSL host, where google-chrome comes
+        # from nixosOnlyPackages in home-manager/profiles/desktop-linux.nix
+        # and lands in the per-user nix profile rather than /usr/bin.
+        _profile_dir="${config.home.homeDirectory}/.config/google-chrome/Default"
+      fi
+
+      if [ -r "$_links_toml" ] && [ -n "$_profile_dir" ]; then
+        if ${pkgs.procps}/bin/pgrep -x chrome >/dev/null 2>&1 || ${pkgs.procps}/bin/pgrep -f 'google-chrome' >/dev/null 2>&1; then
+          echo "renderChromeBookmarks: Chrome is running; skipping (it would overwrite this on exit). Re-run \`task switch\` after closing it." >&2
+        else
+          ${pkgs.coreutils}/bin/mkdir -p "$_profile_dir"
+          _dest="$_profile_dir/Bookmarks"
+          _tmp="$_dest.tmp"
+          _now_us=$(( ($(${pkgs.coreutils}/bin/date +%s) + 11644473600) * 1000000 ))
+          _default_root='{"children":[],"date_added":"0","date_last_used":"0","date_modified":"0","guid":"00000000-0000-4000-8000-000000000000","id":"0","name":"","type":"folder"}'
+          if _links_json=$(${pkgs.taplo}/bin/taplo get -f "$_links_toml" -o json 'link') \
+             && _bar=$(${pkgs.jq}/bin/jq -n --argjson links "$_links_json" --arg now_us "$_now_us" \
+                 -f ${../../home-manager/modules/chrome-bookmarks.jq}) \
+             && _existing=$(
+                 if [ -f "$_dest" ]; then ${pkgs.coreutils}/bin/cat "$_dest"; else printf '{}'; fi
+               ) \
+             && ${pkgs.jq}/bin/jq \
+                 --argjson bar "$_bar" \
+                 --argjson default_root "$_default_root" \
+                 --arg now_us "$_now_us" \
+                 '{
+                    version: 1,
+                    checksum: "00000000000000000000000000000000",
+                    roots: {
+                      bookmark_bar: ($bar + {id: "1", guid: "0bc5d13f-2cba-5d74-951f-3f233fe6c908", name: "Bookmarks", type: "folder", date_added: $now_us, date_modified: $now_us}),
+                      other: (.roots.other // ($default_root + {id: "2", name: "Other bookmarks"})),
+                      synced: (.roots.synced // ($default_root + {id: "3", name: "Mobile bookmarks"})),
+                      trash: (.roots.trash // ($default_root + {id: "4", name: "Trash"}))
+                    }
+                  }' <<<"$_existing" > "$_tmp"
+          then
+            ${pkgs.coreutils}/bin/mv "$_tmp" "$_dest"
+            echo "renderChromeBookmarks: wrote $_dest"
+          else
+            ${pkgs.coreutils}/bin/rm -f "$_tmp"
+            echo "renderChromeBookmarks: could not render bookmarks.toml; kept previous $_dest" >&2
+          fi
         fi
       fi
     '';
