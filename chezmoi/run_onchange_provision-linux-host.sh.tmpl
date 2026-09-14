@@ -1517,9 +1517,9 @@ fi
 # CONSEQUENCE, deliberate: installing any new extension now means adding its ID
 # here. That is the price of the guarantee. The allowlist is exactly the set in
 # use — KeePassXC-Browser (autofill), Plasma Integration (KDE media/download
-# bridge), Chrome Remote Desktop. React and Angular DevTools are deliberately
-# absent: they were unwanted, and deny-by-default removes them without needing
-# to name them.
+# bridge), Chrome Remote Desktop, Claude in Chrome (Claude Code browser
+# integration). React and Angular DevTools are deliberately absent: they were
+# unwanted, and deny-by-default removes them without needing to name them.
 #
 # macOS has the same policy under a completely different mechanism — a
 # preference domain rather than a JSON file — and no provisioning pass of its
@@ -1538,7 +1538,8 @@ if command -v vivaldi >/dev/null 2>&1 || [ -d /opt/vivaldi ]; then
   "ExtensionInstallAllowlist": [
     "oboonakemofpalcgghocfoadofidjkkk",
     "cimiefiiaegbelhefglklhhakcgmhkai",
-    "inomeogfingihgjfjlpeplalcfajhgai"
+    "inomeogfingihgjfjlpeplalcfajhgai",
+    "fcoeoabgfenejglbffodgkkbkcdhcgfn"
   ]
 }
 JSON
