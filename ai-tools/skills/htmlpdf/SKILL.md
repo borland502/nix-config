@@ -26,9 +26,10 @@ with its painted background.
 
 ## Mermaid
 
-Mermaid diagrams use htmlpdf's bundled, pinned runtime by default, so normal
-conversion does not require CDN access or network egress. Use `--mermaid-url`
-only when intentionally overriding that runtime.
+Mermaid diagrams and Markdown's print fonts use htmlpdf's bundled, pinned
+assets by default, so normal conversion does not require CDN access or network
+egress. Use `--mermaid-url` only when intentionally overriding the Mermaid
+runtime.
 
 ## Print CSS
 

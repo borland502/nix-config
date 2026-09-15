@@ -29,6 +29,7 @@ Documents can steer the result with ordinary CSS: an `@media print` block, a
 from __future__ import annotations
 
 import argparse
+import base64
 import html
 import os
 import re
@@ -39,6 +40,7 @@ import unicodedata
 from collections import defaultdict, deque
 from collections.abc import Collection, Iterator
 from contextlib import contextmanager, nullcontext
+from functools import cache
 from importlib import resources
 from pathlib import Path
 from typing import cast
@@ -51,10 +53,12 @@ DEFAULT_LINK_COLOR = "#1A5FB4"  # 6.3:1 on white: reads as a link, not as body t
 PAPER_INCHES = {"letter": (8.5, 11.0), "a4": (8.27, 11.69), "legal": (8.5, 14.0), "tabloid": (11.0, 17.0)}
 UNIT_PX = {"px": 1.0, "in": 96.0, "mm": 96 / 25.4, "cm": 96 / 2.54, "pt": 96 / 72}
 SANS_STACK = "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif"
-MARKDOWN_FONTS = (
-    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
-    "family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;600;700"
-    '&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">'
+MARKDOWN_FONT_FACES = (
+    ("IBM Plex Mono", "normal", "400", "ibm-plex-mono-regular-latin.woff2"),
+    ("IBM Plex Mono", "normal", "500", "ibm-plex-mono-medium-latin.woff2"),
+    ("Public Sans", "normal", "400 700", "public-sans-latin.woff2"),
+    ("Source Serif 4", "normal", "400 600", "source-serif-4-roman-latin.woff2"),
+    ("Source Serif 4", "italic", "400", "source-serif-4-italic-latin.woff2"),
 )
 CALLOUT_TITLES = {"note": "Note", "tip": "Tip", "important": "Important", "warning": "Warning", "caution": "Caution"}
 
@@ -367,6 +371,24 @@ def load_asset(name: str) -> str:
         raise SystemExit(f"htmlpdf: missing packaged asset {name}") from error
 
 
+@cache
+def markdown_font_css() -> str:
+    try:
+        assets = resources.files("htmlpdf.assets")
+        return "\n".join(
+            f"""@font-face {{
+  font-family: "{family}";
+  font-style: {style};
+  font-weight: {weight};
+  font-display: swap;
+  src: url(data:font/woff2;base64,{base64.b64encode(assets.joinpath(filename).read_bytes()).decode("ascii")}) format("woff2");
+}}"""
+            for family, style, weight, filename in MARKDOWN_FONT_FACES
+        )
+    except FileNotFoundError as error:
+        raise SystemExit(f"htmlpdf: missing packaged font {error.filename}") from error
+
+
 def markdown_to_document(path: Path) -> str:
     from markdown_it import MarkdownIt
     from mdit_py_plugins.anchors import anchors_plugin
@@ -422,10 +444,10 @@ def markdown_to_document(path: Path) -> str:
     body = re.sub(r"<blockquote>\s*<p>\[!(\w+)\][ \t]*([^\n<]*)\n?", callout, body)
 
     # Syntax colors first, theme second: the theme owns the code block's ground.
-    css = HtmlFormatter(style="friendly").get_style_defs(".highlight") + "\n" + load_asset("markdown.css")
+    css = "\n".join((markdown_font_css(), HtmlFormatter(style="friendly").get_style_defs(".highlight"), load_asset("markdown.css")))
     return (
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
-        f"<title>{html.escape(title)}</title>\n{MARKDOWN_FONTS}\n<style>\n{css}\n</style>\n</head>\n"
+        f"<title>{html.escape(title)}</title>\n<style>\n{css}\n</style>\n</head>\n"
         f"<body>\n<main class=\"doc\">\n{body}\n</main>\n</body>\n</html>\n"
     )
 
@@ -902,7 +924,10 @@ def convert(args: argparse.Namespace) -> None:
 
 
 def inspect(args: argparse.Namespace) -> None:
-    audit(Path(args.pdf).expanduser().resolve(), args.preview, args.dpi)
+    pdf_path = Path(args.pdf).expanduser().resolve()
+    preview = pdf_path.with_name(f"{pdf_path.stem}-preview")
+    with preview_directory_lock(preview):
+        audit(pdf_path, args.preview, args.dpi, preview_lock_held=True)
 
 
 def main() -> None:

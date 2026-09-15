@@ -42,6 +42,18 @@ def test_mermaid_script_tag_uses_bundled_runtime_unless_overridden() -> None:
         assert overridden == {"url": "https://example.test/mermaid.js"}
 
 
+def test_markdown_document_embeds_offline_font_faces_by_default(tmp_path) -> None:
+    source = tmp_path / "guide.md"
+    source.write_text("# Guide\n\nReadable **Markdown**.", encoding="utf-8")
+
+    document = cli.markdown_to_document(source)
+
+    assert "https://fonts.googleapis.com" not in document
+    assert "https://fonts.gstatic.com" not in document
+    assert "@font-face" in document
+    assert "url(data:font/woff2;base64," in document
+
+
 def test_stage_html_uses_a_unique_file_and_cleanup_is_scoped_to_it(tmp_path) -> None:
     source = tmp_path / "guide.md"
     source.write_text("# Guide", encoding="utf-8")
@@ -107,6 +119,14 @@ def write_solid_pdf(path, color: tuple[float, float, float]) -> None:
     document.close()
 
 
+def write_pdf_with_pages(path, count: int) -> None:
+    document = pymupdf.open()
+    for _ in range(count):
+        document.new_page()
+    save_pdf_atomically(document, path)
+    document.close()
+
+
 def test_save_previews_atomically_renders_current_pdf_after_waiting_for_output_lock(tmp_path, monkeypatch) -> None:
     pdf = tmp_path / "guide.pdf"
     write_solid_pdf(pdf, (1, 0, 0))
@@ -132,6 +152,30 @@ def test_save_previews_atomically_renders_current_pdf_after_waiting_for_output_l
 
     rendered = pymupdf.Pixmap(preview / "page-01.png")
     assert rendered.samples[:3] == bytes((0, 255, 0))
+
+
+def test_inspect_locks_pdf_before_auditing_to_avoid_stale_page_selection(tmp_path, monkeypatch) -> None:
+    pdf = tmp_path / "guide.pdf"
+    write_pdf_with_pages(pdf, 2)
+    preview = tmp_path / "guide-preview"
+    opened_for_audit = Event()
+    original_open = pymupdf.open
+
+    def observed_open(filename=None, *args, **kwargs):
+        if filename == pdf:
+            opened_for_audit.set()
+        return original_open(filename, *args, **kwargs)
+
+    monkeypatch.setattr(cli.pymupdf, "open", observed_open)
+    args = type("InspectArgs", (), {"pdf": str(pdf), "preview": "2", "dpi": 72})()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with preview_directory_lock(preview):
+            future = executor.submit(cli.inspect, args)
+            assert not opened_for_audit.wait(timeout=0.2)
+            write_pdf_with_pages(pdf, 1)
+        future.result(timeout=2)
+
+    assert not (preview / "page-02.png").exists()
 
 
 def test_audit_limits_link_contrast_claim_to_white_backgrounds(tmp_path, capsys) -> None:

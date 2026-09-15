@@ -8,6 +8,14 @@ include = [
   { path = "src/htmlpdf/assets/markdown.css", format = ["sdist", "wheel"] },
   { path = "src/htmlpdf/assets/mermaid-11.4.1.min.js", format = ["sdist", "wheel"] },
   { path = "src/htmlpdf/assets/mermaid-11.4.1.LICENSE", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/ibm-plex-mono-regular-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/ibm-plex-mono-medium-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/public-sans-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/source-serif-4-roman-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/source-serif-4-italic-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/ibm-plex-mono.LICENSE", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/public-sans.LICENSE", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/source-serif-4.LICENSE", format = ["sdist", "wheel"] },
 ]
 
 [tool.poetry.dependencies]
