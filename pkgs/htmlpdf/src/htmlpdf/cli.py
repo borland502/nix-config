@@ -37,7 +37,8 @@ import sys
 import tempfile
 import unicodedata
 from collections import defaultdict, deque
-from collections.abc import Collection
+from collections.abc import Collection, Iterator
+from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
 from typing import cast
@@ -465,6 +466,55 @@ def save_pdf_atomically(doc: pymupdf.Document, output: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
+@contextmanager
+def preview_directory_lock(out_dir: Path) -> Iterator[None]:
+    import fcntl
+
+    lock_path = out_dir.with_name(f".{out_dir.name}.lock")
+    with lock_path.open("a", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def save_previews_atomically(doc: pymupdf.Document, pdf_path: Path, pages: list[int], dpi: int) -> Path:
+    out_dir = pdf_path.with_name(f"{pdf_path.stem}-preview")
+    staged = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}-", dir=out_dir.parent))
+    link = staged.with_name(f"{staged.name}-link")
+    published = False
+    try:
+        for number in pages:
+            doc[number - 1].get_pixmap(dpi=dpi).save(staged / f"page-{number:02d}.png")
+
+        os.symlink(staged.name, link)
+        previous: Path | None = None
+        with preview_directory_lock(out_dir):
+            if out_dir.exists() and not out_dir.is_symlink():
+                previous = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}-previous-", dir=out_dir.parent))
+                previous.rmdir()
+                os.replace(out_dir, previous)
+            elif out_dir.is_symlink():
+                candidate = out_dir.resolve()
+                if candidate.parent == out_dir.parent and candidate.name.startswith(f".{out_dir.name}-"):
+                    previous = candidate
+            try:
+                os.replace(link, out_dir)
+            except OSError:
+                if previous and previous.exists() and not out_dir.exists():
+                    os.replace(previous, out_dir)
+                raise
+        if previous:
+            shutil.rmtree(previous, ignore_errors=True)
+        published = True
+        return out_dir
+    finally:
+        link.unlink(missing_ok=True)
+        if not published:
+            shutil.rmtree(staged, ignore_errors=True)
+
+
 def length_px(value: str) -> float:
     match = re.fullmatch(r"\s*([\d.]+)\s*(px|in|mm|cm|pt)?\s*", value)
     if not match:
@@ -648,17 +698,14 @@ def audit(pdf_path: Path, preview: str, dpi: int, pdf_fonts: bool = True) -> Non
         print("  embedded fonts by share of text:")
         for name, count in sorted(font_chars.items(), key=lambda item: -item[1]):
             print(f"    {count / total:6.1%}  {name}")
-    print("  link text colors:")
+    print("  link text colors (contrast against white only):")
     for hex_color, (count, ratio, sample) in sorted(colors.items(), key=lambda item: -item[1][0]):
         flag = "" if ratio >= 4.5 else "  ← below 4.5:1"
-        print(f"    {hex_color}  {ratio:4.1f}:1  ×{count:<3} e.g. {sample!r}{flag}")
+        print(f"    {hex_color}  {ratio:4.1f}:1 on white  ×{count:<3} e.g. {sample!r}{flag}")
 
     pages = parse_pages(preview, doc.page_count)
     if pages:
-        out_dir = pdf_path.with_name(f"{pdf_path.stem}-preview")
-        out_dir.mkdir(exist_ok=True)
-        for number in pages:
-            doc[number - 1].get_pixmap(dpi=dpi).save(out_dir / f"page-{number:02d}.png")
+        out_dir = save_previews_atomically(doc, pdf_path, pages, dpi)
         print(f"  previews: {out_dir}/page-NN.png for pages {preview}")
 
 

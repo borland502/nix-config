@@ -20,7 +20,9 @@ htmlpdf inspect report.pdf --preview 1,5
 Always request preview pages during conversion, then inspect the PDF and the
 same requested preview pages before reporting success. Confirm that bookmarks
 reach the intended sections, the intended fonts are embedded and rendered, and
-links have contrast of at least 4.5:1 against their printed background.
+links printed against white have contrast of at least 4.5:1. Visually assess
+links over tinted backgrounds; the PDF audit cannot reliably associate text
+with its painted background.
 
 ## Print CSS
 
