@@ -199,6 +199,7 @@
     # Both stay registered in pkgs/default.nix, so `nix run .#<tool>` still works
     # anywhere without putting them in the profile.
     gopwgen
+    htmlpdf
     wordgen
 
     # Build tools

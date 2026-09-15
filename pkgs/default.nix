@@ -9,6 +9,7 @@
 # here, so a scratch directory can never become part of the build.
 pkgs: {
   gopwgen = pkgs.callPackage ./gopwgen {};
+  htmlpdf = pkgs.python3.pkgs.callPackage ./htmlpdf {};
   shop-scan = pkgs.callPackage ./shop-scan {};
   technitium-dash = pkgs.python3.pkgs.callPackage ./technitium-dash {};
   wordgen = pkgs.callPackage ./wordgen {};

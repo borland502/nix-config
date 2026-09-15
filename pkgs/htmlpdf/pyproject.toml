@@ -1,0 +1,41 @@
+[tool.poetry]
+name = "htmlpdf"
+version = "0.1.0"
+description = "Convert HTML or Markdown documents to print-ready, bookmarked PDFs."
+authors = ["jhettenh"]
+packages = [{ include = "htmlpdf", from = "src" }]
+include = [
+  { path = "src/htmlpdf/assets/markdown.css", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/mermaid-11.4.1.min.js", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/mermaid-11.4.1.LICENSE", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/ibm-plex-mono-regular-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/ibm-plex-mono-medium-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/public-sans-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/source-serif-4-roman-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/source-serif-4-italic-latin.woff2", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/ibm-plex-mono.LICENSE", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/public-sans.LICENSE", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/source-serif-4.LICENSE", format = ["sdist", "wheel"] },
+]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<3.15"
+playwright = "^1.55.0"
+pymupdf = "^1.26.0"
+markdown-it-py = "^4.0.0"
+mdit-py-plugins = "^0.5.0"
+pygments = "^2.19.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.0"
+ruff = "^0.12.0"
+mypy = "^1.17.0"
+pyinstaller = "^6.15.0"
+types-Pygments = "^2.19.0"
+
+[tool.poetry.scripts]
+htmlpdf = "htmlpdf.cli:main"
+
+[build-system]
+requires = ["poetry-core>=2.1.0"]
+build-backend = "poetry.core.masonry.api"

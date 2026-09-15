@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+vars:
+  BINARY: htmlpdf
+  REPO_ROOT:
+    sh: git rev-parse --show-toplevel
+
+tasks:
+  install:
+    desc: Install Poetry dependencies
+    cmds:
+      - poetry install
+
+  test:
+    desc: Run converter tests
+    cmds:
+      - poetry run pytest -q
+
+  check:
+    desc: Run linting, type checking, and tests
+    cmds:
+      - poetry run ruff check src tests
+      - poetry run mypy src
+      - poetry run pytest -q
+
+  build:sea:
+    desc: Build a host-specific PyInstaller executable
+    cmds:
+      - mkdir -p dist
+      - poetry run pyinstaller --onefile --name htmlpdf --collect-all htmlpdf --collect-all pymupdf --collect-all playwright src/htmlpdf/__main__.py
+
+  nix:build:
+    desc: Build and verify the native executable through the flake
+    cmds:
+      - nix build {{.REPO_ROOT}}#{{.BINARY}}
+      - test -x result/bin/{{.BINARY}}
+      - file result/bin/{{.BINARY}} | grep -E 'Mach-O|ELF'
+      - result/bin/{{.BINARY}} --help
+
+  smoke:
+    desc: Render the fixtures with the Nix-built executable and the host's Chrome
+    vars:
+      OUT:
+        sh: mktemp -d
+    cmds:
+      - result/bin/{{.BINARY}} convert tests/fixtures/guide.md -o {{.OUT}}/guide.pdf --preview 1 --dpi 72 | tee {{.OUT}}/guide.txt
+      - "grep -F 'mermaid: 1 rendered' {{.OUT}}/guide.txt"
+      - result/bin/{{.BINARY}} convert tests/fixtures/offline-mermaid.html -o {{.OUT}}/offline-mermaid.pdf --preview 1 --dpi 72 | tee {{.OUT}}/offline-mermaid.txt
+      - "grep -F 'mermaid: 1 rendered' {{.OUT}}/offline-mermaid.txt"
+      - echo "smoke output in {{.OUT}}"
+
+  clean:
+    desc: Remove generated build output
+    cmds:
+      - rm -rf build dist result .mypy_cache .pytest_cache .ruff_cache htmlpdf.spec
