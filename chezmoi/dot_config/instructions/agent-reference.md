@@ -334,8 +334,8 @@ the nix-config repo.
   a command line), creates the remote — or reconnects its token if it already
   exists — then prints the remotes and runs a `sync-to-gdrive --dry-run`.
   Needs a real terminal: rclone opens a browser to authorize.
-- **`toggle-browser`** — Toggle macOS default browser between Vivaldi and
-  Safari (darwin only).
+- **`toggle-browser [chrome]`** — Toggle macOS default browser between Safari
+  and Vivaldi, or Safari and Chrome with `chrome` (darwin only).
 - **`btrfs-safety-snapshot [description] [task-tag]`** — Best-effort pre-change
   btrfs snapshot of the snapper `root` config: no-op if snapper/the `root`
   config is absent, skips (doesn't fail) when non-interactive with no cached
