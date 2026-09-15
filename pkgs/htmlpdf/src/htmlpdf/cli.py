@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import unicodedata
 from collections import defaultdict, deque
 from collections.abc import Collection
@@ -435,6 +436,35 @@ def find_chrome(explicit: str | None) -> str | None:
     return next((c for c in candidates if c and Path(c).exists()), None)
 
 
+def stage_html(source: Path, document: str) -> Path:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix=f".{source.stem}.htmlpdf-",
+        suffix=".html",
+        dir=source.parent,
+        delete=False,
+    ) as staged:
+        staged.write(document)
+        return Path(staged.name)
+
+
+def save_pdf_atomically(doc: pymupdf.Document, output: Path) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.stem}.htmlpdf-",
+        suffix=output.suffix,
+        dir=output.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        os.close(descriptor)
+        temporary.unlink()
+        doc.save(temporary, garbage=3, deflate=True)
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def length_px(value: str) -> float:
     match = re.fullmatch(r"\s*([\d.]+)\s*(px|in|mm|cm|pt)?\s*", value)
     if not match:
@@ -660,13 +690,11 @@ def convert(args: argparse.Namespace) -> None:
 
     staged: Path | None = None
     if source.suffix.lower() in {".md", ".markdown"}:
-        staged = source.with_name(f".{source.stem}.htmlpdf.html")
-        staged.write_text(markdown_to_document(source), encoding="utf-8")
+        staged = stage_html(source, markdown_to_document(source))
     else:
         text = source.read_text(encoding="utf-8")
         if not re.search(r"<html[\s>]", text, re.IGNORECASE):
-            staged = source.with_name(f".{source.stem}.htmlpdf.html")
-            staged.write_text(wrap_fragment(text), encoding="utf-8")
+            staged = stage_html(source, wrap_fragment(text))
     load = staged or source
 
     link_color = None if args.link_color == "keep" else args.link_color
@@ -777,7 +805,7 @@ def convert(args: argparse.Namespace) -> None:
         metadata["author"] = args.author
     doc.set_metadata(metadata)
     output.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(output, garbage=3, deflate=True)
+    save_pdf_atomically(doc, output)
 
     orientation = " landscape" if args.landscape else ""
     prepared = ", ".join(f"{key} {value}" for key, value in report.items() if value) or "nothing needed"
@@ -835,7 +863,7 @@ def main() -> None:
                    help="never redraw wide left-to-right Mermaid flowcharts top-to-bottom")
     c.add_argument("--mermaid-url", default=MERMAID_URL)
     c.add_argument("--chrome", help="Chrome/Chromium executable (default: auto-detect)")
-    c.add_argument("--keep-html", action="store_true", help="keep the staged .htmlpdf.html beside the input")
+    c.add_argument("--keep-html", action="store_true", help="keep the invocation-specific staged HTML beside the input")
     c.add_argument("--preview", default="1", help="pages to render as PNG after conversion: 1,3-4 | all | none")
     c.add_argument("--dpi", type=int, default=110)
     c.set_defaults(func=convert)
