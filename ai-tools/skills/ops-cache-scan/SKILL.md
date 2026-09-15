@@ -1,6 +1,6 @@
 ---
 name: ops-cache-scan
-description: Use when investigating why a recent command or tool failed, resuming context from an earlier session, or when asked what happened previously — scans the ~/.cache/claude and ~/.cache/copilot session logs. Prefer this over hand-rolled greps (rg/find) across the cache dir. Also read it before concluding a window had no failures: failed commands never reach the log.
+description: Use when asked to read, find, or resume today's handoff; resuming context from an earlier session; investigating a recent command or tool failure; or asked what happened previously.
 ---
 
 # Cache Scan
