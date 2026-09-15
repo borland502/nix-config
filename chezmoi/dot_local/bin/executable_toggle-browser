@@ -1,11 +1,21 @@
 #!/usr/bin/osascript -l JavaScript
-// Toggle default browser between Vivaldi and Safari using the
-// CoreServices ObjC bridge - bypasses nix Python/Swift env issues.
+// Toggle default browser between Safari and a Chromium browser (Vivaldi by
+// default, or Chrome) using the CoreServices ObjC bridge - bypasses nix
+// Python/Swift env issues.
+//
+//   toggle-browser           Safari <-> Vivaldi
+//   toggle-browser chrome    Safari <-> Chrome
 
 ObjC.import('CoreServices');
+ObjC.import('AppKit');
+ObjC.import('stdlib');
 
-const SAFARI  = 'com.apple.Safari';
-const VIVALDI = 'com.vivaldi.Vivaldi';
+const SAFARI = 'com.apple.Safari';
+
+const PARTNERS = {
+  vivaldi: 'com.vivaldi.Vivaldi',
+  chrome:  'com.google.Chrome',
+};
 
 const CHROMIUM_PREFIXES = [
   'com.vivaldi.',
@@ -18,6 +28,10 @@ const CHROMIUM_PREFIXES = [
   'com.arc.',
 ];
 
+function usage() {
+  console.log('usage: toggle-browser [' + Object.keys(PARTNERS).join('|') + ']');
+}
+
 function currentBrowser() {
   const ref = $.LSCopyDefaultHandlerForURLScheme($('https'));
   if (!ref) return '';
@@ -29,25 +43,51 @@ function isChromium(id) {
   return CHROMIUM_PREFIXES.some(p => id.startsWith(p));
 }
 
+function isInstalled(id) {
+  return !!$.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier($(id)).js;
+}
+
 function setBrowser(id) {
   ['https', 'http'].forEach(scheme => {
     $.LSSetDefaultHandlerForURLScheme($(scheme), $(id));
   });
 }
 
-const current = currentBrowser();
-console.log('current: ' + (current || '(none)'));
+function run(argv) {
+  const arg = (argv[0] || '').replace(/^-+/, '').toLowerCase();
+  if (arg === 'h' || arg === 'help') {
+    usage();
+    return;
+  }
+  if (argv.length > 1 || (arg && !PARTNERS[arg])) {
+    usage();
+    $.exit(2);
+  }
+  const explicit = !!arg;
+  const partner = PARTNERS[arg || 'vivaldi'];
 
-let target;
-if (current === SAFARI) {
-  target = VIVALDI;
-} else if (isChromium(current)) {
-  target = SAFARI;
-} else {
-  console.log("unrecognised browser '" + current + "' - switching to Vivaldi");
-  target = VIVALDI;
+  const current = currentBrowser();
+  console.log('current: ' + (current || '(none)'));
+
+  // An explicit choice switches to that browser from anywhere, and back to
+  // Safari only when it is already the default. With no argument, any
+  // Chromium browser toggles back to Safari.
+  let target;
+  if (current === partner || (!explicit && isChromium(current))) {
+    target = SAFARI;
+  } else {
+    if (!explicit && current !== SAFARI) {
+      console.log("unrecognised browser '" + current + "' - switching to Vivaldi");
+    }
+    target = partner;
+  }
+
+  if (!isInstalled(target)) {
+    console.log('error: ' + target + ' is not installed');
+    $.exit(1);
+  }
+
+  console.log('target:  ' + target);
+  setBrowser(target);
+  console.log('done (confirm the system dialog if prompted)');
 }
-
-console.log('target:  ' + target);
-setBrowser(target);
-console.log('done (confirm the system dialog if prompted)');
