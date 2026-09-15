@@ -31,9 +31,12 @@ tasks:
       - poetry run pyinstaller --onefile --name htmlpdf --collect-all htmlpdf --collect-all pymupdf --collect-all playwright src/htmlpdf/cli.py
 
   nix:build:
-    desc: Build through the flake
+    desc: Build and verify the native executable through the flake
     cmds:
       - nix build {{.REPO_ROOT}}#{{.BINARY}}
+      - test -x result/bin/{{.BINARY}}
+      - file result/bin/{{.BINARY}} | grep -E 'Mach-O|ELF'
+      - result/bin/{{.BINARY}} --help
 
   clean:
     desc: Remove generated build output
