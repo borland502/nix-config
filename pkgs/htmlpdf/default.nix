@@ -78,7 +78,12 @@ in
           "$PWD/pyinstaller-libs/libunistring.5.dylib"
       ''}
 
-      # --collect-all htmlpdf includes htmlpdf's packaged CSS and pinned Mermaid runtime.
+      # --collect-all htmlpdf bundles the package's modules, CSS, fonts, and pinned
+      # Mermaid runtime. The spec runs collect_all() in PyInstaller's own
+      # interpreter, which sees src only through PYTHONPATH (--paths applies later,
+      # during analysis). Without it PyInstaller logs "not a package", drops all of
+      # them, and the binary fails at runtime with ModuleNotFoundError.
+      export PYTHONPATH="$PWD/src"
       PYINSTALLER_CONFIG_DIR="$PWD/.pyinstaller" PATH="${lib.optionalString stdenv.hostPlatform.isDarwin "/usr/bin:"}$PATH" pyi-makespec \
         --onefile \
         --name htmlpdf \
@@ -87,7 +92,7 @@ in
         --collect-all htmlpdf \
         --collect-all pymupdf \
         --collect-all playwright \
-        src/htmlpdf/cli.py
+        src/htmlpdf/__main__.py
       ${lib.optionalString stdenv.hostPlatform.isDarwin ''
         python - <<PY
         from pathlib import Path
@@ -131,6 +136,34 @@ in
       test -x "$out/bin/htmlpdf"
       file "$out/bin/htmlpdf" | grep -E 'Mach-O|ELF'
       "$out/bin/htmlpdf" --help >/dev/null
+
+      # Every package module and asset must be inside the one-file archive.
+      pyi-archive_viewer -l -r "$out/bin/htmlpdf" > archive-contents.txt
+      for entry in htmlpdf htmlpdf.cli src/htmlpdf/assets/*; do
+        entry="''${entry#src/}"
+        if ! grep -qF ", '$entry'" archive-contents.txt; then
+          echo "htmlpdf: the executable is missing $entry" >&2
+          exit 1
+        fi
+      done
+
+      # Run the frozen Markdown path without a browser, so the check also holds in
+      # a Linux sandbox. Staging the page reads the packaged fonts and CSS through
+      # importlib.resources; a stand-in browser that exits at once then stops the
+      # conversion, and --keep-html leaves the staged page to inspect.
+      mkdir install-check
+      cp tests/fixtures/guide.md install-check/guide.md
+      if "$out/bin/htmlpdf" convert install-check/guide.md --chrome "$(type -P false)" --keep-html 2>install-check/stderr.txt; then
+        echo "htmlpdf: conversion succeeded with a browser that cannot start" >&2
+        exit 1
+      fi
+      if ! grep -qF 'could not start Chrome' install-check/stderr.txt; then
+        cat install-check/stderr.txt >&2
+        exit 1
+      fi
+      staged=(install-check/.guide.htmlpdf-*.html)
+      grep -qF 'url(data:font/woff2;base64,' "''${staged[0]}"
+      grep -qF '<pre class="mermaid">' "''${staged[0]}"
       runHook postInstallCheck
     '';
 
@@ -141,7 +174,7 @@ in
     removeReferencesTo = pythonBuildInputs;
 
     meta = {
-      description = "Convert Markdown documents to PDF files";
+      description = "Convert HTML or Markdown documents to print-ready PDFs";
       mainProgram = "htmlpdf";
       platforms = lib.platforms.linux ++ lib.platforms.darwin;
     };

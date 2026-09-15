@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "htmlpdf"
 version = "0.1.0"
-description = "Convert Markdown documents to PDF files."
-authors = ["CMS Medicaid Drug Programs"]
+description = "Convert HTML or Markdown documents to print-ready, bookmarked PDFs."
+authors = ["jhettenh"]
 packages = [{ include = "htmlpdf", from = "src" }]
 include = [
   { path = "src/htmlpdf/assets/markdown.css", format = ["sdist", "wheel"] },

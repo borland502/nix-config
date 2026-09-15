@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -193,3 +196,20 @@ def test_audit_limits_link_contrast_claim_to_white_backgrounds(tmp_path, capsys)
     report = capsys.readouterr().out
     assert "link text colors (contrast against white only):" in report
     assert "on white" in report
+
+
+def test_module_entry_point_runs_the_cli() -> None:
+    # The PyInstaller executable is built from this module, so it must import the
+    # package rather than run cli.py as a detached script.
+    package_root = Path(cli.__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "-m", "htmlpdf", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PYTHONPATH": str(package_root)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "convert" in result.stdout
+    assert "inspect" in result.stdout
