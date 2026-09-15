@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: "3"
+
+vars:
+  BINARY: htmlpdf
+  REPO_ROOT:
+    sh: git rev-parse --show-toplevel
+
+tasks:
+  install:
+    desc: Install Poetry dependencies
+    cmds:
+      - poetry install
+
+  test:
+    desc: Run converter tests
+    cmds:
+      - poetry run pytest -q
+
+  check:
+    desc: Run linting, type checking, and tests
+    cmds:
+      - poetry run ruff check src tests
+      - poetry run mypy src
+      - poetry run pytest -q
+
+  build:sea:
+    desc: Build a host-specific PyInstaller executable
+    cmds:
+      - mkdir -p dist
+      - poetry run pyinstaller --onefile --name htmlpdf --collect-all htmlpdf --collect-all pymupdf --collect-all playwright src/htmlpdf/cli.py
+
+  nix:build:
+    desc: Build through the flake
+    cmds:
+      - nix build {{.REPO_ROOT}}#{{.BINARY}}
+
+  clean:
+    desc: Remove generated build output
+    cmds:
+      - rm -rf build dist result .mypy_cache .pytest_cache .ruff_cache htmlpdf.spec

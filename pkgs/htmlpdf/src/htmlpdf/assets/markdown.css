@@ -1,0 +1,149 @@
+/* htmlpdf print theme for Markdown input.
+   Serif reading text, sans headings and tables, mono code; cool neutral rules;
+   sized in points for paper. */
+:root {
+  --ink: #1F2933;
+  --muted: #52606D;
+  --rule: #D9E2EC;
+  --rule-strong: #BCCCDC;
+  --tint: #F2F5F8;
+  --code-bg: #F4F6F9;
+  --link: #1A5FB4;
+  --sans: "Public Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+html { font-size: 10.5pt; }
+body {
+  margin: 0;
+  background: #ffffff;
+  color: var(--ink);
+  font-family: var(--serif);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+main.doc > :first-child { margin-top: 0; }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--sans);
+  color: var(--ink);
+  line-height: 1.22;
+  text-wrap: balance;
+  margin: 1.5em 0 0.5em;
+}
+h1 { font-size: 22pt; font-weight: 700; letter-spacing: -0.012em; margin-top: 0; }
+h2 { font-size: 15pt; font-weight: 700; padding-top: 0.7em; border-top: 1px solid var(--rule); }
+h1 + h2, main.doc > h2:first-child { border-top: 0; padding-top: 0; }
+h3 { font-size: 12pt; font-weight: 600; }
+h4 { font-size: 10.5pt; font-weight: 600; }
+h5, h6 { font-size: 8.5pt; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+
+p, ul, ol, dl, pre, blockquote, figure, table { margin: 0 0 0.8em; }
+ul, ol { padding-left: 1.35em; }
+li { margin: 0.18em 0; }
+li > ul, li > ol { margin: 0.2em 0 0.3em; }
+li::marker { color: var(--muted); }
+strong { font-weight: 600; }
+
+a { color: var(--link); text-underline-offset: 0.16em; }
+
+code, kbd, samp { font-family: var(--mono); font-size: 0.86em; }
+:not(pre) > code {
+  background: var(--code-bg);
+  border-radius: 3px;
+  padding: 0.06em 0.34em;
+  overflow-wrap: anywhere;
+}
+kbd {
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 0 0.3em;
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.7em 0.9em;
+  font-size: 8.4pt;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+pre.mermaid { background: none; border: 0; padding: 0.4em 0; text-align: center; white-space: pre; }
+
+blockquote {
+  margin-left: 0;
+  padding: 0.15em 0 0.15em 1em;
+  border-left: 3px solid var(--rule-strong);
+  color: var(--muted);
+}
+blockquote > :last-child { margin-bottom: 0; }
+
+/* GitHub / Obsidian callouts: > [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION] */
+blockquote.callout {
+  --callout: #3E6FB0;
+  --callout-bg: #EEF4FB;
+  border-left: 3px solid var(--callout);
+  background: var(--callout-bg);
+  border-radius: 0 4px 4px 0;
+  padding: 0.55em 0.9em;
+  color: var(--ink);
+  break-inside: avoid;
+}
+blockquote.callout .callout-title {
+  font-family: var(--sans);
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--callout);
+  margin-bottom: 0.25em;
+}
+.callout-tip { --callout: #2F7D55; --callout-bg: #EEF7F2; }
+.callout-important { --callout: #6B4FA8; --callout-bg: #F3F0FA; }
+.callout-warning { --callout: #9A6A12; --callout-bg: #FBF4E6; }
+.callout-caution { --callout: #A8342F; --callout-bg: #FBEFEE; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--sans);
+  font-size: 8.8pt;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--rule);
+}
+th {
+  background: var(--tint);
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--muted);
+  font-size: 7.6pt;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+td[align="right"], th[align="right"], td[style*="right"] { text-align: right; }
+tbody tr:nth-child(even) td { background: #FAFBFC; }
+
+img, svg { max-width: 100%; height: auto; }
+figure { text-align: center; }
+figcaption { font-family: var(--sans); font-size: 8.5pt; color: var(--muted); margin-top: 0.4em; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 1.6em 0; }
+
+dt { font-family: var(--sans); font-weight: 600; }
+dd { margin: 0 0 0.5em 1.2em; }
+
+.task-list-item { list-style: none; }
+.task-list-item-checkbox { margin: 0 0.45em 0 -1.25em; vertical-align: -0.05em; }
+
+.footnotes-sep { border: 0; border-top: 1px solid var(--rule); margin-top: 2em; }
+.footnotes { font-size: 8.6pt; color: var(--muted); }

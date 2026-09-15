@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "htmlpdf"
+version = "0.1.0"
+description = "Convert Markdown documents to PDF files."
+authors = ["CMS Medicaid Drug Programs"]
+packages = [{ include = "htmlpdf", from = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<3.15"
+playwright = "^1.55.0"
+pymupdf = "^1.26.0"
+markdown-it-py = "^4.0.0"
+mdit-py-plugins = "^0.5.0"
+pygments = "^2.19.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.0"
+ruff = "^0.12.0"
+mypy = "^1.17.0"
+pyinstaller = "^6.15.0"
+types-Pygments = "^2.19.0"
+
+[tool.poetry.scripts]
+htmlpdf = "htmlpdf.cli:main"
+
+[build-system]
+requires = ["poetry-core>=2.1.0"]
+build-backend = "poetry.core.masonry.api"
