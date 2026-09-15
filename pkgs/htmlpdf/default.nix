@@ -63,6 +63,7 @@ buildPythonApplication {
       "$PWD/pyinstaller-libs/libunistring.5.dylib"
     ''}
 
+    # --collect-all htmlpdf includes htmlpdf's packaged CSS and pinned Mermaid runtime.
     PYINSTALLER_CONFIG_DIR="$PWD/.pyinstaller" PATH="${lib.optionalString stdenv.hostPlatform.isDarwin "/usr/bin:"}$PATH" pyi-makespec \
       --onefile \
       --name htmlpdf \

@@ -25,3 +25,4 @@
 *.gz    binary
 *.zip   binary
 *.7z    binary
+pkgs/htmlpdf/src/htmlpdf/assets/mermaid-11.4.1.min.js -whitespace

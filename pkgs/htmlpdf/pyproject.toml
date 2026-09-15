@@ -4,6 +4,11 @@ version = "0.1.0"
 description = "Convert Markdown documents to PDF files."
 authors = ["CMS Medicaid Drug Programs"]
 packages = [{ include = "htmlpdf", from = "src" }]
+include = [
+  { path = "src/htmlpdf/assets/markdown.css", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/mermaid-11.4.1.min.js", format = ["sdist", "wheel"] },
+  { path = "src/htmlpdf/assets/mermaid-11.4.1.LICENSE", format = ["sdist", "wheel"] },
+]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.15"

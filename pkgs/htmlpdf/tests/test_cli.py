@@ -1,8 +1,16 @@
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from pathlib import Path
+from threading import Event
+
 import pymupdf
 
+from htmlpdf import cli
 from htmlpdf.cli import (
     audit,
     is_web_font_family,
+    mermaid_script_tag,
+    preview_directory_lock,
     print_css,
     save_pdf_atomically,
     save_previews_atomically,
@@ -20,6 +28,18 @@ def test_print_css_caps_only_reoriented_mermaid_diagrams() -> None:
     css = print_css("#1A5FB4")
     assert ".mermaid[data-htmlpdf-reoriented] svg" in css
     assert "max-height: 6.5in" in css
+
+
+def test_mermaid_script_tag_uses_bundled_runtime_unless_overridden() -> None:
+    with mermaid_script_tag(None) as bundled:
+        assert set(bundled) == {"path"}
+        asset = Path(bundled["path"])
+        assert asset.name == "mermaid-11.4.1.min.js"
+        assert asset.is_file()
+        assert "mermaid" in asset.read_text(encoding="utf-8")[:1000].casefold()
+
+    with mermaid_script_tag("https://example.test/mermaid.js") as overridden:
+        assert overridden == {"url": "https://example.test/mermaid.js"}
 
 
 def test_stage_html_uses_a_unique_file_and_cleanup_is_scoped_to_it(tmp_path) -> None:
@@ -77,6 +97,41 @@ def test_save_previews_atomically_replaces_directory_and_removes_stale_pages(tmp
     assert (preview / "page-01.png").is_file()
     assert not (preview / "page-02.png").exists()
     assert not (preview / "page-99.png").exists()
+
+
+def write_solid_pdf(path, color: tuple[float, float, float]) -> None:
+    document = pymupdf.open()
+    page = document.new_page()
+    page.draw_rect(page.rect, color=color, fill=color, overlay=False)
+    document.save(path)
+    document.close()
+
+
+def test_save_previews_atomically_renders_current_pdf_after_waiting_for_output_lock(tmp_path, monkeypatch) -> None:
+    pdf = tmp_path / "guide.pdf"
+    write_solid_pdf(pdf, (1, 0, 0))
+    previous_document = pymupdf.open(pdf)
+    preview = tmp_path / "guide-preview"
+    lock_attempted = Event()
+    original_lock = preview_directory_lock
+
+    @contextmanager
+    def observed_lock(out_dir):
+        lock_attempted.set()
+        with original_lock(out_dir):
+            yield
+
+    monkeypatch.setattr(cli, "preview_directory_lock", observed_lock)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with original_lock(preview):
+            future = executor.submit(save_previews_atomically, previous_document, pdf, [1], 72)
+            assert lock_attempted.wait(timeout=2)
+            write_solid_pdf(pdf, (0, 1, 0))
+        future.result(timeout=2)
+    previous_document.close()
+
+    rendered = pymupdf.Pixmap(preview / "page-01.png")
+    assert rendered.samples[:3] == bytes((0, 255, 0))
 
 
 def test_audit_limits_link_contrast_claim_to_white_backgrounds(tmp_path, capsys) -> None:

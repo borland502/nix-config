@@ -24,6 +24,12 @@ links printed against white have contrast of at least 4.5:1. Visually assess
 links over tinted backgrounds; the PDF audit cannot reliably associate text
 with its painted background.
 
+## Mermaid
+
+Mermaid diagrams use htmlpdf's bundled, pinned runtime by default, so normal
+conversion does not require CDN access or network egress. Use `--mermaid-url`
+only when intentionally overriding that runtime.
+
 ## Print CSS
 
 Set a legible root font size and let prose use the printable width. Declare

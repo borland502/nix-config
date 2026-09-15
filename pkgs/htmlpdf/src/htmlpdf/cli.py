@@ -38,14 +38,15 @@ import tempfile
 import unicodedata
 from collections import defaultdict, deque
 from collections.abc import Collection, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from importlib import resources
 from pathlib import Path
 from typing import cast
 
 import pymupdf
 
-MERMAID_URL = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"
+MERMAID_VERSION = "11.4.1"
+MERMAID_ASSET = f"mermaid-{MERMAID_VERSION}.min.js"
 DEFAULT_LINK_COLOR = "#1A5FB4"  # 6.3:1 on white: reads as a link, not as body text
 PAPER_INCHES = {"letter": (8.5, 11.0), "a4": (8.27, 11.69), "legal": (8.5, 14.0), "tabloid": (11.0, 17.0)}
 UNIT_PX = {"px": 1.0, "in": 96.0, "mm": 96 / 25.4, "cm": 96 / 2.54, "pt": 96 / 72}
@@ -99,6 +100,18 @@ MERMAID_CONFIG = {
 }
 
 # --------------------------------------------------------------------------- page scripts
+
+
+@contextmanager
+def mermaid_script_tag(override_url: str | None) -> Iterator[dict[str, str]]:
+    if override_url:
+        yield {"url": override_url}
+        return
+
+    asset = resources.files("htmlpdf").joinpath("assets", MERMAID_ASSET)
+    with resources.as_file(asset) as path:
+        yield {"path": str(path)}
+
 
 WAIT_JS = """
 async () => {
@@ -479,18 +492,32 @@ def preview_directory_lock(out_dir: Path) -> Iterator[None]:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def save_previews_atomically(doc: pymupdf.Document, pdf_path: Path, pages: list[int], dpi: int) -> Path:
-    out_dir = pdf_path.with_name(f"{pdf_path.stem}-preview")
-    staged = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}-", dir=out_dir.parent))
-    link = staged.with_name(f"{staged.name}-link")
-    published = False
-    try:
-        for number in pages:
-            doc[number - 1].get_pixmap(dpi=dpi).save(staged / f"page-{number:02d}.png")
+def save_previews_atomically(
+    _document: pymupdf.Document, pdf_path: Path, pages: list[int], dpi: int, *, lock_held: bool = False
+) -> Path:
+    """Render and publish previews from the PDF state protected by its output lock.
 
-        os.symlink(staged.name, link)
-        previous: Path | None = None
-        with preview_directory_lock(out_dir):
+    ``_document`` is deliberately not reused: it may be an older snapshot whose
+    path a concurrent converter has atomically replaced.
+    """
+    out_dir = pdf_path.with_name(f"{pdf_path.stem}-preview")
+    staged: Path | None = None
+    link: Path | None = None
+    published = False
+    previous: Path | None = None
+    try:
+        lock = nullcontext() if lock_held else preview_directory_lock(out_dir)
+        with lock:
+            staged = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}-", dir=out_dir.parent))
+            link = staged.with_name(f"{staged.name}-link")
+            current_document = pymupdf.open(pdf_path)
+            try:
+                for number in pages:
+                    current_document[number - 1].get_pixmap(dpi=dpi).save(staged / f"page-{number:02d}.png")
+            finally:
+                current_document.close()
+
+            os.symlink(staged.name, link)
             if out_dir.exists() and not out_dir.is_symlink():
                 previous = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}-previous-", dir=out_dir.parent))
                 previous.rmdir()
@@ -505,14 +532,15 @@ def save_previews_atomically(doc: pymupdf.Document, pdf_path: Path, pages: list[
                 if previous and previous.exists() and not out_dir.exists():
                     os.replace(previous, out_dir)
                 raise
-        if previous:
-            shutil.rmtree(previous, ignore_errors=True)
-        published = True
-        return out_dir
+            published = True
     finally:
-        link.unlink(missing_ok=True)
-        if not published:
+        if link:
+            link.unlink(missing_ok=True)
+        if staged and not published:
             shutil.rmtree(staged, ignore_errors=True)
+    if previous:
+        shutil.rmtree(previous, ignore_errors=True)
+    return out_dir
 
 
 def length_px(value: str) -> float:
@@ -654,7 +682,7 @@ def parse_pages(spec: str, count: int) -> list[int]:
     return [p for p in pages if 1 <= p <= count]
 
 
-def audit(pdf_path: Path, preview: str, dpi: int, pdf_fonts: bool = True) -> None:
+def audit(pdf_path: Path, preview: str, dpi: int, pdf_fonts: bool = True, preview_lock_held: bool = False) -> None:
     doc = pymupdf.open(pdf_path)
     size_kb = pdf_path.stat().st_size / 1024
     print(f"\n{pdf_path}\n  {doc.page_count} pages · {size_kb:,.0f} KB · page mode {doc.pagemode}")
@@ -705,7 +733,7 @@ def audit(pdf_path: Path, preview: str, dpi: int, pdf_fonts: bool = True) -> Non
 
     pages = parse_pages(preview, doc.page_count)
     if pages:
-        out_dir = save_previews_atomically(doc, pdf_path, pages, dpi)
+        out_dir = save_previews_atomically(doc, pdf_path, pages, dpi, lock_held=preview_lock_held)
         print(f"  previews: {out_dir}/page-NN.png for pages {preview}")
 
 
@@ -778,7 +806,8 @@ def convert(args: argparse.Namespace) -> None:
 
                 if page.evaluate(NEEDS_MERMAID_JS):
                     try:
-                        page.add_script_tag(url=args.mermaid_url)
+                        with mermaid_script_tag(args.mermaid_url) as script_tag:
+                            page.add_script_tag(**script_tag)
                         mermaid = page.evaluate(
                             RENDER_MERMAID_JS, {"config": MERMAID_CONFIG, "reorient": not args.keep_diagram_direction}
                         )
@@ -852,7 +881,9 @@ def convert(args: argparse.Namespace) -> None:
         metadata["author"] = args.author
     doc.set_metadata(metadata)
     output.parent.mkdir(parents=True, exist_ok=True)
-    save_pdf_atomically(doc, output)
+    with preview_directory_lock(output.with_name(f"{output.stem}-preview")):
+        save_pdf_atomically(doc, output)
+        audit(output, args.preview, args.dpi, pdf_fonts=False, preview_lock_held=True)
 
     orientation = " landscape" if args.landscape else ""
     prepared = ", ".join(f"{key} {value}" for key, value in report.items() if value) or "nothing needed"
@@ -868,7 +899,6 @@ def convert(args: argparse.Namespace) -> None:
     for family, count, is_web in fonts[:8]:
         kind = "web font" if is_web else "system font — check it is intended"
         print(f"    {count / total_glyphs:6.1%}  {family}  ({kind})")
-    audit(output, args.preview, args.dpi, pdf_fonts=False)
 
 
 def inspect(args: argparse.Namespace) -> None:
@@ -908,7 +938,7 @@ def main() -> None:
                    help="re-flow single-column grids taller than this many px (default 240; 100000 disables)")
     c.add_argument("--keep-diagram-direction", action="store_true",
                    help="never redraw wide left-to-right Mermaid flowcharts top-to-bottom")
-    c.add_argument("--mermaid-url", default=MERMAID_URL)
+    c.add_argument("--mermaid-url", help="load Mermaid from this URL instead of the bundled runtime")
     c.add_argument("--chrome", help="Chrome/Chromium executable (default: auto-detect)")
     c.add_argument("--keep-html", action="store_true", help="keep the invocation-specific staged HTML beside the input")
     c.add_argument("--preview", default="1", help="pages to render as PNG after conversion: 1,3-4 | all | none")
