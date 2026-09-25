@@ -322,7 +322,7 @@ Deployed by chezmoi to `~/.local/bin` (on `PATH`, ahead of the Nix profile):
 |---|---|
 | `kac` | Kion AWS credential cache proxy — **source** it: `source ~/.local/bin/kac ensure` |
 | `kion-aws-refresh` / `kion-aws-cache` | fetch and cache temporary AWS credentials from the Kion API (tested in `tests/`) |
-| `update-agent-clis` | install/update Claude Code and the GitHub Copilot CLI via their vendor installers |
+| `update-agent-clis` | install/update Claude Code, the GitHub Copilot CLI, and (macOS) the OpenAI Codex CLI via their vendor installers |
 | `pkg-install` | install via the host's native package manager (pacman/apt/dnf/zypper/brew), not Nix |
 | `ensure-nix-zsh-shell` | point the login shell at Home Manager's zsh on non-NixOS Linux |
 | `btrfs-safety-snapshot` | pre-change snapper snapshot |

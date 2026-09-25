@@ -10,6 +10,9 @@
 #   - GitHub Copilot CLI (`copilot`): ~/.local/bin via https://gh.io/copilot-install
 #     (github/copilot-cli release tarballs, SHA256-verified); self-updates with
 #     `copilot update`.
+#   - OpenAI Codex CLI (`codex`, macOS only): ~/.local/bin via
+#     https://chatgpt.com/codex/install.sh (releases under ~/.codex/packages,
+#     SHA256-verified). Re-running the installer upgrades it to latest.
 #
 # Why off nixpkgs: nixos-unstable lags the Copilot CLI by weeks, and — crucially
 # — a nix-store install is read-only, so the CLI's own auto-update / `update`
@@ -20,7 +23,7 @@
 # even though the session can select it. A writable, current install fixes both.
 # See docs/agent-token-cost-levers.md and agent-reference.md.
 #
-# Both branches are update-or-bootstrap (idempotent), so this one script serves
+# Every branch is update-or-bootstrap (idempotent), so this one script serves
 # creation and upgrade. Invoked by chezmoi's run_onchange_install-agent-clis
 # script and by `task agents:update` / the tail of `task upgrade`.
 
@@ -44,7 +47,13 @@ mkdir -p "$prefix/bin"
 
 # The vendor `update` commands stream their own progress, so this run is not the
 # silent one — but keep a clear banner so it is obvious what is happening.
-printf '==> updating agent CLIs (Claude Code, GitHub Copilot) — contacts GitHub; may pause a few seconds. Do not cancel.\n'
+os="$(uname -s)"
+if [ "$os" = Darwin ]; then
+	clis='Claude Code, GitHub Copilot, OpenAI Codex'
+else
+	clis='Claude Code, GitHub Copilot'
+fi
+printf '==> updating agent CLIs (%s) — contacts GitHub; may pause a few seconds. Do not cancel.\n' "$clis"
 
 # Update the writable ~/.local copy in place if present, else bootstrap it.
 # We target $prefix/bin explicitly rather than `command -v`, because a
@@ -71,6 +80,27 @@ else
 		printf 'update-agent-clis: Copilot CLI install failed (continuing)\n' >&2
 fi
 
+# --- OpenAI Codex CLI (macOS only) -----------------------------------------
+if [ "$os" = Darwin ]; then
+	if [ -x "$prefix/bin/codex" ]; then
+		printf '==> updating OpenAI Codex CLI (reinstall latest)\n'
+	else
+		printf '==> installing OpenAI Codex CLI native build into %s\n' "$prefix"
+	fi
+	# The installer is idempotent and resolves "latest" on every run, so one call
+	# serves bootstrap and upgrade. NON_INTERACTIVE skips its "uninstall other
+	# copy?" / "start Codex now?" prompts. Fetch it with macOS's curl: nix's
+	# OpenSSL curl fails chatgpt.com's chain verification against
+	# SSL_CERT_FILE, while the installer's own downloads (releases.openai.com,
+	# GitHub) verify fine with either.
+	/usr/bin/curl -fsSL https://chatgpt.com/codex/install.sh |
+		CODEX_INSTALL_DIR="$prefix/bin" CODEX_NON_INTERACTIVE=1 sh ||
+		printf 'update-agent-clis: Codex CLI install failed (continuing)\n' >&2
+fi
+
 # --- Report ----------------------------------------------------------------
 printf '==> claude   %s\n' "$("$prefix/bin/claude" --version 2>/dev/null || echo '(not runnable)')"
 printf '==> copilot  %s\n' "$("$prefix/bin/copilot" --version 2>/dev/null | head -n 1 || echo '(not runnable)')"
+if [ "$os" = Darwin ]; then
+	printf '==> codex    %s\n' "$("$prefix/bin/codex" --version 2>/dev/null || echo '(not runnable)')"
+fi

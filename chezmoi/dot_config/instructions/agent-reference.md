@@ -354,7 +354,15 @@ the nix-config repo.
   self-updating installer into `~/.local` (binaries → `~/.local/bin`, which the
   login shells prepend to PATH; no npm, no external node): Claude via
   `claude.ai/install.sh` + `claude update`, Copilot via `gh.io/copilot-install`
-  (github/copilot-cli release tarballs) + `copilot update`. These live off
+  (github/copilot-cli release tarballs) + `copilot update`; on macOS only, the
+  OpenAI Codex CLI (`codex`) via `chatgpt.com/codex/install.sh`, re-run each
+  time to pull latest (fetched with `/usr/bin/curl` — nix's curl fails
+  chatgpt.com's TLS chain). Codex state lives in `CODEX_HOME=~/.config/codex`
+  with `~/.codex` symlinked to it (ChatGPT.app shares it), and it trusts
+  `CODEX_CA_CERTIFICATE=~/.local/share/ca-certificates/keychain-bundle.pem`
+  (cert.pem + admin-trusted keychain roots; both set up in `home-darwin.nix`).
+  After the bundle first appears, `codex app-server daemon restart` so the
+  long-lived daemon picks it up. These live off
   nixpkgs on purpose: nixos-unstable lags the Copilot CLI by weeks, and a
   read-only nix-store copy cannot self-update, freezing it on a build whose
   hardcoded subagent model allowlist (`OD` in the vendored bundle) rejects

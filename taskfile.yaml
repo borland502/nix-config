@@ -444,7 +444,7 @@ tasks:
 
   # Development
   agents:update:
-    desc: Update the off-nixpkgs agent CLIs (Claude Code, Copilot CLI) to latest via their native installers
+    desc: Update the off-nixpkgs agent CLIs (Claude Code, Copilot CLI, Codex on macOS) to latest via their native installers
     platforms: [linux, darwin]
     cmd: |
       _helper="$HOME/.local/bin/update-agent-clis"

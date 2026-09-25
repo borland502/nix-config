@@ -151,6 +151,8 @@
         --set PUPPETEER_EXECUTABLE_PATH ${lib.escapeShellArg (lib.getExe pkgs.google-chrome)}
     '';
   };
+  keychainCaBundle = "${config.xdg.dataHome}/ca-certificates/keychain-bundle.pem";
+  codexHome = "${config.xdg.configHome}/codex";
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   darwinPackages = lib.filter availableOnHost (with pkgs; [
     mas
@@ -193,6 +195,14 @@ in {
       # Nix's OpenSSL curl otherwise follows SSL_CERT_DIR and misses certificates
       # available through macOS's system CA bundle.
       SSL_CERT_FILE = "/etc/ssl/cert.pem";
+      # The Codex CLI (update-agent-clis) verifies TLS with rustls against
+      # SSL_CERT_FILE, which lacks the MDM-deployed roots that a TLS-inspecting
+      # proxy re-signs chatgpt.com with — every backend call then fails and the
+      # TUI dies with "workspace routing discovery failed". Point it at
+      # /etc/ssl/cert.pem plus the admin-trusted keychain roots, built by
+      # home.activation.buildKeychainCaBundle below. Only Codex, not
+      # SSL_CERT_FILE globally: a missing bundle then breaks one tool, not all.
+      CODEX_CA_CERTIFICATE = keychainCaBundle;
     };
 
     # ~/gdrive is the Drive root on every host, so one path —
@@ -242,6 +252,59 @@ in {
           # Flameshot only reads the INI at startup; reload the running launchd
           # agent so the restored shortcuts take effect without a manual restart.
           /bin/launchctl kickstart -k "gui/$(${pkgs.coreutils}/bin/id -u)/org.nixos.flameshot" >/dev/null 2>&1 || true
+        fi
+      '';
+
+      # Rebuilt every switch so MDM root rotations are picked up. Only certs in
+      # the admin trust-settings domain are appended (the MDM-deployed roots);
+      # the System keychain also holds device-identity leaf certs that must not
+      # become trust anchors.
+      buildKeychainCaBundle = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        _bundle=${lib.escapeShellArg keychainCaBundle}
+        _work=$(${pkgs.coreutils}/bin/mktemp -d)
+        ${pkgs.coreutils}/bin/cat /etc/ssl/cert.pem > "$_work/bundle.pem"
+        if /usr/bin/security trust-settings-export -d "$_work/admin.plist" >/dev/null 2>&1; then
+          /usr/bin/plutil -convert xml1 -o - "$_work/admin.plist" \
+            | ${pkgs.gnugrep}/bin/grep -oE '<key>[0-9A-F]{40}</key>' \
+            | ${pkgs.gnused}/bin/sed -E 's#</?key>##g' > "$_work/sha1"
+          /usr/bin/security find-certificate -a -Z -p /Library/Keychains/System.keychain \
+            | ${pkgs.gawk}/bin/awk -v list="$_work/sha1" '
+                BEGIN { while ((getline l < list) > 0) want[l] = 1 }
+                /^SHA-256 hash:/ { next }
+                /^SHA-1 hash:/ { keep = ($3 in want); next }
+                keep { print }
+              ' >> "$_work/bundle.pem"
+        fi
+        ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$_bundle")"
+        ${pkgs.coreutils}/bin/mv "$_work/bundle.pem" "$_bundle"
+        ${pkgs.coreutils}/bin/rm -rf "$_work"
+      '';
+
+      # CODEX_HOME (zsh.nix) is $XDG_CONFIG_HOME/codex, but the ChatGPT desktop
+      # app bundles its own codex app-server that reads ~/.codex and never sees
+      # shell env — so ~/.codex stays as a symlink to the XDG dir and the CLI
+      # and the app keep sharing one login, config, and session store. Moving
+      # the live SQLite stores under a running app or daemon would corrupt
+      # them, so an existing ~/.codex is migrated only when nothing is using
+      # it; otherwise this warns and retries on the next switch.
+      linkCodexHome = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        _codex_home=${lib.escapeShellArg codexHome}
+        _legacy="$HOME/.codex"
+        if [ -L "$_legacy" ]; then
+          :
+        elif [ -d "$_legacy" ]; then
+          if [ -e "$_codex_home" ]; then
+            echo "linkCodexHome: both $_legacy and $_codex_home exist; merge them by hand, then rerun the switch" >&2
+          elif /usr/bin/pgrep -qf '/ChatGPT\.app/|/\.codex/packages/.*/codex app-server'; then
+            echo "linkCodexHome: ChatGPT.app or a codex app-server is running; quit it (codex app-server daemon stop) and rerun the switch to move ~/.codex" >&2
+          else
+            ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$_codex_home")"
+            ${pkgs.coreutils}/bin/mv "$_legacy" "$_codex_home"
+            ${pkgs.coreutils}/bin/ln -s "$_codex_home" "$_legacy"
+          fi
+        else
+          ${pkgs.coreutils}/bin/mkdir -p "$_codex_home"
+          ${pkgs.coreutils}/bin/ln -sfn "$_codex_home" "$_legacy"
         fi
       '';
 
