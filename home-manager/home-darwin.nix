@@ -286,17 +286,24 @@ in {
       # and the app keep sharing one login, config, and session store. Moving
       # the live SQLite stores under a running app or daemon would corrupt
       # them, so an existing ~/.codex is migrated only when nothing is using
-      # it; otherwise this warns and retries on the next switch.
-      linkCodexHome = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      # it; otherwise this warns and retries on the next switch. Runs before
+      # checkLinkTargets so the move lands before home-manager links the
+      # xdg.configFile."codex/*" files. If a deferred run already let those
+      # links populate $_codex_home, the move merges into it: zsh.nix holds
+      # CODEX_HOME back until ~/.codex is a symlink, so the XDG dir can only
+      # hold home-manager links, which win (--update=none) over stale copies.
+      linkCodexHome = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
         _codex_home=${lib.escapeShellArg codexHome}
         _legacy="$HOME/.codex"
         if [ -L "$_legacy" ]; then
           :
         elif [ -d "$_legacy" ]; then
-          if [ -e "$_codex_home" ]; then
-            echo "linkCodexHome: both $_legacy and $_codex_home exist; merge them by hand, then rerun the switch" >&2
-          elif /usr/bin/pgrep -qf '/ChatGPT\.app/|/\.codex/packages/.*/codex app-server'; then
+          if /usr/bin/pgrep -qf '/ChatGPT\.app/|/\.codex/packages/.*/codex app-server'; then
             echo "linkCodexHome: ChatGPT.app or a codex app-server is running; quit it (codex app-server daemon stop) and rerun the switch to move ~/.codex" >&2
+          elif [ -e "$_codex_home" ]; then
+            ${pkgs.coreutils}/bin/cp -a --update=none "$_legacy/." "$_codex_home/" \
+              && ${pkgs.coreutils}/bin/rm -rf "$_legacy" \
+              && ${pkgs.coreutils}/bin/ln -s "$_codex_home" "$_legacy"
           else
             ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$_codex_home")"
             ${pkgs.coreutils}/bin/mv "$_legacy" "$_codex_home"
@@ -502,6 +509,42 @@ in {
   # layout and is shared with Linux, so the two hosts cannot drift. Adding a
   # local `programs.vscode` block here is what let darwin fall behind before.
   # Kitty terminal configuration
+  # Codex (macOS-only, update-agent-clis) gets the same ai-tools content as
+  # Claude (plugin) and Copilot (copilot/skills + copilot/agents in common.nix),
+  # under CODEX_HOME. Codex reads $CODEX_HOME/AGENTS.md as global
+  # instructions, scans $CODEX_HOME/skills (it keeps its own skills/.system
+  # beside these, so the dir is linked file-by-file), and loads
+  # $CODEX_HOME/agents/*.toml as custom subagents.
+  xdg.configFile = {
+    "codex/AGENTS.md".source = agentInstructions.codex;
+    "codex/skills" = {
+      source = ../ai-tools/skills;
+      recursive = true;
+    };
+    "codex/agents" = {
+      source = agentInstructions.codexAgentDir;
+      recursive = true;
+    };
+    # Bash command logging, as for Claude and Copilot: Codex's PostToolUse
+    # payload is Claude-shaped (tool_name "Bash", tool_input.command,
+    # tool_response as the model-facing output string), so log-bash.sh's Claude
+    # branch handles it. Codex skips non-managed hooks until they are trusted
+    # once in /hooks; trust is keyed to this definition's hash.
+    "codex/hooks.json".text = builtins.toJSON {
+      hooks.PostToolUse = [
+        {
+          matcher = "Bash";
+          hooks = [
+            {
+              type = "command";
+              command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
+            }
+          ];
+        }
+      ];
+    };
+  };
+
   xdg.configFile."kitty/kitty.conf".text = let
     c = import ./lib/colors.nix;
     baseCfg = builtins.readFile ../chezmoi/dot_config/kitty/kitty.conf;

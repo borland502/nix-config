@@ -167,6 +167,35 @@ in {
         '{plugins: $plugins}' > "$out/marketplace.json"
     '';
 
+  # Convert each ai-tools/agents/*.agent.md into a Codex custom-agent TOML file
+  # ($CODEX_HOME/agents/<name>.toml: name, description, developer_instructions).
+  # The markdown body becomes developer_instructions. Claude/Copilot-only
+  # frontmatter (model tier alias, tools, argument-hint) is dropped, so the
+  # subagent inherits the parent session's model and reasoning effort. The
+  # filename stem is the name: Codex spawns by `name`, and some agents set a
+  # display name with spaces ("Ops Agent").
+  codexAgentDir =
+    pkgs.runCommand "codex-agents" {
+      nativeBuildInputs = [pkgs.jq pkgs.yq-go pkgs.remarshal];
+    } ''
+      mkdir -p "$out"
+      for agent_file in ${../../ai-tools/agents}/*.agent.md; do
+        [ -f "$agent_file" ] || continue
+        agent_name=$(basename "$agent_file" .agent.md)
+        description=$(yq --front-matter=extract '.description // ""' "$agent_file")
+        body=$(awk 'n >= 2 { print; next } /^---[[:space:]]*$/ { n++ }' "$agent_file")
+        jq -n --arg name "$agent_name" --arg description "$description" --arg body "$body" \
+          '{name: $name, description: $description, developer_instructions: $body}' \
+          | remarshal -if json -of toml > "$out/$agent_name.toml"
+      done
+    '';
+
+  codex = render {
+    agentName = "codex";
+    withFrontmatter = false;
+    filename = "AGENTS.md";
+  };
+
   copilot = render {
     agentName = "copilot";
     withFrontmatter = true;

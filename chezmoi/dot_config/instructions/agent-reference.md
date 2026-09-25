@@ -362,7 +362,11 @@ the nix-config repo.
   `CODEX_CA_CERTIFICATE=~/.local/share/ca-certificates/keychain-bundle.pem`
   (cert.pem + admin-trusted keychain roots; both set up in `home-darwin.nix`).
   After the bundle first appears, `codex app-server daemon restart` so the
-  long-lived daemon picks it up. These live off
+  long-lived daemon picks it up. `home-darwin.nix` also gives Codex the shared
+  ai-tools content under `CODEX_HOME`: `AGENTS.md` (rendered from
+  agent-defaults.md), `skills/`, `agents/*.toml` (converted from
+  `ai-tools/agents/*.agent.md`), and a `hooks.json` Bash logger into
+  `~/.cache/codex` — trust it once via `/hooks`. These live off
   nixpkgs on purpose: nixos-unstable lags the Copilot CLI by weeks, and a
   read-only nix-store copy cannot self-update, freezing it on a build whose
   hardcoded subagent model allowlist (`OD` in the vendored bundle) rejects
