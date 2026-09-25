@@ -560,29 +560,57 @@ in {
     # branch handles it. Codex skips non-managed hooks until they are trusted
     # once in /hooks; trust is keyed to this definition's hash.
     "codex/hooks.json".text = builtins.toJSON {
-      hooks.PostToolUse = [
-        {
-          matcher = "Bash";
-          hooks = [
-            {
-              type = "command";
-              command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
-            }
-          ];
-        }
-        # Skill uses the same Claude-shaped hook payload as Bash. Keep it in
-        # the canonical session stream too, so cache-scan sees automatic and
-        # slash-command skill loads rather than only terminal activity.
-        {
-          matcher = "Skill";
-          hooks = [
-            {
-              type = "command";
-              command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
-            }
-          ];
-        }
-      ];
+      hooks = {
+        PostToolUse = [
+          {
+            matcher = "Bash";
+            hooks = [
+              {
+                type = "command";
+                command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
+              }
+            ];
+          }
+          # Skill uses the same Claude-shaped hook payload as Bash. Keep it in
+          # the canonical session stream too, so cache-scan sees automatic and
+          # slash-command skill loads rather than only terminal activity.
+          {
+            matcher = "Skill";
+            hooks = [
+              {
+                type = "command";
+                command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
+              }
+            ];
+          }
+        ];
+        # Keep Codex's shared cache bounded after each completed turn. The helper
+        # is self-throttled, so most Stop events return without doing any work.
+        Stop = [
+          {
+            hooks = [
+              {
+                type = "command";
+                command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/compress-old-cache"'';
+                timeout = 20;
+              }
+            ];
+          }
+        ];
+        # Gather any agent-owned files into the cache root when the main Codex
+        # session ends. Codex runs SessionEnd synchronously and caps it at 3s.
+        SessionEnd = [
+          {
+            hooks = [
+              {
+                type = "command";
+                command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/sweep-agent-assets"'';
+                timeout = 3;
+              }
+            ];
+          }
+        ];
+      };
     };
   };
 
