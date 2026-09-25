@@ -424,8 +424,8 @@ The pre-commit hook and CI catch drift via `task check:agent-instructions`.
 
 ### Activity logs & `cache-scan`
 
-Agent sessions are logged to `~/.cache/<agent>/` (with `~/.cache/claude` symlinked to `~/.cache/copilot`
-so both share one dir) by hooks deployed from `ai-tools/scripts/` to `~/.local/bin/ai-tools/` (an
+Agent sessions are logged to `~/.cache/<agent>/` (with `~/.cache/claude` and `~/.cache/codex` symlinked to
+`~/.cache/copilot` so every agent shares one dir) by hooks deployed from `ai-tools/scripts/` to `~/.local/bin/ai-tools/` (an
 intentionally off-`PATH` location — these are hook/MCP scripts, not for manual use):
 
 | Script | Hook | Captures |

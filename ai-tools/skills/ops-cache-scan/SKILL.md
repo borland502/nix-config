@@ -17,7 +17,7 @@ CMD: <command>
 STDOUT: / STDERR: sections
 ```
 
-`status` is a heuristic (no exit code is exposed to the hook): `interrupted`, else `stderr` when stderr is non-empty, else `ok`. Activation also enforces `~/.cache/claude` → `~/.cache/copilot` as a symlink so both agents share one log dir.
+`status` is a heuristic (no exit code is exposed to the hook): `interrupted`, else `stderr` when stderr is non-empty, else `ok`. Activation also enforces `~/.cache/claude` and `~/.cache/codex` → `~/.cache/copilot` as symlinks so every agent shares one log dir.
 
 ### The log cannot see failures — read this before triaging one
 
