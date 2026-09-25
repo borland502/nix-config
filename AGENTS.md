@@ -48,10 +48,11 @@ workflows through `task` — do not hand-assemble `nixos-rebuild` /
   `chezmoi/dot_claude/settings.json`, which resolves each alias to the
   latest model of its tier — bump those IDs when new models ship. The
   session default is the **mid** tier on both harnesses (Claude `sonnet`;
-  Copilot's common.nix pins `gpt-5.6-terra`); the top tier is reserved
+  Copilot pins `gpt-5.6-terra`); the top tier is reserved
   per-role — planning/brainstorming/review — via /model or a high-tier
-  subagent dispatch. Copilot tier slugs are `gpt-5.6-{sol,terra,luna}` (the
-  CLI's `help config` list lags the backend, so don't gate on it).
+  subagent dispatch. Copilot and Codex share the tier slugs
+  `gpt-5.6-{sol,terra,luna}`, pinned once in `home-manager/lib/model-tiers.nix`
+  (Copilot's `help config` list lags the backend, so don't gate on it).
   Subagent-dispatch guidance speaks in high/mid/low tiers with a role→tier
   map, resolved per harness by agent-reference.md § Model Tiers — bump that
   table together with the pins when a new generation ships.

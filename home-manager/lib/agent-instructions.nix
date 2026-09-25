@@ -4,6 +4,7 @@
 # substitutes the placeholder and prepends a YAML frontmatter when requested.
 {pkgs}: let
   source = ../../chezmoi/dot_config/instructions/agent-defaults.md;
+  modelTiers = import ./model-tiers.nix;
   body = builtins.readFile source;
 
   render = {
@@ -169,23 +170,41 @@ in {
 
   # Convert each ai-tools/agents/*.agent.md into a Codex custom-agent TOML file
   # ($CODEX_HOME/agents/<name>.toml: name, description, developer_instructions).
-  # The markdown body becomes developer_instructions. Claude/Copilot-only
-  # frontmatter (model tier alias, tools, argument-hint) is dropped, so the
-  # subagent inherits the parent session's model and reasoning effort. The
-  # filename stem is the name: Codex spawns by `name`, and some agents set a
-  # display name with spaces ("Ops Agent").
-  codexAgentDir =
+  # The markdown body becomes developer_instructions. The Claude tier alias in
+  # `model:` (opus/sonnet/haiku) resolves through lib/model-tiers.nix to the
+  # same high/mid/low slug Copilot uses (sol/terra/luna); an agent without
+  # `model:` inherits the parent session's model. An unknown alias fails the
+  # build rather than silently running on the parent's model. Reasoning effort
+  # is left to the model's default. Copilot-only frontmatter (tools,
+  # argument-hint) is dropped. The filename stem is the name: Codex spawns by
+  # `name`, and some agents set a display name with spaces ("Ops Agent").
+  codexAgentDir = let
+    aliasSlugs = builtins.toJSON (builtins.mapAttrs (_: tier: modelTiers.openai.${tier}) modelTiers.claudeAliasTier);
+  in
     pkgs.runCommand "codex-agents" {
       nativeBuildInputs = [pkgs.jq pkgs.yq-go pkgs.remarshal];
+      inherit aliasSlugs;
     } ''
       mkdir -p "$out"
       for agent_file in ${../../ai-tools/agents}/*.agent.md; do
         [ -f "$agent_file" ] || continue
         agent_name=$(basename "$agent_file" .agent.md)
         description=$(yq --front-matter=extract '.description // ""' "$agent_file")
+        alias=$(yq --front-matter=extract '.model // ""' "$agent_file")
+        slug=""
+        if [ -n "$alias" ]; then
+          slug=$(jq -rn --arg a "$alias" --argjson m "$aliasSlugs" '$m[$a] // ""')
+          if [ -z "$slug" ]; then
+            echo "codex-agents: $agent_file: unknown model alias '$alias' (add it to lib/model-tiers.nix)" >&2
+            exit 1
+          fi
+        fi
         body=$(awk 'n >= 2 { print; next } /^---[[:space:]]*$/ { n++ }' "$agent_file")
-        jq -n --arg name "$agent_name" --arg description "$description" --arg body "$body" \
-          '{name: $name, description: $description, developer_instructions: $body}' \
+        jq -n --arg name "$agent_name" --arg description "$description" \
+          --arg model "$slug" --arg body "$body" \
+          '{name: $name, description: $description}
+            + (if $model == "" then {} else {model: $model} end)
+            + {developer_instructions: $body}' \
           | remarshal -if json -of toml > "$out/$agent_name.toml"
       done
     '';

@@ -18,6 +18,7 @@
   ...
 }: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
+  modelTiers = import ./lib/model-tiers.nix;
   inherit (config.home) homeDirectory;
   xdgBinHome = "${homeDirectory}/.local/bin";
   xdgCacheHome = "${homeDirectory}/.cache";
@@ -674,8 +675,8 @@ in {
       # terra verified accepted via `copilot -p --model` 2026-07-17. Do NOT
       # gate this on `copilot help config` — its model list demonstrably lags
       # what the backend accepts (1.0.26 lists nothing past gpt-5.4 yet serves
-      # 5.5/5.6). Like the ANTHROPIC_DEFAULT_*_MODEL pins in
-      # dot_claude/settings.json, bump the slug when a new generation ships
+      # 5.5/5.6). The slug comes from lib/model-tiers.nix, shared with Codex's
+      # custom agents; bump it there when a new generation ships
       # (see AGENTS.md). Merged (not overwritten) so Copilot can still persist
       # its other settings; self-healing — reconciles whenever the value
       # drifts.
@@ -686,9 +687,9 @@ in {
           ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/copilot"
           ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
         fi
-        if [ "$(jq -r '.model // empty' "$_settings")" != "gpt-5.6-terra" ]; then
+        if [ "$(jq -r '.model // empty' "$_settings")" != "${modelTiers.openai.mid}" ]; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
-          jq '.model = "gpt-5.6-terra"' \
+          jq '.model = "${modelTiers.openai.mid}"' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
       '';
