@@ -449,8 +449,8 @@ in {
       "copilot/hooks/log-bash.json".text = copilotLogBashHook;
 
       # Wires the Copilot skill-invocation logger. log-skill.sh self-filters on
-      # toolName == "Skill" and appends a record to
-      # ~/.cache/copilot/session_<id>.skills.log. Mirrors the Claude PostToolUse
+      # toolName == "Skill" and appends a canonical record to
+      # ~/.cache/copilot/session_<id>.log. Mirrors the Claude PostToolUse
       # "Skill" hook injected by ensureClaudeHook below, so automatic
       # (model-initiated) and slash-command skill calls are tracked for both agents.
       "copilot/hooks/log-skill.json".text = copilotLogSkillHook;
@@ -589,7 +589,7 @@ in {
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
         # PostToolUse "Skill": log skill invocations (model-initiated auto-calls
-        # and skill slash-commands) to ~/.cache/claude/session_<id>.skills.log via
+        # and skill slash-commands) to ~/.cache/claude/session_<id>.log via
         # log-skill.sh. The Skill tool carries the skill name in tool_input.skill;
         # built-in commands like /model never route through it. Idempotent guard
         # mirrors the Bash hook above.
@@ -601,7 +601,7 @@ in {
         fi
         # InstructionsLoaded: ground-truth log of which CLAUDE.md / rules files
         # actually loaded (and why) per session, to
-        # ~/.cache/claude/session_<id>.instructions.log. Transcripts do NOT
+        # ~/.cache/claude/session_<id>.log. Transcripts do NOT
         # record the claudeMd injection, so this is the only durable evidence
         # that the federated instructions reached a session. Side-effect-only
         # event (exit code ignored). Idempotent guard mirrors the hooks above.

@@ -123,8 +123,8 @@ Prefer these over ad-hoc one-liners; full usage docs in agent-reference.md:
 Hook/automation scripts (`log-bash.sh`, `log-skill.sh`, `log-thinking.sh`,
 `compress-old-cache`, `claude-cache-stats`, `aws-mcp-server`) live in
 `~/.local/bin/ai-tools/` — intentionally **not** on `$PATH`, never run by hand.
-Agent cache logs (especially `*.thinking.log`) can contain secret values; treat
-them as sensitive.
+Agent cache logs can contain secret values from captured reasoning; treat them
+as sensitive.
 
 ## Sources
 

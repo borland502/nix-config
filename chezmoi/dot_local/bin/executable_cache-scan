@@ -235,9 +235,13 @@ def read(path):
 
 seen = set()
 for root in roots:
-    for path in glob.glob(os.path.join(root, "session_*.log*")):
+    for path in glob.glob(os.path.join(root, "session_*.log")) + glob.glob(os.path.join(root, "session_*.log.zst")):
+        # Python's * also matches legacy companion names such as
+        # session_<id>.skills.log. A canonical session id has no dot.
+        if not re.fullmatch(r"session_[^.]+\.log(?:\.zst)?", os.path.basename(path)):
+            continue
         rp = os.path.realpath(path)
-        if rp in seen or ".skills" in path or ".thinking" in path:
+        if rp in seen:
             continue
         seen.add(rp)
         try:
@@ -290,11 +294,17 @@ catlog() {
 	esac
 }
 
-# Discover session logs (by mtime, newest first). GNU stat (-c) — see header.
-# The trailing `*` also picks up the session_*.log.zst archives.
-name_glob='session_*.log*'
-[[ -n "$session" ]] && name_glob="session_*${session}*.log*"
-mapfile -t logs < <(find "${roots[@]}" -type f -name "$name_glob" -mtime "-$days" 2>/dev/null |
+# Discover only canonical session logs (by mtime, newest first). GNU stat (-c)
+# — see header. Companion logs from older deployments (for example
+# session_<id>.skills.log) deliberately do not match: they lack the canonical
+# status/CMD schema and must not appear as empty duplicate sessions.
+name_glob='session_*.log'
+[[ -n "$session" ]] && name_glob="session_*${session}*.log"
+mapfile -t logs < <(find "${roots[@]}" -type f \( -name "$name_glob" -o -name "$name_glob.zst" \) \
+	! -name 'session_*.skills.log' ! -name 'session_*.skills.log.zst' \
+	! -name 'session_*.thinking.log' ! -name 'session_*.thinking.log.zst' \
+	! -name 'session_*.instructions.log' ! -name 'session_*.instructions.log.zst' \
+	-mtime "-$days" 2>/dev/null |
 	while read -r p; do printf '%s\t%s\n' "$(stat -c '%Y' "$p" 2>/dev/null || echo 0)" "$p"; done |
 	sort -rn | cut -f2-)
 
@@ -753,16 +763,13 @@ if ((transcript)); then
 		fi
 	}
 
-	# Normalize a cache-log filename to its base session id, stripping the
-	# `.log`/`.log.zst` suffix and the `.skills`/`.thinking` companion-log
-	# infixes so all three map to one transcript.
+	# Normalize a canonical cache-log filename to its base session id, stripping
+	# its `.log` or `.log.zst` suffix before joining it to a transcript.
 	base_id() {
 		local b=${1##*/}
 		b=${b#session_}
 		b=${b%.zst}
 		b=${b%.log}
-		b=${b%.skills}
-		b=${b%.thinking}
 		printf '%s' "$b"
 	}
 

@@ -398,8 +398,9 @@ The subdirectory is deliberately **not** on `$PATH` — these are invoked by
 agent hooks / MCP clients via absolute path, never by hand.
 
 - **`log-bash.sh`** — Bash `PostToolUse` hook logger. Wired for Claude via
-  `~/.config/claude/settings.json` and for Copilot via
-  `~/.config/copilot/hooks/log-bash.json`. For every Bash tool call it appends
+  `~/.config/claude/settings.json`, Copilot via
+  `~/.config/copilot/hooks/log-bash.json`, and Codex via
+  `~/.config/codex/hooks.json`. For every Bash tool call it appends
   a structured record to `~/.cache/<agent>/session_<id>.log`:
 
   ```text
@@ -409,7 +410,8 @@ agent hooks / MCP clients via absolute path, never by hand.
   STDERR:   (only when stderr is non-empty)
   ```
 
-  `status` is a heuristic — the hook payload carries no exit code, so it is
+  Every cache-scan record uses this `status=` + `CMD:` schema; hook-specific
+  records add `event=bash|skill|instructions|thinking`. `status` is a heuristic — the hook payload carries no exit code, so it is
   `interrupted`, else `stderr` when stderr is non-empty, else `ok`. When
   reading logs directly, grep `^##` for a command timeline and
   `status=stderr|interrupted` for likely failures.
@@ -418,31 +420,28 @@ agent hooks / MCP clients via absolute path, never by hand.
   activation) and for Copilot via `~/.config/copilot/hooks/log-skill.json`.
   For every `Skill` tool call — model-initiated invocations as well as skill
   slash-commands — it appends a record to
-  `~/.cache/<agent>/session_<id>.skills.log`:
+  the canonical `~/.cache/<agent>/session_<id>.log` stream with `event=skill`:
 
-  ```text
-  ## [YYYY-MM-DD HH:MM:SS] skill=<name> cwd=<dir>
-  ARGS: <args>
-  RESULT:   (only when the tool response carries text; large output truncated)
-  ```
+  It emits `CMD: Skill <name> [args]` and the skill response in `STDOUT:`.
 
   Built-in commands like `/model` or `/clear` do **not** route through the
-  Skill tool and are intentionally not captured. Handles both Claude
-  (`tool_input.skill`) and Copilot (`toolName`) payload shapes.
+  Skill tool and are intentionally not captured. Handles the Claude-shaped
+  payload used by Claude/Codex (`tool_input.skill`) and Copilot's (`toolName`)
+  payload.
 - **`log-instructions.sh`** — Claude `InstructionsLoaded` hook logger (injected
   by `ensureClaudeHook`; Copilot has no equivalent event). For every
   instruction file Claude loads (CLAUDE.md, CLAUDE.local.md,
-  `.claude/rules/*.md`) it appends `reason=` + `FILE:` records to
-  `~/.cache/claude/session_<id>.instructions.log`. This is the ground truth
+  `.claude/rules/*.md`) it appends `CMD: InstructionsLoaded reason=… file=…` to
+  `~/.cache/claude/session_<id>.log` with `event=instructions`. This is the ground truth
   for "did the federated instructions load?" — transcripts do not record the
   injection.
 - **`log-thinking.sh`** — agent-reasoning logger. Wired as Claude
   `Stop`/`SubagentStop` hooks and a Copilot `postToolUse` hook. Appends new
-  reasoning to `~/.cache/<agent>/session_<id>.thinking.log`, deduped by a
+  reasoning to `~/.cache/<agent>/session_<id>.log` with `event=thinking`, deduped by a
   per-source line cursor. Best-effort for Claude (some sessions persist only
   encrypted signatures). **Security**: reasoning can contain secret values;
   known secrets and token-shaped strings are redacted before write, files are
-  `0600`, and `*.thinking.log` is excluded from the gdrive sync profile.
+  `0600`, and session logs are excluded from the gdrive sync profile.
   Treat these logs as sensitive regardless.
 - **`compress-old-cache`** — Cache maintenance: zstd-compress top-level
   `~/.cache/<agent>/` files older than 1 day (or over 1 MB), then a retention

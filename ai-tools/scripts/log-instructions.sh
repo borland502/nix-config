@@ -5,11 +5,11 @@
 # ensureClaudeHook activation (home-manager/common.nix). Fires whenever Claude
 # loads an instruction file (CLAUDE.md, CLAUDE.local.md, .claude/rules/*.md) —
 # at session start, on nested-directory traversal, on path-glob match, and
-# after compaction — and appends a record to
-# ~/.cache/<agent>/session_<id>.instructions.log:
+# after compaction — and appends a record to the canonical
+# ~/.cache/<agent>/session_<id>.log stream:
 #
-#   ## [YYYY-MM-DD HH:MM:SS] reason=<session_start|nested_traversal|...> cwd=<dir>
-#   FILE: <absolute path>
+#   ## [YYYY-MM-DD HH:MM:SS] status=ok event=instructions cwd=<dir>
+#   CMD: InstructionsLoaded reason=<reason> file=<absolute path>
 #   ---
 #
 # This is the per-session ground truth of which federated instruction files
@@ -33,11 +33,13 @@ agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._
 [[ -n "$agent" ]] || agent="claude"
 
 log_dir="$HOME/.cache/$agent"
-logfile="$log_dir/session_${sid}.instructions.log"
+logfile="$log_dir/session_${sid}.log"
 mkdir -p "$log_dir"
+umask 077
 
 {
-	printf '\n## [%s] reason=%s cwd=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$reason" "${cwd:-?}"
-	printf 'FILE: %s\n' "$file_path"
+	printf '\n## [%s] status=ok event=instructions cwd=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${cwd:-?}"
+	printf 'CMD: InstructionsLoaded reason=%s file=%s\n' "$reason" "$file_path"
 	printf -- '---\n'
 } >>"$logfile"
+chmod 600 "$logfile" 2>/dev/null || true
