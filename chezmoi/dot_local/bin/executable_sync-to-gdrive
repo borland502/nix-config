@@ -461,6 +461,10 @@ junk_patterns=(
 	'**/node_modules/**'
 	'**/.git/**'
 	'.gitignore'
+	# Canonical agent session logs include redacted reasoning, so they are local
+	# only. Older deployments used a separate *.thinking.log companion.
+	'session_*.log'
+	'session_*.log.zst'
 	'*.thinking.log'
 	'.thinking-cursor'
 	'*.bak-*'          # home-manager activation backups (*.bak-20260728-105533)

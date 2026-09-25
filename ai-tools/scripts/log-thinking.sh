@@ -7,7 +7,7 @@
 #   - Copilot: postToolUse hook (payload carries .sessionId; reasoning lives in
 #              ~/.config/copilot/session-state/<id>/events.jsonl)
 #
-# Output: ~/.cache/<agent>/session_<id>.thinking.log, one appended block per
+# Output: ~/.cache/<agent>/session_<id>.log, one appended block per
 # fire, deduped by a per-source line cursor under ~/.cache/<agent>/.thinking-cursor.
 #
 # SECURITY — thinking frequently reasons about secret VALUES the agent saw
@@ -16,8 +16,8 @@
 #   1. known secret values on disk are redacted literally before write;
 #   2. token-shaped strings are redacted by pattern (no length-only rule — that
 #      would clobber nix store hashes / git SHAs);
-#   3. files are created 0600;
-#   4. *.thinking.log and .thinking-cursor are excluded from the gdrive profile.
+#   3. session logs containing thinking are created 0600;
+#   4. session logs and .thinking-cursor are excluded from the gdrive profile.
 # These reduce but do not eliminate leakage risk; treat the logs as sensitive.
 set -euo pipefail
 
@@ -47,7 +47,7 @@ fi
 log_dir="$HOME/.cache/$agent"
 state_dir="$log_dir/.thinking-cursor"
 mkdir -p "$log_dir" "$state_dir"
-logfile="$log_dir/session_${sid}.thinking.log"
+logfile="$log_dir/session_${sid}.log"
 
 # Per-source line cursor: each hook fire processes only newly-appended lines.
 key=$(printf '%s' "$src" | cksum | cut -d' ' -f1)
@@ -115,8 +115,9 @@ fi
 
 umask 077
 {
-	printf '\n## [%s] %s reasoning (session %s)\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$agent" "$sid"
-	printf '%s\n' "$out"
+	printf '\n## [%s] status=ok event=thinking cwd=?\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+	printf 'CMD: Thinking agent=%s session=%s\n' "$agent" "$sid"
+	printf 'STDOUT:\n%s\n' "$out"
 	printf -- '---\n'
 } >>"$logfile"
 chmod 600 "$logfile" 2>/dev/null || true

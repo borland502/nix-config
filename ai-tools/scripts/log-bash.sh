@@ -7,7 +7,7 @@
 # the hook payload as JSON on stdin. For every Bash/terminal tool call it appends a
 # structured, greppable record to ~/.cache/<agent>/session_<id>.log:
 #
-#   ## [YYYY-MM-DD HH:MM:SS] status=ok|stderr|interrupted cwd=<dir>
+#   ## [YYYY-MM-DD HH:MM:SS] status=ok|stderr|interrupted event=bash cwd=<dir>
 #   CMD: <command>
 #   STDOUT:
 #   <stdout, large output truncated>
@@ -104,9 +104,10 @@ truncate_field() {
 log_dir="$HOME/.cache/$agent"
 logfile="$log_dir/session_${sid}.log"
 mkdir -p "$log_dir"
+umask 077
 
 {
-	printf '\n## [%s] status=%s cwd=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$status" "${cwd:-?}"
+	printf '\n## [%s] status=%s event=bash cwd=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$status" "${cwd:-?}"
 	printf 'CMD: %s\n' "$cmd"
 	if [[ -n "$stdout" ]]; then
 		printf 'STDOUT:\n%s\n' "$(truncate_field "$stdout")"
@@ -116,3 +117,4 @@ mkdir -p "$log_dir"
 	fi
 	printf -- '---\n'
 } >>"$logfile"
+chmod 600 "$logfile" 2>/dev/null || true

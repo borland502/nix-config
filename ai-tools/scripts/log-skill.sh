@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # log-skill.sh — PostToolUse hook logger for Skill (slash-command / Agent Skill)
-# invocations in Claude Code (and Copilot).
+# invocations in Claude Code, Copilot, and Codex.
 #
 # NOT run by hand. It is wired as a Skill PostToolUse hook in settings.json and
 # receives the hook payload as JSON on stdin. For every Skill tool call it
-# appends a structured, greppable record to
-# ~/.cache/<agent>/session_<id>.skills.log:
+# appends a structured, greppable record to the canonical
+# ~/.cache/<agent>/session_<id>.log stream:
 #
-#   ## [YYYY-MM-DD HH:MM:SS] skill=<name> cwd=<dir>
-#   ARGS: <args>
-#   RESULT:        # only present when the tool response carries text
+#   ## [YYYY-MM-DD HH:MM:SS] status=ok event=skill cwd=<dir>
+#   CMD: Skill <name> [args]
+#   STDOUT:         # only present when the tool response carries text
 #   <result, large output truncated>
 #   ---
 #
@@ -71,16 +71,16 @@ truncate_field() {
 }
 
 log_dir="$HOME/.cache/$agent"
-logfile="$log_dir/session_${sid}.skills.log"
+logfile="$log_dir/session_${sid}.log"
 mkdir -p "$log_dir"
+umask 077
 
 {
-	printf '\n## [%s] skill=%s cwd=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${skill:-?}" "${cwd:-?}"
-	if [[ -n "$args" ]]; then
-		printf 'ARGS: %s\n' "$args"
-	fi
+	printf '\n## [%s] status=ok event=skill cwd=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${cwd:-?}"
+	printf 'CMD: Skill %s%s\n' "${skill:-?}" "${args:+ $args}"
 	if [[ -n "$result" ]]; then
-		printf 'RESULT:\n%s\n' "$(truncate_field "$result")"
+		printf 'STDOUT:\n%s\n' "$(truncate_field "$result")"
 	fi
 	printf -- '---\n'
 } >>"$logfile"
+chmod 600 "$logfile" 2>/dev/null || true

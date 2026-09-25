@@ -570,6 +570,18 @@ in {
             }
           ];
         }
+        # Skill uses the same Claude-shaped hook payload as Bash. Keep it in
+        # the canonical session stream too, so cache-scan sees automatic and
+        # slash-command skill loads rather than only terminal activity.
+        {
+          matcher = "Skill";
+          hooks = [
+            {
+              type = "command";
+              command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
+            }
+          ];
+        }
       ];
     };
   };
