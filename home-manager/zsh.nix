@@ -131,6 +131,13 @@ in {
           export GOBIN="''${GOBIN:-$XDG_BIN_HOME}"
           export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
           export COPILOT_HOME="''${XDG_CONFIG_HOME:-$HOME/.config}/copilot"
+          # Codex has no XDG support; CODEX_HOME is its only lever. Held back
+          # while ~/.codex is still a real directory (darwin's linkCodexHome
+          # activation has not migrated it yet), so the CLI never starts a
+          # second, empty state dir beside the one ChatGPT.app is using.
+          if [ ! -d "$HOME/.codex" ] || [ -L "$HOME/.codex" ]; then
+            export CODEX_HOME="''${XDG_CONFIG_HOME:-$HOME/.config}/codex"
+          fi
 
           # Development environment
           export CAN_USE_SUDO=1

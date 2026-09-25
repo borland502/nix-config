@@ -151,6 +151,8 @@
         --set PUPPETEER_EXECUTABLE_PATH ${lib.escapeShellArg (lib.getExe pkgs.google-chrome)}
     '';
   };
+  keychainCaBundle = "${config.xdg.dataHome}/ca-certificates/keychain-bundle.pem";
+  codexHome = "${config.xdg.configHome}/codex";
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   darwinPackages = lib.filter availableOnHost (with pkgs; [
     mas
@@ -193,6 +195,14 @@ in {
       # Nix's OpenSSL curl otherwise follows SSL_CERT_DIR and misses certificates
       # available through macOS's system CA bundle.
       SSL_CERT_FILE = "/etc/ssl/cert.pem";
+      # The Codex CLI (update-agent-clis) verifies TLS with rustls against
+      # SSL_CERT_FILE, which lacks the MDM-deployed roots that a TLS-inspecting
+      # proxy re-signs chatgpt.com with — every backend call then fails and the
+      # TUI dies with "workspace routing discovery failed". Point it at
+      # /etc/ssl/cert.pem plus the admin-trusted keychain roots, built by
+      # home.activation.buildKeychainCaBundle below. Only Codex, not
+      # SSL_CERT_FILE globally: a missing bundle then breaks one tool, not all.
+      CODEX_CA_CERTIFICATE = keychainCaBundle;
     };
 
     # ~/gdrive is the Drive root on every host, so one path —
@@ -242,6 +252,79 @@ in {
           # Flameshot only reads the INI at startup; reload the running launchd
           # agent so the restored shortcuts take effect without a manual restart.
           /bin/launchctl kickstart -k "gui/$(${pkgs.coreutils}/bin/id -u)/org.nixos.flameshot" >/dev/null 2>&1 || true
+        fi
+      '';
+
+      # Rebuilt every switch so MDM root rotations are picked up. Only certs in
+      # the admin trust-settings domain are appended (the MDM-deployed roots);
+      # the System keychain also holds device-identity leaf certs that must not
+      # become trust anchors.
+      buildKeychainCaBundle = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        _bundle=${lib.escapeShellArg keychainCaBundle}
+        _work=$(${pkgs.coreutils}/bin/mktemp -d)
+        ${pkgs.coreutils}/bin/cat /etc/ssl/cert.pem > "$_work/bundle.pem"
+        if /usr/bin/security trust-settings-export -d "$_work/admin.plist" >/dev/null 2>&1; then
+          /usr/bin/plutil -convert xml1 -o - "$_work/admin.plist" \
+            | ${pkgs.gnugrep}/bin/grep -oE '<key>[0-9A-F]{40}</key>' \
+            | ${pkgs.gnused}/bin/sed -E 's#</?key>##g' > "$_work/sha1"
+          /usr/bin/security find-certificate -a -Z -p /Library/Keychains/System.keychain \
+            | ${pkgs.gawk}/bin/awk -v list="$_work/sha1" '
+                BEGIN { while ((getline l < list) > 0) want[l] = 1 }
+                /^SHA-256 hash:/ { next }
+                /^SHA-1 hash:/ { keep = ($3 in want); next }
+                keep { print }
+              ' >> "$_work/bundle.pem"
+        fi
+        ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$_bundle")"
+        # A running Codex daemon captured its env (and so its CA set) at
+        # spawn; restarting it here could kill in-flight work, so say so.
+        if ! ${pkgs.diffutils}/bin/cmp -s "$_work/bundle.pem" "$_bundle" \
+          && /usr/bin/pgrep -qf 'codex app-server --listen .* --managed-daemon'; then
+          echo "buildKeychainCaBundle: CA bundle changed; run 'codex app-server daemon restart' from a new shell" >&2
+        fi
+        ${pkgs.coreutils}/bin/mv "$_work/bundle.pem" "$_bundle"
+        ${pkgs.coreutils}/bin/rm -rf "$_work"
+      '';
+
+      # CODEX_HOME (zsh.nix) is $XDG_CONFIG_HOME/codex, but the ChatGPT desktop
+      # app bundles its own codex app-server that reads ~/.codex and never sees
+      # shell env — so ~/.codex stays as a symlink to the XDG dir and the CLI
+      # and the app keep sharing one login, config, and session store. Moving
+      # the live SQLite stores under a running app or daemon would corrupt
+      # them, so an existing ~/.codex is migrated only when nothing is using
+      # it; otherwise this warns and retries on the next switch. Runs before
+      # checkLinkTargets so the move lands before home-manager links the
+      # xdg.configFile."codex/*" files. If a deferred run already let those
+      # links populate $_codex_home, the move merges into it: zsh.nix holds
+      # CODEX_HOME back until ~/.codex is a symlink, so the XDG dir can only
+      # hold home-manager links, which win (--update=none) over stale copies.
+      linkCodexHome = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
+        _codex_home=${lib.escapeShellArg codexHome}
+        _legacy="$HOME/.codex"
+        if [ -L "$_legacy" ]; then
+          :
+        elif [ -d "$_legacy" ]; then
+          if /usr/bin/pgrep -qf '/ChatGPT\.app/|/\.codex/packages/.*/codex app-server'; then
+            echo "linkCodexHome: ChatGPT.app or a codex app-server is running; quit it (codex app-server daemon stop) and rerun the switch to move ~/.codex" >&2
+          elif [ -e "$_codex_home" ]; then
+            # The guard above proved nothing is using ~/.codex, so any socket in
+            # it is stale — and cp -a cannot recreate one (EPERM on macOS), which
+            # used to abort the whole move silently. Live ones are recreated on
+            # the next start, so drop them before copying.
+            ${pkgs.findutils}/bin/find "$_legacy" -type s -delete || true
+            if ! { ${pkgs.coreutils}/bin/cp -a --update=none "$_legacy/." "$_codex_home/" \
+              && ${pkgs.coreutils}/bin/rm -rf "$_legacy" \
+              && ${pkgs.coreutils}/bin/ln -s "$_codex_home" "$_legacy"; }; then
+              echo "linkCodexHome: moving ~/.codex did not complete (see the error above); it is retried on the next switch" >&2
+            fi
+          else
+            ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$_codex_home")"
+            ${pkgs.coreutils}/bin/mv "$_legacy" "$_codex_home"
+            ${pkgs.coreutils}/bin/ln -s "$_codex_home" "$_legacy"
+          fi
+        else
+          ${pkgs.coreutils}/bin/mkdir -p "$_codex_home"
+          ${pkgs.coreutils}/bin/ln -sfn "$_codex_home" "$_legacy"
         fi
       '';
 
@@ -439,6 +522,58 @@ in {
   # layout and is shared with Linux, so the two hosts cannot drift. Adding a
   # local `programs.vscode` block here is what let darwin fall behind before.
   # Kitty terminal configuration
+  # Codex (macOS-only, update-agent-clis) gets the same ai-tools content as
+  # Claude (plugin) and Copilot (copilot/skills + copilot/agents in common.nix),
+  # under CODEX_HOME. Codex reads $CODEX_HOME/AGENTS.md as global
+  # instructions, scans $CODEX_HOME/skills (it keeps its own skills/.system
+  # beside these, so the dir is linked file-by-file), and loads
+  # $CODEX_HOME/agents/*.toml as custom subagents.
+  # CODEX_CA_CERTIFICATE (sessionVariables) only reaches processes started from
+  # a login shell, but Codex's long-lived app-server daemon keeps the env of
+  # whichever process first spawned it, and ChatGPT.app's bundled codex
+  # app-server is launched from the Dock. Either one missing the var is the
+  # "workspace routing discovery failed" TUI error again. Publish it into the
+  # launchd user domain at login so every GUI app (and terminals opened from
+  # them) inherits it. /bin/launchctl, not a nix-store binary: launchd agents
+  # that exec through the nix profile get killed for code-signing (LWCR).
+  launchd.agents.codex-ca-env = {
+    enable = true;
+    config = {
+      ProgramArguments = ["/bin/launchctl" "setenv" "CODEX_CA_CERTIFICATE" keychainCaBundle];
+      RunAtLoad = true;
+    };
+  };
+
+  xdg.configFile = {
+    "codex/AGENTS.md".source = agentInstructions.codex;
+    "codex/skills" = {
+      source = ../ai-tools/skills;
+      recursive = true;
+    };
+    "codex/agents" = {
+      source = agentInstructions.codexAgentDir;
+      recursive = true;
+    };
+    # Bash command logging, as for Claude and Copilot: Codex's PostToolUse
+    # payload is Claude-shaped (tool_name "Bash", tool_input.command,
+    # tool_response as the model-facing output string), so log-bash.sh's Claude
+    # branch handles it. Codex skips non-managed hooks until they are trusted
+    # once in /hooks; trust is keyed to this definition's hash.
+    "codex/hooks.json".text = builtins.toJSON {
+      hooks.PostToolUse = [
+        {
+          matcher = "Bash";
+          hooks = [
+            {
+              type = "command";
+              command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
+            }
+          ];
+        }
+      ];
+    };
+  };
+
   xdg.configFile."kitty/kitty.conf".text = let
     c = import ./lib/colors.nix;
     baseCfg = builtins.readFile ../chezmoi/dot_config/kitty/kitty.conf;

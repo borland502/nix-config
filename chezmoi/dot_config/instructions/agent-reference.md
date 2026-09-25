@@ -12,15 +12,17 @@ discoverable on hosts that have chezmoi but not the full nix config.
 Skills and plans speak in capability **tiers** — `high`, `mid`, `low` —
 never in versioned model IDs. Resolve a tier to your own harness:
 
-| Tier | Claude Code (alias) | Copilot CLI (slug)  |
-| ---- | ------------------- | ------------------- |
-| high | `opus`              | `gpt-5.6-sol`       |
-| mid  | `sonnet`            | `gpt-5.6-terra`     |
-| low  | `haiku`             | `gpt-5.6-luna`      |
+| Tier | Claude Code (alias) | Copilot CLI / Codex CLI (slug) |
+| ---- | ------------------- | ------------------------------ |
+| high | `opus`              | `gpt-5.6-sol`                  |
+| mid  | `sonnet`            | `gpt-5.6-terra`                |
+| low  | `haiku`             | `gpt-5.6-luna`                 |
 
 Claude aliases resolve to the latest model of their tier via the
 `ANTHROPIC_DEFAULT_*_MODEL` env pins in `~/.claude/settings.json`. Copilot
-has no alias mechanism, so the slugs here are literal; GitHub's
+and Codex share one slug set, pinned once in `home-manager/lib/model-tiers.nix`
+(Copilot's session default; Codex custom agents map their `model:` alias
+through it). Neither has an alias mechanism, so the slugs here are literal; GitHub's
 sol/terra/luna tier names carry across
 generations, and this table plus the pins get bumped together when a new
 generation ships (see AGENTS.md). Do not gate Copilot slugs on
@@ -354,7 +356,19 @@ the nix-config repo.
   self-updating installer into `~/.local` (binaries → `~/.local/bin`, which the
   login shells prepend to PATH; no npm, no external node): Claude via
   `claude.ai/install.sh` + `claude update`, Copilot via `gh.io/copilot-install`
-  (github/copilot-cli release tarballs) + `copilot update`. These live off
+  (github/copilot-cli release tarballs) + `copilot update`; on macOS only, the
+  OpenAI Codex CLI (`codex`) via `chatgpt.com/codex/install.sh`, re-run each
+  time to pull latest (fetched with `/usr/bin/curl` — nix's curl fails
+  chatgpt.com's TLS chain). Codex state lives in `CODEX_HOME=~/.config/codex`
+  with `~/.codex` symlinked to it (ChatGPT.app shares it), and it trusts
+  `CODEX_CA_CERTIFICATE=~/.local/share/ca-certificates/keychain-bundle.pem`
+  (cert.pem + admin-trusted keychain roots; both set up in `home-darwin.nix`).
+  After the bundle first appears, `codex app-server daemon restart` so the
+  long-lived daemon picks it up. `home-darwin.nix` also gives Codex the shared
+  ai-tools content under `CODEX_HOME`: `AGENTS.md` (rendered from
+  agent-defaults.md), `skills/`, `agents/*.toml` (converted from
+  `ai-tools/agents/*.agent.md`), and a `hooks.json` Bash logger into
+  `~/.cache/codex` — trust it once via `/hooks`. These live off
   nixpkgs on purpose: nixos-unstable lags the Copilot CLI by weeks, and a
   read-only nix-store copy cannot self-update, freezing it on a build whose
   hardcoded subagent model allowlist (`OD` in the vendored bundle) rejects

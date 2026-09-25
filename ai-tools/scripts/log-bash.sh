@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# log-bash.sh — PostToolUse hook logger for Claude Code and Copilot CLI.
+# log-bash.sh — PostToolUse hook logger for Claude Code, Copilot CLI, and Codex.
 #
 # NOT run by hand. It is wired as a Bash PostToolUse hook (Claude via
-# settings.json, Copilot via ~/.config/copilot/hooks/log-bash.json) and receives
+# settings.json, Copilot via ~/.config/copilot/hooks/log-bash.json, Codex via
+# ~/.config/codex/hooks.json — its payload is Claude-shaped) and receives
 # the hook payload as JSON on stdin. For every Bash/terminal tool call it appends a
 # structured, greppable record to ~/.cache/<agent>/session_<id>.log:
 #

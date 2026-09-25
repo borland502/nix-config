@@ -18,6 +18,7 @@
   ...
 }: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
+  modelTiers = import ./lib/model-tiers.nix;
   inherit (config.home) homeDirectory;
   xdgBinHome = "${homeDirectory}/.local/bin";
   xdgCacheHome = "${homeDirectory}/.cache";
@@ -674,8 +675,8 @@ in {
       # terra verified accepted via `copilot -p --model` 2026-07-17. Do NOT
       # gate this on `copilot help config` — its model list demonstrably lags
       # what the backend accepts (1.0.26 lists nothing past gpt-5.4 yet serves
-      # 5.5/5.6). Like the ANTHROPIC_DEFAULT_*_MODEL pins in
-      # dot_claude/settings.json, bump the slug when a new generation ships
+      # 5.5/5.6). The slug comes from lib/model-tiers.nix, shared with Codex's
+      # custom agents; bump it there when a new generation ships
       # (see AGENTS.md). Merged (not overwritten) so Copilot can still persist
       # its other settings; self-healing — reconciles whenever the value
       # drifts.
@@ -686,9 +687,9 @@ in {
           ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/copilot"
           ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
         fi
-        if [ "$(jq -r '.model // empty' "$_settings")" != "gpt-5.6-terra" ]; then
+        if [ "$(jq -r '.model // empty' "$_settings")" != "${modelTiers.openai.mid}" ]; then
           _tmp=$(${pkgs.coreutils}/bin/mktemp)
-          jq '.model = "gpt-5.6-terra"' \
+          jq '.model = "${modelTiers.openai.mid}"' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
       '';
@@ -798,13 +799,28 @@ in {
         ${pkgs.coreutils}/bin/mkdir -p ${lib.concatMapStringsSep " " lib.escapeShellArg xdgDirectories}
       '';
 
-      # Enforce ~/.cache/claude -> ~/.cache/copilot so both agents share one log dir.
-      ensureCacheClaudeSymlink = lib.hm.dag.entryAfter ["ensureXdgDirectories"] ''
+      # Enforce ~/.cache/{claude,codex} -> ~/.cache/copilot so every agent shares
+      # one log dir. log-bash.sh writes to ~/.cache/$AGENT_NAME, and cache-scan,
+      # compress-old-cache and the Drive sync only cover the copilot real dir, so
+      # an agent without a link here logs outside that lifecycle. A real dir left
+      # by an earlier run is emptied into copilot first, never discarded.
+      ensureCacheAgentSymlinks = lib.hm.dag.entryAfter ["ensureXdgDirectories"] ''
         ${pkgs.coreutils}/bin/mkdir -p "${xdgCacheHome}/copilot"
-        if [ ! -L "${xdgCacheHome}/claude" ] || [ "$(${pkgs.coreutils}/bin/readlink "${xdgCacheHome}/claude")" != "${xdgCacheHome}/copilot" ]; then
-          ${pkgs.coreutils}/bin/rm -rf "${xdgCacheHome}/claude"
-          ${pkgs.coreutils}/bin/ln -s "${xdgCacheHome}/copilot" "${xdgCacheHome}/claude"
-        fi
+        for agent in claude codex; do
+          link="${xdgCacheHome}/$agent"
+          if [ -L "$link" ] && [ "$(${pkgs.coreutils}/bin/readlink "$link")" = "${xdgCacheHome}/copilot" ]; then
+            continue
+          fi
+          if [ -d "$link" ] && [ ! -L "$link" ]; then
+            ${pkgs.findutils}/bin/find "$link" -mindepth 1 -maxdepth 1 -exec ${pkgs.coreutils}/bin/mv -n {} "${xdgCacheHome}/copilot/" \;
+            ${pkgs.coreutils}/bin/rmdir "$link" || {
+              echo "ensureCacheAgentSymlinks: $link has entries that collide with copilot; leaving it" >&2
+              continue
+            }
+          fi
+          ${pkgs.coreutils}/bin/rm -f "$link"
+          ${pkgs.coreutils}/bin/ln -s "${xdgCacheHome}/copilot" "$link"
+        done
       '';
 
       # Configure chezmoi to use the nix-config repo as its source of truth.

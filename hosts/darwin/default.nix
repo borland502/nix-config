@@ -75,7 +75,12 @@ in {
       # away from the root-owned casks whose upgrades kept failing.
       google-chrome
       slack
-      kitty
+      # kitty is NOT listed here on purpose: home-manager installs it (see
+      # home-darwin.nix), and macOS 26.5.2 kills the root-owned copy in
+      # /Applications/Nix Apps at exec — launchd reports OS_REASON_CODESIGNING
+      # "Launch Constraint Violation" (measured 2026-09-25) — while the
+      # identical bundle launches from a user-owned location such as
+      # ~/Applications/Home Manager Apps. Two copies also claimed one bundle id.
       iterm2
       ice-bar
       obsidian
