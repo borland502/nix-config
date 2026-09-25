@@ -307,9 +307,16 @@ in {
           if /usr/bin/pgrep -qf '/ChatGPT\.app/|/\.codex/packages/.*/codex app-server'; then
             echo "linkCodexHome: ChatGPT.app or a codex app-server is running; quit it (codex app-server daemon stop) and rerun the switch to move ~/.codex" >&2
           elif [ -e "$_codex_home" ]; then
-            ${pkgs.coreutils}/bin/cp -a --update=none "$_legacy/." "$_codex_home/" \
+            # The guard above proved nothing is using ~/.codex, so any socket in
+            # it is stale — and cp -a cannot recreate one (EPERM on macOS), which
+            # used to abort the whole move silently. Live ones are recreated on
+            # the next start, so drop them before copying.
+            ${pkgs.findutils}/bin/find "$_legacy" -type s -delete || true
+            if ! { ${pkgs.coreutils}/bin/cp -a --update=none "$_legacy/." "$_codex_home/" \
               && ${pkgs.coreutils}/bin/rm -rf "$_legacy" \
-              && ${pkgs.coreutils}/bin/ln -s "$_codex_home" "$_legacy"
+              && ${pkgs.coreutils}/bin/ln -s "$_codex_home" "$_legacy"; }; then
+              echo "linkCodexHome: moving ~/.codex did not complete (see the error above); it is retried on the next switch" >&2
+            fi
           else
             ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$_codex_home")"
             ${pkgs.coreutils}/bin/mv "$_legacy" "$_codex_home"
