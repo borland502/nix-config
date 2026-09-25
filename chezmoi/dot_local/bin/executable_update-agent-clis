@@ -93,6 +93,14 @@ if [ "$os" = Darwin ]; then
 	# OpenSSL curl fails chatgpt.com's chain verification against
 	# SSL_CERT_FILE, while the installer's own downloads (releases.openai.com,
 	# GitHub) verify fine with either.
+	# The installer may (re)start Codex's app-server daemon, which keeps this
+	# env for its lifetime. Hand it the keychain CA bundle (home-darwin.nix)
+	# even when run outside a login shell (chezmoi apply inside a switch), or
+	# the daemon cannot reach chatgpt.com through the TLS-inspecting proxy.
+	ca_bundle="${XDG_DATA_HOME:-$HOME/.local/share}/ca-certificates/keychain-bundle.pem"
+	if [ -z "${CODEX_CA_CERTIFICATE:-}" ] && [ -f "$ca_bundle" ]; then
+		export CODEX_CA_CERTIFICATE="$ca_bundle"
+	fi
 	/usr/bin/curl -fsSL https://chatgpt.com/codex/install.sh |
 		CODEX_INSTALL_DIR="$prefix/bin" CODEX_NON_INTERACTIVE=1 sh ||
 		printf 'update-agent-clis: Codex CLI install failed (continuing)\n' >&2

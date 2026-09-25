@@ -276,6 +276,12 @@ in {
               ' >> "$_work/bundle.pem"
         fi
         ${pkgs.coreutils}/bin/mkdir -p "$(${pkgs.coreutils}/bin/dirname "$_bundle")"
+        # A running Codex daemon captured its env (and so its CA set) at
+        # spawn; restarting it here could kill in-flight work, so say so.
+        if ! ${pkgs.diffutils}/bin/cmp -s "$_work/bundle.pem" "$_bundle" \
+          && /usr/bin/pgrep -qf 'codex app-server --listen .* --managed-daemon'; then
+          echo "buildKeychainCaBundle: CA bundle changed; run 'codex app-server daemon restart' from a new shell" >&2
+        fi
         ${pkgs.coreutils}/bin/mv "$_work/bundle.pem" "$_bundle"
         ${pkgs.coreutils}/bin/rm -rf "$_work"
       '';
@@ -515,6 +521,22 @@ in {
   # instructions, scans $CODEX_HOME/skills (it keeps its own skills/.system
   # beside these, so the dir is linked file-by-file), and loads
   # $CODEX_HOME/agents/*.toml as custom subagents.
+  # CODEX_CA_CERTIFICATE (sessionVariables) only reaches processes started from
+  # a login shell, but Codex's long-lived app-server daemon keeps the env of
+  # whichever process first spawned it, and ChatGPT.app's bundled codex
+  # app-server is launched from the Dock. Either one missing the var is the
+  # "workspace routing discovery failed" TUI error again. Publish it into the
+  # launchd user domain at login so every GUI app (and terminals opened from
+  # them) inherits it. /bin/launchctl, not a nix-store binary: launchd agents
+  # that exec through the nix profile get killed for code-signing (LWCR).
+  launchd.agents.codex-ca-env = {
+    enable = true;
+    config = {
+      ProgramArguments = ["/bin/launchctl" "setenv" "CODEX_CA_CERTIFICATE" keychainCaBundle];
+      RunAtLoad = true;
+    };
+  };
+
   xdg.configFile = {
     "codex/AGENTS.md".source = agentInstructions.codex;
     "codex/skills" = {
