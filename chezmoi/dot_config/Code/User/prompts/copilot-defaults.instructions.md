@@ -14,6 +14,10 @@ read that file on demand instead of asking the user.
 - At task start, check the available-skills list for a match (CI triage,
   debugging, planning, resuming) and invoke it before improvising with raw
   commands — a matching skill is a requirement, not a hint.
+- Before running project commands, check the repository root and its ancestors
+  for an allowed `.envrc`. When one exists, run commands through
+  `direnv exec <root> <command>`; setting the working directory or using
+  `zsh -lc` does not load direnv in a non-interactive agent shell.
 - Minimize interactive terminal flows that can mangle command output in the IDE.
   If a shared shell shows prompt fragments, reused partial commands, or quote
   mangling, stop reusing it and rerun the workflow from an isolated shell.

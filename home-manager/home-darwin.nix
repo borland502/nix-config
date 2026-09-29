@@ -153,6 +153,14 @@
   };
   keychainCaBundle = "${config.xdg.dataHome}/ca-certificates/keychain-bundle.pem";
   codexHome = "${config.xdg.configHome}/codex";
+  codexSkillEntries = builtins.readDir ../ai-tools/skills;
+  codexSkillNames = builtins.attrNames (lib.filterAttrs (name: type: name != ".system" && type == "directory") codexSkillEntries);
+  codexSkillConfigFiles = builtins.listToAttrs (map (name:
+    lib.nameValuePair "codex/skills/${name}" {
+      source = ../ai-tools/skills + "/${name}";
+      force = true;
+    })
+  codexSkillNames);
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
   darwinPackages = lib.filter availableOnHost (with pkgs; [
     mas
@@ -325,6 +333,160 @@ in {
         else
           ${pkgs.coreutils}/bin/mkdir -p "$_codex_home"
           ${pkgs.coreutils}/bin/ln -sfn "$_codex_home" "$_legacy"
+        fi
+      '';
+
+      # Validate every existing target before Home Manager force-replaces the
+      # old recursive links or short-lived materialized copies. No target is
+      # removed here, so a collision or interruption leaves the active
+      # generation intact. Ordinary unowned directories are never adopted.
+      validateCodexSkillLinks = lib.hm.dag.entryBefore ["checkLinkTargets"] ''
+        if [[ ! -v DRY_RUN ]]; then
+          _skills_root=${lib.escapeShellArg "${codexHome}/skills"}
+        _manifest=${lib.escapeShellArg "${codexHome}/.nix-managed-skills"}
+        _marker=.nix-config-managed
+
+        # Validate every current target without deleting or replacing it.
+        for _skill_src in ${../ai-tools/skills}/*; do
+          [ -d "$_skill_src" ] || continue
+          _name=$(${pkgs.coreutils}/bin/basename "$_skill_src")
+          [ "$_name" != .system ] || continue
+          _target="$_skills_root/$_name"
+          _backup="$_skills_root/.nix-config-skill-backup-$_name"
+
+          if [ -e "$_backup" ] || [ -L "$_backup" ]; then
+            if [ -L "$_backup" ] || [ ! -d "$_backup" ]; then
+              echo "error: refusing invalid Codex skill migration backup: $_name" >&2
+              exit 1
+            fi
+            if [ ! -f "$_backup/$_marker" ]; then
+              _backup_compare=$(${pkgs.coreutils}/bin/mktemp -d "$_skills_root/.nix-config-backup-compare.XXXXXX")
+              ${pkgs.coreutils}/bin/cp -RLp "$_skill_src/." "$_backup_compare/"
+              ${pkgs.coreutils}/bin/chmod -R u+w "$_backup_compare"
+              if ! ${pkgs.diffutils}/bin/diff -qr "$_backup_compare" "$_backup" >/dev/null; then
+                echo "error: refusing mismatched Codex skill migration backup: $_name" >&2
+                ${pkgs.coreutils}/bin/rm -rf "$_backup_compare"
+                exit 1
+              fi
+              ${pkgs.coreutils}/bin/rm -rf "$_backup_compare"
+            fi
+          fi
+
+          if [ -L "$_target" ]; then
+            _link_target=$(${pkgs.coreutils}/bin/readlink "$_target")
+            if [ "$_link_target" = "$_backup" ]; then
+              continue
+            fi
+            _resolved_link_target=$(${pkgs.coreutils}/bin/readlink -f "$_target")
+            case "$_resolved_link_target" in
+              /nix/store/*-hm_*)
+                _link_compare=$(${pkgs.coreutils}/bin/mktemp -d "$_skills_root/.nix-config-link-compare.XXXXXX")
+                ${pkgs.coreutils}/bin/cp -RLp "$_skill_src/." "$_link_compare/"
+                ${pkgs.coreutils}/bin/chmod -R u+w "$_link_compare"
+                if ${pkgs.diffutils}/bin/diff -qr "$_link_compare" "$_target" >/dev/null; then
+                  ${pkgs.coreutils}/bin/rm -rf "$_link_compare"
+                  continue
+                fi
+                ${pkgs.coreutils}/bin/rm -rf "$_link_compare"
+                ;;
+              *)
+                ;;
+            esac
+            echo "error: preserving independently installed Codex skill link: $_name" >&2
+            exit 1
+          fi
+
+          [ -e "$_target" ] || continue
+          [ -f "$_target/$_marker" ] && continue
+
+          _legacy_claimed=0
+          if [ -f "$_manifest" ] &&
+            ${pkgs.gnugrep}/bin/grep -Fxq -- "$_name" "$_manifest"; then
+            _legacy_claimed=1
+          elif [ -L "$_target/SKILL.md" ]; then
+            _leaf_target=$(${pkgs.coreutils}/bin/readlink -f "$_target/SKILL.md")
+            case "$_leaf_target" in
+              /nix/store/*-hm_skills/"$_name"/SKILL.md) _legacy_claimed=1 ;;
+            esac
+          fi
+
+          if [ "$_legacy_claimed" -eq 0 ]; then
+            echo "error: preserving independently installed Codex skill: $_name" >&2
+            exit 1
+          fi
+
+          _compare=$(${pkgs.coreutils}/bin/mktemp -d "$_skills_root/.nix-config-compare.XXXXXX")
+          ${pkgs.coreutils}/bin/cp -RLp "$_skill_src/." "$_compare/"
+          ${pkgs.coreutils}/bin/chmod -R u+w "$_compare"
+          if ! ${pkgs.diffutils}/bin/diff -qr "$_compare" "$_target" >/dev/null; then
+            echo "error: preserving independently installed Codex skill: $_name" >&2
+            ${pkgs.coreutils}/bin/rm -rf "$_compare"
+            exit 1
+          fi
+          ${pkgs.coreutils}/bin/rm -rf "$_compare"
+        done
+
+        # All collisions are clear. Keep each legacy directory available via a
+        # recoverable placeholder link so Home Manager's ln -Tsf can replace it.
+        for _skill_src in ${../ai-tools/skills}/*; do
+          [ -d "$_skill_src" ] || continue
+          _name=$(${pkgs.coreutils}/bin/basename "$_skill_src")
+          [ "$_name" != .system ] || continue
+          _target="$_skills_root/$_name"
+          _backup="$_skills_root/.nix-config-skill-backup-$_name"
+          [ -L "$_target" ] && continue
+          if [ ! -e "$_target" ] && [ ! -L "$_target" ]; then
+            if [ -d "$_backup" ]; then
+              ${pkgs.coreutils}/bin/ln -s "$_backup" "$_target"
+            fi
+            continue
+          fi
+          if [ -e "$_backup" ] || [ -L "$_backup" ]; then
+            ${pkgs.coreutils}/bin/rm -rf "$_backup"
+          fi
+          ${pkgs.coreutils}/bin/mv "$_target" "$_backup"
+          if ! ${pkgs.coreutils}/bin/ln -s "$_backup" "$_target"; then
+            ${pkgs.coreutils}/bin/mv "$_backup" "$_target"
+            exit 1
+          fi
+          done
+        fi
+      '';
+
+      # Link generation succeeded, so stale marker-owned copies can now be
+      # retired and the one-time migration manifest removed. Unmarked stale
+      # skills and Codex's bundled .system directory remain untouched.
+      finishCodexSkillLinkMigration = lib.hm.dag.entryAfter ["linkGeneration"] ''
+        if [[ ! -v DRY_RUN ]]; then
+          _skills_root=${lib.escapeShellArg "${codexHome}/skills"}
+        _manifest=${lib.escapeShellArg "${codexHome}/.nix-managed-skills"}
+        _marker=.nix-config-managed
+        _known=" ${lib.concatStringsSep " " codexSkillNames} "
+
+        for _name in ${lib.concatMapStringsSep " " lib.escapeShellArg codexSkillNames}; do
+          _backup="$_skills_root/.nix-config-skill-backup-$_name"
+          if [ -d "$_backup" ]; then
+            ${pkgs.coreutils}/bin/rm -rf "$_backup"
+          fi
+        done
+
+        if [ -f "$_manifest" ]; then
+          while IFS= read -r _name; do
+            case "$_name" in
+              ""|.|..|.system|*/*) continue ;;
+            esac
+            case "$_known" in
+              *" $_name "*) ;;
+              *)
+                _target="$_skills_root/$_name"
+                if [ ! -L "$_target" ] && [ -f "$_target/$_marker" ]; then
+                  ${pkgs.coreutils}/bin/rm -rf "$_target"
+                fi
+                ;;
+            esac
+          done < "$_manifest"
+          ${pkgs.coreutils}/bin/rm -f "$_manifest"
+          fi
         fi
       '';
 
@@ -525,9 +687,10 @@ in {
   # Codex (macOS-only, update-agent-clis) gets the same ai-tools content as
   # Claude (plugin) and Copilot (copilot/skills + copilot/agents in common.nix),
   # under CODEX_HOME. Codex reads $CODEX_HOME/AGENTS.md as global
-  # instructions, scans $CODEX_HOME/skills (it keeps its own skills/.system
-  # beside these, so the dir is linked file-by-file), and loads
-  # $CODEX_HOME/agents/*.toml as custom subagents.
+  # instructions and loads $CODEX_HOME/agents/*.toml as custom subagents.
+  # Skills use one Home Manager symlink per directory. Codex follows those
+  # directory links and sees real SKILL.md files, while recursive deployment
+  # would create leaf-file symlinks that Codex deliberately ignores.
   # CODEX_CA_CERTIFICATE (sessionVariables) only reaches processes started from
   # a login shell, but Codex's long-lived app-server daemon keeps the env of
   # whichever process first spawned it, and ChatGPT.app's bundled codex
@@ -544,104 +707,102 @@ in {
     };
   };
 
-  xdg.configFile = {
-    "codex/AGENTS.md".source = agentInstructions.codex;
-    "codex/skills" = {
-      source = ../ai-tools/skills;
-      recursive = true;
-    };
-    "codex/agents" = {
-      source = agentInstructions.codexAgentDir;
-      recursive = true;
-    };
-    # Bash command logging, as for Claude and Copilot: Codex's PostToolUse
-    # payload is Claude-shaped (tool_name "Bash", tool_input.command,
-    # tool_response as the model-facing output string), so log-bash.sh's Claude
-    # branch handles it. Codex skips non-managed hooks until they are trusted
-    # once in /hooks; trust is keyed to this definition's hash.
-    "codex/hooks.json".text = builtins.toJSON {
-      hooks = {
-        PostToolUse = [
-          {
-            matcher = "Bash";
-            hooks = [
-              {
-                type = "command";
-                command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
-              }
-            ];
-          }
-          # Skill uses the same Claude-shaped hook payload as Bash. Keep it in
-          # the canonical session stream too, so cache-scan sees automatic and
-          # slash-command skill loads rather than only terminal activity.
-          {
-            matcher = "Skill";
-            hooks = [
-              {
-                type = "command";
-                command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
-              }
-            ];
-          }
-        ];
-        # Keep Codex's shared cache bounded after each completed turn. The helper
-        # is self-throttled, so most Stop events return without doing any work.
-        Stop = [
-          {
-            hooks = [
-              {
-                type = "command";
-                command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/compress-old-cache"'';
-                timeout = 20;
-              }
-            ];
-          }
-        ];
-        # Gather any agent-owned files into the cache root when the main Codex
-        # session ends. Codex runs SessionEnd synchronously and caps it at 3s.
-        SessionEnd = [
-          {
-            hooks = [
-              {
-                type = "command";
-                command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/sweep-agent-assets"'';
-                timeout = 3;
-              }
-            ];
-          }
-        ];
+  xdg.configFile =
+    codexSkillConfigFiles
+    // {
+      "codex/AGENTS.md".source = agentInstructions.codex;
+      "codex/agents" = {
+        source = agentInstructions.codexAgentDir;
+        recursive = true;
       };
+      # Bash command logging, as for Claude and Copilot: Codex's PostToolUse
+      # payload is Claude-shaped (tool_name "Bash", tool_input.command,
+      # tool_response as the model-facing output string), so log-bash.sh's Claude
+      # branch handles it. Codex skips non-managed hooks until they are trusted
+      # once in /hooks; trust is keyed to this definition's hash.
+      "codex/hooks.json".text = builtins.toJSON {
+        hooks = {
+          PostToolUse = [
+            {
+              matcher = "Bash";
+              hooks = [
+                {
+                  type = "command";
+                  command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
+                }
+              ];
+            }
+            # Skill uses the same Claude-shaped hook payload as Bash. Keep it in
+            # the canonical session stream too, so cache-scan sees automatic and
+            # slash-command skill loads rather than only terminal activity.
+            {
+              matcher = "Skill";
+              hooks = [
+                {
+                  type = "command";
+                  command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
+                }
+              ];
+            }
+          ];
+          # Keep Codex's shared cache bounded after each completed turn. The helper
+          # is self-throttled, so most Stop events return without doing any work.
+          Stop = [
+            {
+              hooks = [
+                {
+                  type = "command";
+                  command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/compress-old-cache"'';
+                  timeout = 20;
+                }
+              ];
+            }
+          ];
+          # Gather any agent-owned files into the cache root when the main Codex
+          # session ends. Codex runs SessionEnd synchronously and caps it at 3s.
+          SessionEnd = [
+            {
+              hooks = [
+                {
+                  type = "command";
+                  command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/sweep-agent-assets"'';
+                  timeout = 3;
+                }
+              ];
+            }
+          ];
+        };
+      };
+
+      "kitty/kitty.conf".text = let
+        c = import ./lib/colors.nix;
+        baseCfg = builtins.readFile ../chezmoi/dot_config/kitty/kitty.conf;
+      in
+        baseCfg
+        + ''
+
+          # Theme: Monokai Spectrumish
+          # Source: chezmoi/dot_config/colors/monokai.toml
+          foreground ${c.base05}
+          background ${c.base00}
+          cursor     ${c.base05}
+
+          color0  ${c.base00}
+          color8  ${c.base03}
+          color1  ${c.base08}
+          color9  ${c.base12}
+          color2  ${c.base0B}
+          color10 ${c.base14}
+          color3  ${c.base0A}
+          color11 ${c.base13}
+          color4  ${c.base0D}
+          color12 ${c.base16}
+          color5  ${c.base0E}
+          color13 ${c.base0E}
+          color6  ${c.base0C}
+          color14 ${c.base15}
+          color7  ${c.base05}
+          color15 ${c.base07}
+        '';
     };
-  };
-
-  xdg.configFile."kitty/kitty.conf".text = let
-    c = import ./lib/colors.nix;
-    baseCfg = builtins.readFile ../chezmoi/dot_config/kitty/kitty.conf;
-  in
-    baseCfg
-    + ''
-
-      # Theme: Monokai Spectrumish
-      # Source: chezmoi/dot_config/colors/monokai.toml
-      foreground ${c.base05}
-      background ${c.base00}
-      cursor     ${c.base05}
-
-      color0  ${c.base00}
-      color8  ${c.base03}
-      color1  ${c.base08}
-      color9  ${c.base12}
-      color2  ${c.base0B}
-      color10 ${c.base14}
-      color3  ${c.base0A}
-      color11 ${c.base13}
-      color4  ${c.base0D}
-      color12 ${c.base16}
-      color5  ${c.base0E}
-      color13 ${c.base0E}
-      color6  ${c.base0C}
-      color14 ${c.base15}
-      color7  ${c.base05}
-      color15 ${c.base07}
-    '';
 }
