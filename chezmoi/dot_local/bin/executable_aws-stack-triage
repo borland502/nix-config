@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Compact, read-only CloudFormation stack failure triage.
+set -euo pipefail
+
+usage() {
+	printf '%s\n' 'Usage: aws-stack-triage STACK [--region REGION] [--summary] [--nested] [--failures] [--resources] [--all]'
+}
+
+[[ $# -gt 0 ]] || {
+	usage >&2
+	exit 64
+}
+stack="$1"
+shift
+region=""
+summary=0
+nested=0
+failures=0
+resources=0
+selected=0
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--region)
+		shift
+		region="${1:?--region needs a value}"
+		;;
+	--summary)
+		summary=1
+		selected=1
+		;;
+	--nested)
+		nested=1
+		selected=1
+		;;
+	--failures)
+		failures=1
+		selected=1
+		;;
+	--resources)
+		resources=1
+		selected=1
+		;;
+	--all)
+		summary=1
+		nested=1
+		failures=1
+		resources=1
+		selected=1
+		;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*)
+		printf 'aws-stack-triage: unknown argument: %s\n' "$1" >&2
+		exit 64
+		;;
+	esac
+	shift
+done
+if ((selected == 0)); then
+	summary=1
+	nested=1
+	failures=1
+fi
+
+kac_path="${KAC_PATH:-$HOME/.local/bin/kac}"
+[[ -f "$kac_path" ]] || {
+	printf 'aws-stack-triage: kac not found: %s\n' "$kac_path" >&2
+	exit 1
+}
+# shellcheck disable=SC1090
+source "$kac_path" ensure
+aws_bin="${AWS_BIN:-aws}"
+aws_args=()
+[[ -n "$region" ]] && aws_args+=(--region "$region")
+
+if ((summary)); then
+	printf 'SUMMARY\n'
+	"$aws_bin" cloudformation describe-stacks --stack-name "$stack" "${aws_args[@]}" \
+		--query 'Stacks[0].[StackName,StackStatus,StackStatusReason]' --output text
+fi
+child_stacks=()
+if ((nested || resources)); then
+	((summary)) && printf '\n'
+	if ((resources)); then
+		printf 'RESOURCES\n'
+		resource_query='StackResourceSummaries[].[LogicalResourceId,ResourceType,PhysicalResourceId,ResourceStatus]'
+	else
+		printf 'NESTED STACKS\n'
+		resource_query='StackResourceSummaries[?ResourceType==`AWS::CloudFormation::Stack`].[LogicalResourceId,ResourceType,PhysicalResourceId,ResourceStatus]'
+	fi
+	resource_output="$("$aws_bin" cloudformation list-stack-resources --stack-name "$stack" "${aws_args[@]}" \
+		--query "$resource_query" --output text)"
+	printf '%s\n' "$resource_output"
+	mapfile -t child_stacks < <(printf '%s\n' "$resource_output" | awk '$2 == "AWS::CloudFormation::Stack" { print $3 }')
+fi
+if ((failures)); then
+	((summary || nested || resources)) && printf '\n'
+	printf 'FAILED EVENTS\n'
+	"$aws_bin" cloudformation describe-stack-events --stack-name "$stack" "${aws_args[@]}" \
+		--query 'StackEvents[?contains(ResourceStatus, `FAILED`) || contains(ResourceStatus, `ROLLBACK`)].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
+		--output text
+	for child_stack in "${child_stacks[@]}"; do
+		printf '\nCHILD FAILED EVENTS: %s\n' "$child_stack"
+		"$aws_bin" cloudformation describe-stack-events --stack-name "$child_stack" "${aws_args[@]}" \
+			--query 'StackEvents[?contains(ResourceStatus, `FAILED`) || contains(ResourceStatus, `ROLLBACK`)].[Timestamp,LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
+			--output text
+	done
+fi

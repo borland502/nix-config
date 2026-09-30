@@ -64,6 +64,19 @@ gh issue comment <number> --body "Thanks for reporting. Could you share reproduc
 
 ## PR Management
 
+For review-thread inspection, use the deployed helper before composing GraphQL:
+
+```bash
+gh-pr-threads <pr>                         # unresolved threads
+gh-pr-threads <pr> --author <login>        # unresolved threads by author
+gh-pr-threads <pr> --all --json            # automation-friendly full set
+```
+
+It owns the checked-in GraphQL and jq resources and delegates through
+`gh-graphql`. Only compose a new query when this interface cannot express the
+request. `--author` matches the first comment (thread opener), and the helper
+returns at most the first 100 threads.
+
 ### Review Checklist
 
 1. Check CI status: `gh pr checks <number>`

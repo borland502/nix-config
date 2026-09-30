@@ -13,6 +13,11 @@ Ensure work happens in an isolated workspace, in the one location every harness 
 
 **Announce at start:** "I'm using the git-worktrees skill to set up an isolated workspace."
 
+For an inventory-only request, run `git-worktree-audit [REPO] [--base REF ...]`.
+It reports merged, unmerged, detached, stale, and dirty worktrees without
+removing, pruning, or changing refs. Cleanup still requires the guarded,
+explicit workflow below.
+
 ## Step 0: Detect Existing Isolation
 
 **Before creating anything, check if you are already in an isolated workspace.**
@@ -289,6 +294,7 @@ Ready to implement <feature-name>
 | Situation | Action |
 |-----------|--------|
 | Already in linked worktree | Skip creation (Step 0) |
+| Audit only | `git-worktree-audit [REPO] [--base REF ...]`; make no changes |
 | In a submodule | Treat as normal repo (Step 0 guard) |
 | Any harness | Pick location (1a) → `git worktree add` (1b) → bind (1c) |
 | Native worktree tool available | Use it in 1c to *enter* the path from 1b, never to create |

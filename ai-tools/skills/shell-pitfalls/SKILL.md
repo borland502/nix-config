@@ -106,6 +106,15 @@ For the specific case of `gh api graphql` calls and long/nested `jq` filters —
 
 When the local environment uses Kion, load temporary AWS credentials with `source ~/.local/bin/kac ensure` (or read `~/.cache/kion-aws-cache/`) rather than the frequently-stale `~/.aws/credentials` / `AWS_PROFILE`. Treat any value read from a credentials file as a secret — never echo it into command output or a summary.
 
+For CloudFormation failure triage, prefer
+`aws-stack-triage <stack> [--region REGION]`. It runs `kac ensure` itself and
+provides summary, nested-stack, and failed-event views without another ad-hoc
+AWS/jq loop. Use `--summary`, `--nested`, `--failures`, `--resources`, or
+`--all` to narrow or expand the read-only output. When nested resources are
+requested, failed events from direct child stacks are included. Kion refresh
+failures route to `sec-kion-credential-recovery`; other credential lookup
+questions route to `sec-credentials`.
+
 `ExpiredToken` / `InvalidClientTokenId` / `Unable to locate credentials` is a
 credential-lifecycle failure, not a shell one — go to
 [sec-credentials](../sec-credentials/SKILL.md) for the full lookup precedence
