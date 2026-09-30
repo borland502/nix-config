@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Inspect GitHub pull-request review threads with a reusable file-backed query.
+set -euo pipefail
+
+usage() {
+	printf '%s\n' 'Usage: gh-pr-threads PR [--repo OWNER/REPO] [--author LOGIN] [--all] [--json]'
+}
+
+[[ $# -gt 0 ]] || {
+	usage >&2
+	exit 64
+}
+pr="$1"
+shift
+repo=""
+author=""
+include_all=0
+json=0
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--repo)
+		shift
+		repo="${1:?--repo needs OWNER/REPO}"
+		;;
+	--author)
+		shift
+		author="${1:?--author needs LOGIN}"
+		;;
+	--all) include_all=1 ;;
+	--json) json=1 ;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*)
+		printf 'gh-pr-threads: unknown argument: %s\n' "$1" >&2
+		exit 64
+		;;
+	esac
+	shift
+done
+
+if [[ -z "$repo" ]]; then
+	metadata="$(gh pr view "$pr" --json number,url)"
+	pr="$(jq -r '.number' <<<"$metadata")"
+	pr_url="$(jq -r '.url' <<<"$metadata")"
+	case "$pr_url" in
+	https://github.com/*/*/pull/*)
+		repo="${pr_url#https://github.com/}"
+		repo="${repo%/pull/*}"
+		;;
+	*)
+		printf 'gh-pr-threads: unexpected PR URL: %s\n' "$pr_url" >&2
+		exit 1
+		;;
+	esac
+fi
+[[ "$pr" =~ ^[0-9]+$ ]] || {
+	printf 'gh-pr-threads: PR must resolve to a number\n' >&2
+	exit 64
+}
+[[ "$repo" == */* ]] || {
+	printf 'gh-pr-threads: repository must be OWNER/REPO\n' >&2
+	exit 64
+}
+owner="${repo%%/*}"
+name="${repo#*/}"
+
+data_dir="${GH_PR_THREADS_DATA_DIR:-$HOME/.local/share/gh-pr-threads}"
+query="$data_dir/review-threads.graphql"
+filter="$data_dir/review-threads.jq"
+[[ -f "$query" && -f "$filter" ]] || {
+	printf 'gh-pr-threads: resources missing under %s\n' "$data_dir" >&2
+	exit 1
+}
+
+result="$(
+	GH_PR_THREADS_AUTHOR="$author" GH_PR_THREADS_ALL="$include_all" \
+		gh-graphql "pr-${pr}-threads" "$query" --jq "$filter" \
+		-F "owner=$owner" -F "repo=$name" -F "number=$pr"
+)"
+if ((json)); then
+	printf '%s\n' "$result" | jq -s 'add // []'
+else
+	printf '%s\n' "$result" | jq -r '.[] | "\(.path):\(.line // "-")  @\(.author)  \(.body | gsub("[\\r\\n]+"; " "))\n  \(.url)"'
+fi

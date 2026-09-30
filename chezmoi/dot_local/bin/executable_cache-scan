@@ -39,12 +39,12 @@ set -euo pipefail
 usage() {
 	cat <<'EOF'
 Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
-                  [-t|--transcript] [--diffs] [--classify] [-v|--verbose]
+                  [-t|--transcript] [--diffs] [--classify] [--audit] [-v|--verbose]
 
   --days N         Look back N days by file mtime (default: 2; 21 with
                    --classify)
   --date DATE      Only show records whose header timestamp starts with DATE
-  --session ID     Restrict to session log files matching ID
+  --session ID     Restrict to ID; searches retained history unless --days set
   --limit N        Timeline / decision length (default: 10); also raises the
                    ARTIFACTS row cap when above its floor of 12
   -t|--transcript  Enrich with native data the Bash log never sees: your typed
@@ -58,6 +58,8 @@ Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
                    archives): bucket each record's output into named categories
                    (stale-aws-creds, stat-dialect, zsh-nullglob, …) and print
                    counts + example commands (needs python3)
+      --audit      Consolidate actual tool errors, heuristic failure signals,
+                   and recurring script artifacts (default window: 30 days)
   -v|--verbose     Add the command timeline, keyword scan, and full paths
 
 Scans the agent log dir (~/.cache/claude, symlinked to ~/.cache/copilot).
@@ -88,6 +90,7 @@ verbose=0
 transcript=0
 diffs=0
 classify=0
+audit=0
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -133,6 +136,9 @@ while [[ $# -gt 0 ]]; do
 	--classify)
 		classify=1
 		;;
+	--audit)
+		audit=1
+		;;
 	-h | --help)
 		usage
 		exit 0
@@ -145,6 +151,11 @@ while [[ $# -gt 0 ]]; do
 	esac
 	shift
 done
+
+if ((audit)) && ((days_set == 0)); then days=30; fi
+# A focused session id is an explicit retained-history lookup, not a recent-log
+# query. A century-wide mtime window effectively removes the normal 2-day cap.
+if [[ -n "$session" ]] && ((days_set == 0)); then days=36500; fi
 
 # Resolve log roots, de-duplicating the ~/.cache/claude -> ~/.cache/copilot
 # symlink (otherwise every file is counted twice).
@@ -159,6 +170,138 @@ for cand in "$HOME/.cache/claude" "$HOME/.cache/copilot"; do
 done
 if [[ ${#roots[@]} -eq 0 ]]; then
 	echo "No cache log dir found under ~/.cache/claude or ~/.cache/copilot"
+	exit 0
+fi
+
+if ((audit)); then
+	echo "ACTUAL TOOL ERRORS"
+	python3 - "$days" "$limit" "$HOME" <<'PY'
+import glob, json, os, sys, time
+
+days, limit, home = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+cutoff = time.time() - days * 86400
+hits = []
+for path in (glob.glob(os.path.join(home, ".config/claude/projects/*/*.jsonl")) +
+             glob.glob(os.path.join(home, ".claude/projects/*/*.jsonl"))):
+    try:
+        if os.path.getmtime(path) < cutoff:
+            continue
+        calls = {}
+        with open(path, errors="replace") as stream:
+            for raw in stream:
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                message = event.get("message", {})
+                content = message.get("content", [])
+                if not isinstance(content, list):
+                    continue
+                if event.get("type") == "assistant":
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "tool_use":
+                            calls[item.get("id")] = item.get("name", "?")
+                elif event.get("type") == "user":
+                    for item in content:
+                        if not isinstance(item, dict) or item.get("type") != "tool_result" or item.get("is_error") is not True:
+                            continue
+                        body = item.get("content", "")
+                        if isinstance(body, list):
+                            body = " ".join(part.get("text", "") for part in body if isinstance(part, dict))
+                        elif isinstance(body, dict):
+                            body = body.get("message") or body.get("error") or json.dumps(body, sort_keys=True)
+                        error = " ".join(str(body).split())[:140]
+                        hits.append((calls.get(item.get("tool_use_id"), "?"), error))
+    except OSError:
+        pass
+for path in glob.glob(os.path.join(home, ".config/copilot/session-state/*/events.jsonl")):
+    try:
+        if os.path.getmtime(path) < cutoff:
+            continue
+        calls = {}
+        with open(path, errors="replace") as stream:
+            for raw in stream:
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                data = event.get("data", {})
+                if event.get("type") == "tool.execution_start":
+                    calls[data.get("toolCallId")] = data.get("toolName", "?")
+                elif event.get("type") == "tool.execution_complete" and data.get("success") is False:
+                    error = " ".join(str(data.get("error", "")).split())[:140]
+                    hits.append((calls.get(data.get("toolCallId"), "?"), error))
+    except OSError:
+        pass
+if not hits:
+    print("  (none found in retained native transcripts)")
+else:
+    for tool, error in hits[-limit:]:
+        print(f"  {tool}: {error}")
+PY
+	echo
+	echo "HEURISTIC FAILURE SIGNALS"
+	CACHE_SCAN_CLASSIFY_EXAMPLES=1 "$0" --classify --days "$days"
+	echo
+	echo "SCRIPT ARTIFACT FAMILIES"
+	python3 - "$days" "${roots[@]}" <<'PY'
+import collections, os, pathlib, re, sys, time
+
+days = int(sys.argv[1])
+roots = sys.argv[2:]
+cutoff = time.time() - days * 86400
+extensions = {".sh": "shell", ".bash": "shell", ".zsh": "shell", ".py": "python",
+              ".jq": "jq", ".graphql": "graphql", ".sql": "sql", ".js": "javascript",
+              ".ts": "typescript"}
+counts = collections.Counter()
+examples = collections.defaultdict(list)
+excluded = {".git", "node_modules", "vendor", ".venv", "venv", "dist", "build"}
+rules = [
+    ("github-review", ("github", "graphql", "review", "thread", "pull-request", "gh-pr")),
+    ("cloud-triage", ("cloudformation", "cfn", "aws", "stack", "ecs", "lambda")),
+    ("database", ("database", "postgres", "rds", "sql", "db-")),
+    ("git-worktree", ("worktree", "rebase", "cherry-pick", "git-branch")),
+    ("ticket-docs", ("jira", "confluence", "ticket")),
+    ("browser", ("playwright", "browser", "screenshot")),
+    ("verification", ("verify", "verification", "validation", "acceptance", "check-")),
+]
+
+def family(relative, path, kind):
+    searchable = relative.lower()
+    for label, needles in rules:
+        if any(needle in searchable for needle in needles):
+            return label
+    stem = re.sub(r"^\d{4}[-_]\d{2}[-_]\d{2}[-_]?", "", path.stem.lower())
+    stem = re.sub(r"[0-9a-f]{8,}|\d+", "id", stem)
+    words = [word for word in re.split(r"[^a-z]+", stem)
+             if word and word not in {"script", "helper", "tmp", "run", "test"}]
+    return "-".join(words[:3]) if words else f"other-{kind}"
+
+for root in roots:
+    for current, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in excluded]
+        for name in files:
+            path = pathlib.Path(current, name)
+            kind = extensions.get(path.suffix.lower())
+            if not kind:
+                continue
+            try:
+                if path.stat().st_mtime >= cutoff:
+                    relative = str(path.relative_to(root))
+                    label = family(relative, path, kind)
+                    counts[label] += 1
+                    if len(examples[label]) < 3:
+                        examples[label].append(path.name)
+            except OSError:
+                pass
+repeated = [(label, count) for label, count in counts.most_common() if count >= 2]
+if not repeated:
+    print("  (none)")
+else:
+    for label, count in repeated:
+        sample = ", ".join(examples[label])
+        print(f"  {label:<20} {count:<4} {sample}")
+PY
 	exit 0
 fi
 
@@ -215,6 +358,7 @@ META = re.compile(r"copilot-tool-output|/var/folders/\S+/T/|switch_run\.log|"
 
 counts = defaultdict(int)
 examples = defaultdict(list)
+example_limit = int(os.environ.get("CACHE_SCAN_CLASSIFY_EXAMPLES", "4"))
 total_records = 0
 files = 0
 
@@ -266,7 +410,7 @@ for root in roots:
             for name, rx in CATS:
                 if rx.search(out):
                     counts[name] += 1
-                    if len(examples[name]) < 4 and cmd:
+                    if len(examples[name]) < example_limit and cmd:
                         examples[name].append(cmd)
                     break
 

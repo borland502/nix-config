@@ -60,7 +60,8 @@ This is *not* something a session needs to wire up — if the host has had `home
 
 - `--days N` lookback by file mtime (defaults to `2`).
 - `--date YYYY-MM-DD` to restrict records to a header date.
-- `--session ID` to focus a single session log.
+- `--session ID` to focus a single session log. Without `--days` or `--date`,
+  this searches retained logs instead of inheriting the two-day default.
 - `--limit N` timeline / decision length (defaults to `10`).
 - `-t|--transcript` enrich with the free native signal the Bash log never
   captures — your typed prompts, the assistant's decision text, the files
@@ -85,6 +86,10 @@ This is *not* something a session needs to wire up — if the host has had `home
   single-session debugging. Heuristic — the log has no exit codes; records
   whose command is itself a log sweep are excluded, but real output quoting a
   marker still counts. Treat counts as leads. Needs `python3`.
+- `--audit` review recurring operational waste in one pass. It defaults to 30
+  days and separates `ACTUAL TOOL ERRORS`, `HEURISTIC FAILURE SIGNALS`, and
+  recursively discovered `SCRIPT ARTIFACT FAMILIES`. Dependency/build trees
+  are excluded. Use this for remedy design; use `--transcript` for one failure.
 - `-v|--verbose` add the command timeline and keyword scan (default output is
   intentionally terse to keep token cost low — read the default first and only
   reach for `--verbose` when you need the full timeline).
@@ -100,6 +105,8 @@ This is *not* something a session needs to wire up — if the host has had `home
    `cache-scan --session 4e8838e2 --diffs`
 6. Trend triage — what keeps failing across sessions:
    `cache-scan --classify` (or `--classify --days 60` for a longer horizon)
+7. Broad remediation audit — confirmed errors, heuristic signals, and repeated
+   script families: `cache-scan --audit` (or `--audit --days 60`)
 
 ## What To Extract
 
@@ -143,6 +150,9 @@ This is *not* something a session needs to wire up — if the host has had `home
 - **CLASSIFY** (`--classify`) — category counts + example commands across the
   window. The input for remediation planning (which skill/doc/helper to fix),
   not for debugging one failure.
+- **ACTUAL TOOL ERRORS / HEURISTIC FAILURE SIGNALS / SCRIPT ARTIFACT FAMILIES**
+  (`--audit`) — the consolidated remediation view. Keep the first two classes
+  distinct: heuristic matches are leads, not confirmed failed executions.
 
 ## Output Contract
 

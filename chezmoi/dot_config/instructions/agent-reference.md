@@ -169,6 +169,17 @@ the nix-config repo.
   any extra `-F`/`-f`/`--paginate` args. Enforces the only sanctioned shape for
   GraphQL + jq pipelines — no inline brace/quote rot. See the
   gh-graphql-jq-pipelines skill. Deps: `gh`.
+- **`gh-pr-threads PR [--repo OWNER/REPO] [--author LOGIN] [--all] [--json]`**
+  — List unresolved PR review threads using checked-in, file-backed GraphQL and
+  jq resources. Author means thread opener; the query is capped at 100 threads.
+  Use `--all` for resolved threads and `--json` for automation.
+- **`aws-stack-triage STACK [--region REGION] [--summary|--nested|--failures|--resources|--all]`**
+  — Read-only CloudFormation status, nested resources, and failure events. It
+  sources `kac ensure`; the default is summary + nested + failures, including
+  failed events from direct child stacks.
+- **`git-worktree-audit [REPO] [--base REF ...]`** — Read-only worktree
+  inventory showing merge, detached/stale, and dirty state. It never prunes or
+  removes worktrees.
 - **`jira-my-tickets`** — Print open Jira tickets assigned to the current user
   (status not Done, ordered by rank). Delegates auth and base-URL
   composition to `jira-get` (Bearer PAT; no email involved).
@@ -202,8 +213,10 @@ the nix-config repo.
   overview plus the commands that hit stderr or were interrupted.
   `-v|--verbose` adds the command timeline and heuristic keyword scan;
   `--classify` aggregates failure categories (with example commands) across
-  the window for trend triage. Flags: `--days N` (default 2; 21 with
-  `--classify`), `--date YYYY-MM-DD`, `--session ID`, `--limit N`.
+  the window for trend triage. `--audit` defaults to 30 days and separates
+  actual native tool errors, heuristic signals, and recursive script-artifact
+  families. A bare `--session ID` searches retained history. Other flags:
+  `--days N` (default 2; 21 with `--classify`), `--date YYYY-MM-DD`, `--limit N`.
   De-duplicates the `~/.cache/claude` symlink. Prefer this over hand-rolled
   `rg` sweeps of the log dir.
 - **`remote-desktop [host] [rdp|vnc]`** — Open a remote desktop to a host from
