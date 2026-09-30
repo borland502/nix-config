@@ -330,6 +330,14 @@ tasks:
     # Tolerates VPN-blocked Homebrew cask downloads (see scripts/darwin-switch-tolerant.sh).
     cmd: bash scripts/darwin-switch-tolerant.sh .#{{.HOST}}
 
+  darwin-rollback:
+    desc: Roll back nix-darwin, preparing Codex skills for the older recursive layout
+    platforms: [darwin]
+    deps: [_snapshot-pre]
+    cmds:
+      - bash scripts/prepare-codex-skill-rollback.sh
+      - sudo darwin-rebuild switch --rollback
+
   # NixOS-specific tasks (kept for Linux systems)
   nixos-build:
     desc: Build the NixOS configuration
