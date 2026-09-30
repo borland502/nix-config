@@ -344,7 +344,7 @@ in {
         if [[ ! -v DRY_RUN ]]; then
           _skills_root=${lib.escapeShellArg "${codexHome}/skills"}
         _manifest=${lib.escapeShellArg "${codexHome}/.nix-managed-skills"}
-        _marker=.nix-config-managed
+        _validator=${lib.escapeShellArg "${../scripts/validate-codex-skill-target.sh}"}
 
         # Validate every current target without deleting or replacing it.
         for _skill_src in ${../ai-tools/skills}/*; do
@@ -359,16 +359,10 @@ in {
               echo "error: refusing invalid Codex skill migration backup: $_name" >&2
               exit 1
             fi
-            if [ ! -f "$_backup/$_marker" ]; then
-              _backup_compare=$(${pkgs.coreutils}/bin/mktemp -d "$_skills_root/.nix-config-backup-compare.XXXXXX")
-              ${pkgs.coreutils}/bin/cp -RLp "$_skill_src/." "$_backup_compare/"
-              ${pkgs.coreutils}/bin/chmod -R u+w "$_backup_compare"
-              if ! ${pkgs.diffutils}/bin/diff -qr "$_backup_compare" "$_backup" >/dev/null; then
-                echo "error: refusing mismatched Codex skill migration backup: $_name" >&2
-                ${pkgs.coreutils}/bin/rm -rf "$_backup_compare"
-                exit 1
-              fi
-              ${pkgs.coreutils}/bin/rm -rf "$_backup_compare"
+            if ! PATH=${lib.makeBinPath [pkgs.coreutils pkgs.diffutils pkgs.gnugrep]} \
+              ${pkgs.bash}/bin/bash "$_validator" "$_skill_src" "$_backup" "$_name" "$_manifest"; then
+              echo "error: refusing mismatched Codex skill migration backup: $_name" >&2
+              exit 1
             fi
           fi
 
@@ -377,53 +371,20 @@ in {
             if [ "$_link_target" = "$_backup" ]; then
               continue
             fi
-            _resolved_link_target=$(${pkgs.coreutils}/bin/readlink -f "$_target")
-            case "$_resolved_link_target" in
-              /nix/store/*-hm_*)
-                _link_compare=$(${pkgs.coreutils}/bin/mktemp -d "$_skills_root/.nix-config-link-compare.XXXXXX")
-                ${pkgs.coreutils}/bin/cp -RLp "$_skill_src/." "$_link_compare/"
-                ${pkgs.coreutils}/bin/chmod -R u+w "$_link_compare"
-                if ${pkgs.diffutils}/bin/diff -qr "$_link_compare" "$_target" >/dev/null; then
-                  ${pkgs.coreutils}/bin/rm -rf "$_link_compare"
-                  continue
-                fi
-                ${pkgs.coreutils}/bin/rm -rf "$_link_compare"
-                ;;
-              *)
-                ;;
-            esac
+            if PATH=${lib.makeBinPath [pkgs.coreutils pkgs.diffutils pkgs.gnugrep]} \
+              ${pkgs.bash}/bin/bash "$_validator" "$_skill_src" "$_target" "$_name" "$_manifest"; then
+              continue
+            fi
             echo "error: preserving independently installed Codex skill link: $_name" >&2
             exit 1
           fi
 
           [ -e "$_target" ] || continue
-          [ -f "$_target/$_marker" ] && continue
-
-          _legacy_claimed=0
-          if [ -f "$_manifest" ] &&
-            ${pkgs.gnugrep}/bin/grep -Fxq -- "$_name" "$_manifest"; then
-            _legacy_claimed=1
-          elif [ -L "$_target/SKILL.md" ]; then
-            _leaf_target=$(${pkgs.coreutils}/bin/readlink -f "$_target/SKILL.md")
-            case "$_leaf_target" in
-              /nix/store/*-hm_skills/"$_name"/SKILL.md) _legacy_claimed=1 ;;
-            esac
-          fi
-
-          if [ "$_legacy_claimed" -eq 0 ]; then
+          if ! PATH=${lib.makeBinPath [pkgs.coreutils pkgs.diffutils pkgs.gnugrep]} \
+            ${pkgs.bash}/bin/bash "$_validator" "$_skill_src" "$_target" "$_name" "$_manifest"; then
             echo "error: preserving independently installed Codex skill: $_name" >&2
             exit 1
           fi
-
-          _compare=$(${pkgs.coreutils}/bin/mktemp -d "$_skills_root/.nix-config-compare.XXXXXX")
-          ${pkgs.coreutils}/bin/cp -RLp "$_skill_src/." "$_compare/"
-          ${pkgs.coreutils}/bin/chmod -R u+w "$_compare"
-          if ! ${pkgs.diffutils}/bin/diff -qr "$_compare" "$_target" >/dev/null; then
-            echo "error: preserving independently installed Codex skill: $_name" >&2
-            ${pkgs.coreutils}/bin/rm -rf "$_compare"
-            exit 1
-          fi
-          ${pkgs.coreutils}/bin/rm -rf "$_compare"
         done
 
         # All collisions are clear. Keep each legacy directory available via a
