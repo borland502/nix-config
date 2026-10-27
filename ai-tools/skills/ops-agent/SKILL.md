@@ -10,6 +10,7 @@ user-invocable: true
 Use this skill when the local `ops-agent` command is the safest path for Jira and ECS operational tasks.
 
 ## When To Use
+
 - Fetch a Jira ticket summary, assignee, status, or description.
 - List or apply Jira workflow transitions.
 - Post a Jira comment tied to an MDP ticket.
@@ -17,6 +18,7 @@ Use this skill when the local `ops-agent` command is the safest path for Jira an
 - Force a new ECS deployment for an MDP ticket service.
 
 ## Procedure
+
 1. Confirm the command exists with `command -v ops-agent`.
 2. Confirm required secrets exist:
    `~/.config/ops-agent/jira-base-url` and `~/.config/ops-agent/jira-token`
@@ -33,6 +35,20 @@ Use this skill when the local `ops-agent` command is the safest path for Jira an
 6. Summarize the result with the important ticket IDs, transitions, service names, deployment actions, and errors.
 
 ## Notes
+
+For long authorized comments, save the exact tool payload as a JSON file in
+`~/.cache/<agent>/<date>-<topic>/` and pass it to the existing deterministic
+tool. Keep the response beside it and verify the returned comment with
+`jira-get 'issue/KEY-123/comment/ID'`. Do not create a new posting script for
+each ticket or switch to prompt mode merely to handle a multiline body:
+
+```bash
+ops-agent --tool jira_comment "$(/bin/cat "$payload_file")" > "$response_file"
+```
+
+The payload contains `ticket_id` and `body`. Preserve the payload and response
+for retry diagnosis; inspect the response/readback before repeating a write.
+
 - Prefer this skill over handwritten Jira REST or AWS CLI mutations when the request fits the built-in `ops-agent` flow.
 - The underlying CLI already knows the MDP cluster and service naming conventions.
 - The prompt mode requires the `claude` CLI on PATH with an authorized login;

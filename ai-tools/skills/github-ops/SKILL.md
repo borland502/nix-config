@@ -70,12 +70,15 @@ For review-thread inspection, use the deployed helper before composing GraphQL:
 gh-pr-threads <pr>                         # unresolved threads
 gh-pr-threads <pr> --author <login>        # unresolved threads by author
 gh-pr-threads <pr> --all --json            # automation-friendly full set
+gh-pr-threads <pr> --all --context         # replies, IDs, timestamps, PR comments/reviews
 ```
 
-It owns the checked-in GraphQL and jq resources and delegates through
+It owns the checked-in GraphQL resources and delegates through
 `gh-graphql`. Only compose a new query when this interface cannot express the
 request. `--author` matches the first comment (thread opener), and the helper
-returns at most the first 100 threads.
+follows all thread pages. `--context` returns JSON with `threads`, `comments`,
+and `reviews`, and follows reply/discussion pages too. Author/resolution
+filters apply to threads, not the PR-wide discussion.
 
 ### Review Checklist
 
@@ -118,6 +121,7 @@ gh-run-logs <run-id>            # add --all for every job, --tail 0 for path onl
 
 # Poll a run to completion (don't hand-roll sleep loops)
 monitor-gh-run <run-id>
+gh-wait-job <run-id> --job Deploy --repo owner/repo --timeout 2400
 
 # Re-run a failed workflow
 gh run rerun <run-id> --failed
@@ -129,6 +133,12 @@ sessions) and never inline `gh run view --log-failed` dumps into the terminal
 for large runs (buries the log in the session transcript). `monitor-gh-run`
 replaces `sleep N; gh run list` polling loops; both helpers are documented in
 `agent-reference.md`.
+
+Monitoring is passive by default. Only `--cancel-duplicates` authorizes the
+helper to cancel older active runs and follow the newest one. A completed
+failed, cancelled, or skipped job is not success; `gh-wait-job` returns zero
+only for success and 124 on timeout. Use the job waiter when a deploy job
+finishes before a long-running workflow does.
 
 ## Release Management
 

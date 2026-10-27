@@ -35,6 +35,8 @@ set -euo pipefail
 readonly RDP_PORT=3389
 readonly VNC_PORT=5900
 
+# Consumed by the sourced hosts-toml logging functions.
+# shellcheck disable=SC2034
 readonly TAG=remote-desktop
 
 # Inventory access (hosts_load/host_field/host_known), note/warn/die, need,

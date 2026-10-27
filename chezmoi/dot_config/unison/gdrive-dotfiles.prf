@@ -54,6 +54,11 @@ ignore = Name unison-gdrive.log
 # keep them on local disk only (they live under .cache/<agent>, which IS synced).
 ignore = Name session_*.log
 ignore = Name session_*.log.zst
+# Raw native transcripts, hook payloads and runtime caches stay local.
+ignore = Path .cache/copilot/agent-capture
+ignore = Path .cache/copilot/runtime
+ignore = Name agent-capture-timer.log
+ignore = Name agent-capture-timer.log.zst
 ignore = Name *.thinking.log
 ignore = Name .thinking-cursor
 ignore = Name .git

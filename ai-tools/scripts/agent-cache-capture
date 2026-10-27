@@ -1,0 +1,1003 @@
+#!/usr/bin/env python3
+"""Capture hook events and mirror allowlisted native agent state."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+import time
+import tomllib
+from typing import Any, Callable, Iterable, Iterator, NamedTuple
+
+
+AGENTS = ("claude", "copilot", "codex")
+CHUNK = 1024 * 1024
+DEFAULT_EVENT_MAX = 8 * CHUNK
+NORMALIZED_FIELDS = {
+    "agent_transcript_path",
+    "conversation_id",
+    "cwd",
+    "error",
+    "session_id",
+    "scratchpad_dir",
+    "thread_id",
+    "tool_name",
+    "transcript_path",
+}
+
+
+class Source(NamedTuple):
+    agent: str
+    kind: str
+    root: Path
+    accept: Callable[[Path], bool]
+
+
+def cache_root() -> Path:
+    override = os.environ.get("AGENT_CACHE_CAPTURE_ROOT")
+    if override:
+        return Path(override).expanduser().resolve(strict=False)
+    cache_base = os.environ.get("CACHE_DIR")
+    if not cache_base:
+        xdg_cache = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+        cache_base = str(xdg_cache / "copilot")
+    return (Path(cache_base).expanduser() / "agent-capture").resolve(strict=False)
+
+
+def private_dir(path: Path) -> None:
+    if path.is_symlink():
+        raise OSError(f"refusing symlinked capture directory: {path}")
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.chmod(0o700)
+
+
+def ensure_cache_path(root: Path, candidate: Path, area_name: str) -> None:
+    """Reject traversal and every symlink below a resolved private cache root."""
+    area = root / area_name
+    try:
+        relative = candidate.relative_to(area)
+    except ValueError as error:
+        raise OSError(f"capture path escapes {area_name}: {candidate}") from error
+    if relative.is_absolute() or ".." in relative.parts or area.is_symlink():
+        raise OSError(f"unsafe capture path: {candidate}")
+    current = area
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise OSError(f"refusing symlinked capture path: {current}")
+    resolved_area = area.resolve(strict=False)
+    resolved_candidate = candidate.resolve(strict=False)
+    if (
+        resolved_candidate != resolved_area
+        and resolved_area not in resolved_candidate.parents
+    ):
+        raise OSError(f"capture path resolves outside {area_name}: {candidate}")
+
+
+def camel_to_snake(value: str) -> str:
+    value = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", value)
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value).lower()
+
+
+def normalize(value: Any) -> dict[str, Any]:
+    """Return bounded hook metadata, not a second copy of tool output."""
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, Any] = {}
+    for key, item in value.items():
+        normalized_key = camel_to_snake(str(key))
+        if normalized_key not in NORMALIZED_FIELDS or not isinstance(
+            item, (str, int, float, bool, type(None))
+        ):
+            continue
+        normalized[normalized_key] = item
+    return normalized
+
+
+def safe_session_key(session_id: str) -> str:
+    digest = hashlib.sha256(session_id.encode("utf-8", "replace")).hexdigest()[:12]
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", session_id).strip(".-")[:48]
+    return f"{cleaned or 'unknown'}-{digest}"
+
+
+def event_references(normalized: dict[str, Any]) -> list[dict[str, str]]:
+    references: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for field, kind in (
+        ("transcript_path", "transcript"),
+        ("agent_transcript_path", "transcript"),
+        ("scratchpad_dir", "scratchpad"),
+    ):
+        value = normalized.get(field)
+        if not isinstance(value, str) or not value or "\x00" in value:
+            continue
+        item = (kind, value)
+        if item not in seen:
+            references.append({"kind": kind, "path": value})
+            seen.add(item)
+    return references
+
+
+def write_overflow(root: Path, agent: str, initial: bytes, stream: Any) -> Path:
+    private_dir(root)
+    directory = root / "overflow" / agent
+    ensure_cache_path(root, directory, "overflow")
+    private_dir(directory)
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    path = directory / f"{stamp}-{os.getpid()}.json"
+    fd, partial_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".partial", dir=directory
+    )
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as output:
+            output.write(initial)
+            while chunk := stream.read(CHUNK):
+                output.write(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(partial_name, path)
+        os.chmod(path, 0o600)
+    except BaseException:
+        try:
+            os.unlink(partial_name)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def capture_event(agent: str, event: str) -> int:
+    try:
+        limit = max(
+            1, int(os.environ.get("AGENT_CACHE_EVENT_MAX_BYTES", DEFAULT_EVENT_MAX))
+        )
+    except ValueError:
+        limit = DEFAULT_EVENT_MAX
+    raw = sys.stdin.buffer.read(limit + 1)
+    root = cache_root()
+    if len(raw) > limit:
+        overflow = write_overflow(root, agent, raw, sys.stdin.buffer)
+        print(
+            f"agent-cache-capture: event too large; retained at {overflow}",
+            file=sys.stderr,
+        )
+        return 3
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        print(f"agent-cache-capture: invalid JSON: {error}", file=sys.stderr)
+        return 1
+    if not isinstance(payload, dict):
+        print("agent-cache-capture: invalid JSON: expected an object", file=sys.stderr)
+        return 1
+
+    normalized = normalize(payload)
+    session_value = next(
+        (
+            normalized.get(field)
+            for field in ("session_id", "conversation_id", "thread_id")
+            if normalized.get(field) not in (None, "")
+        ),
+        None,
+    )
+    if isinstance(session_value, (str, int)):
+        session_id = str(session_value)
+    else:
+        session_id = "unknown-" + hashlib.sha256(raw).hexdigest()[:12]
+    envelope = {
+        "captured_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "agent": agent,
+        "event": event,
+        "session_id": session_id,
+        "payload": payload,
+        "normalized": normalized,
+        "references": event_references(normalized),
+    }
+    encoded = (
+        json.dumps(envelope, separators=(",", ":"), ensure_ascii=False) + "\n"
+    ).encode()
+    private_dir(root)
+    directory = root / "events" / agent / safe_session_key(session_id)
+    ensure_cache_path(root, directory, "events")
+    private_dir(directory)
+    destination = directory / "events.jsonl"
+    lock_fd = os.open(directory / ".append.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(lock_fd, "r+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        event_fd = os.open(destination, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(event_fd, "ab") as output:
+            output.write(encoded)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(destination, 0o600)
+    return 0
+
+
+def resolved_existing(path: Path) -> Path | None:
+    try:
+        return path.expanduser().resolve(strict=True)
+    except (FileNotFoundError, OSError):
+        return None
+
+
+def unique_homes(configured: str | None, defaults: Iterable[Path]) -> list[Path]:
+    candidates = ([Path(configured)] if configured else []) + list(defaults)
+    result: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = resolved_existing(candidate)
+        if resolved is None or not resolved.is_dir() or resolved in seen:
+            continue
+        seen.add(resolved)
+        result.append(resolved)
+    return result
+
+
+def allow_all(_relative: Path) -> bool:
+    return True
+
+
+def claude_project_file(relative: Path) -> bool:
+    return relative.suffix == ".jsonl" or bool(
+        {"tool-results", "subagents"}.intersection(relative.parts)
+    )
+
+
+def copilot_session_file(relative: Path) -> bool:
+    if "files" in relative.parts:
+        return True
+    name = relative.name.lower()
+    return (
+        name == "events.jsonl"
+        or name.startswith("workspace")
+        or name.startswith("metadata")
+    )
+
+
+def add_dir_source(
+    sources: list[Source],
+    agent: str,
+    kind: str,
+    path: Path,
+    accept: Callable[[Path], bool],
+) -> None:
+    if path.expanduser().is_symlink():
+        return
+    resolved = resolved_existing(path)
+    capture = cache_root()
+    overlaps_capture = bool(
+        resolved is not None
+        and (
+            resolved == capture
+            or resolved in capture.parents
+            or capture in resolved.parents
+        )
+    )
+    if resolved is not None and resolved.is_dir() and not overlaps_capture:
+        sources.append(Source(agent, kind, resolved, accept))
+
+
+def safe_named_directories(root: Path, wanted: str) -> Iterator[Path]:
+    try:
+        with os.scandir(root) as entries:
+            for entry in entries:
+                if entry.is_symlink():
+                    continue
+                try:
+                    if not entry.is_dir(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                path = Path(entry.path)
+                if entry.name == wanted:
+                    yield path.resolve()
+                else:
+                    yield from safe_named_directories(path, wanted)
+    except OSError:
+        return
+
+
+def dedupe_sources(sources: Iterable[Source]) -> list[Source]:
+    result: list[Source] = []
+    seen: set[tuple[str, Path]] = set()
+    capture = cache_root()
+    for source in sources:
+        if (
+            source.root == capture
+            or source.root in capture.parents
+            or capture in source.root.parents
+        ):
+            continue
+        key = (source.agent, source.root)
+        if key not in seen:
+            seen.add(key)
+            result.append(source)
+    return result
+
+
+def discover_static_sources() -> list[Source]:
+    home = Path.home()
+    config = Path(os.environ.get("XDG_CONFIG_HOME", str(home / ".config")))
+    sources: list[Source] = []
+    for codex in unique_homes(
+        os.environ.get("CODEX_HOME"), (config / "codex", home / ".codex")
+    ):
+        add_dir_source(sources, "codex", "sessions", codex / "sessions", allow_all)
+        add_dir_source(
+            sources,
+            "codex",
+            "archived_sessions",
+            codex / "archived_sessions",
+            allow_all,
+        )
+        add_dir_source(sources, "codex", "log", codex / "log", allow_all)
+        add_dir_source(
+            sources, "codex", "visualizations", codex / "visualizations", allow_all
+        )
+        add_dir_source(
+            sources, "codex", "computer-use", codex / "computer-use", allow_all
+        )
+        try:
+            with (codex / "config.toml").open("rb") as config_stream:
+                configured_log = tomllib.load(config_stream).get("log_dir")
+            if isinstance(configured_log, str) and configured_log:
+                add_dir_source(
+                    sources,
+                    "codex",
+                    "configured-log",
+                    Path(configured_log).expanduser(),
+                    allow_all,
+                )
+        except (OSError, tomllib.TOMLDecodeError):
+            pass
+    for claude in unique_homes(
+        os.environ.get("CLAUDE_CONFIG_DIR"), (config / "claude", home / ".claude")
+    ):
+        add_dir_source(
+            sources, "claude", "projects", claude / "projects", claude_project_file
+        )
+        add_dir_source(
+            sources, "claude", "file-history", claude / "file-history", allow_all
+        )
+        add_dir_source(sources, "claude", "history", claude / "history", allow_all)
+        add_dir_source(sources, "claude", "debug", claude / "debug", allow_all)
+        add_dir_source(
+            sources, "claude", "paste-cache", claude / "paste-cache", allow_all
+        )
+        add_dir_source(sources, "claude", "plans", claude / "plans", allow_all)
+        add_dir_source(sources, "claude", "tasks", claude / "tasks", allow_all)
+        add_dir_source(sources, "claude", "todos", claude / "todos", allow_all)
+        history_file = claude / "history.jsonl"
+        if history_file.is_file() and not history_file.is_symlink():
+            sources.append(
+                Source(
+                    "claude",
+                    "history-file",
+                    claude,
+                    lambda p: p.name == "history.jsonl",
+                )
+            )
+    for copilot in unique_homes(
+        os.environ.get("COPILOT_HOME"), (config / "copilot", home / ".copilot")
+    ):
+        add_dir_source(
+            sources,
+            "copilot",
+            "session-state",
+            copilot / "session-state",
+            copilot_session_file,
+        )
+        add_dir_source(sources, "copilot", "logs", copilot / "logs", allow_all)
+        add_dir_source(sources, "copilot", "log", copilot / "log", allow_all)
+        add_dir_source(
+            sources, "copilot", "media-cache", copilot / "media-cache", allow_all
+        )
+
+    if os.environ.get("TMPDIR"):
+        tmp_candidates = [Path(os.environ["TMPDIR"])]
+    else:
+        tmp_candidates = [Path("/tmp")]
+        if sys.platform == "darwin":
+            tmp_candidates.append(Path("/private/tmp"))
+    seen_tmp: set[Path] = set()
+    for candidate in tmp_candidates:
+        tmp_root = resolved_existing(candidate)
+        if tmp_root is None or tmp_root in seen_tmp:
+            continue
+        seen_tmp.add(tmp_root)
+        try:
+            first_level = list(tmp_root.iterdir())
+        except OSError:
+            continue
+        for claude_tmp in first_level:
+            if claude_tmp.is_symlink() or not claude_tmp.name.startswith("claude-"):
+                continue
+            for scratchpad in safe_named_directories(claude_tmp, "scratchpad"):
+                sources.append(Source("claude", "scratchpad", scratchpad, allow_all))
+    return dedupe_sources(sources)
+
+
+def source_from_reference(agent: str, kind: str, raw_path: str) -> Source | None:
+    raw_candidate = Path(raw_path).expanduser()
+    if raw_candidate.is_symlink():
+        return None
+    candidate = resolved_existing(raw_candidate)
+    if candidate is None:
+        return None
+    if kind == "scratchpad":
+        if (
+            agent != "claude"
+            or not candidate.is_dir()
+            or candidate.name != "scratchpad"
+        ):
+            return None
+        return Source(agent, "scratchpad-ref", candidate, allow_all)
+    if (
+        not candidate.is_file()
+        or candidate.is_symlink()
+        or candidate.suffix != ".jsonl"
+    ):
+        return None
+    anchors = {
+        "claude": ("projects",),
+        "copilot": ("session-state",),
+        "codex": ("sessions", "archived_sessions"),
+    }[agent]
+    for parent in candidate.parents:
+        if parent.name in anchors:
+            return Source(
+                agent,
+                f"referenced-{parent.name}",
+                parent,
+                lambda p: p.suffix == ".jsonl",
+            )
+    return None
+
+
+def walk_files(root: Path, accept: Callable[[Path], bool]) -> Iterator[Path]:
+    def descend(directory: Path) -> Iterator[Path]:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if entry.is_symlink():
+                    continue
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        yield from descend(Path(entry.path))
+                    elif entry.is_file(follow_symlinks=False):
+                        path = Path(entry.path)
+                        if accept(path.relative_to(root)):
+                            yield path
+                except OSError:
+                    continue
+
+    try:
+        yield from descend(root)
+    except OSError:
+        return
+
+
+def referenced_sources(root: Path, persist_index: bool) -> list[Source]:
+    events_root = root / "events"
+    if not events_root.is_dir():
+        return []
+    index_path = root / "runtime" / "reference-index.json"
+    try:
+        old_index = json.loads(index_path.read_text(encoding="utf-8")).get(
+            "event_files", {}
+        )
+        if not isinstance(old_index, dict):
+            old_index = {}
+    except (OSError, json.JSONDecodeError, AttributeError):
+        old_index = {}
+    new_index: dict[str, dict[str, Any]] = {}
+    sources: list[Source] = []
+    for agent in AGENTS:
+        agent_root = events_root / agent
+        if not agent_root.is_dir():
+            continue
+        for event_file in walk_files(agent_root, lambda p: p.name == "events.jsonl"):
+            key = str(event_file)
+            try:
+                event_stat = event_file.stat(follow_symlinks=False)
+                previous = old_index.get(key, {})
+                same_file = (
+                    previous.get("device") == event_stat.st_dev
+                    and previous.get("inode") == event_stat.st_ino
+                    and event_stat.st_size >= previous.get("cursor", 0)
+                    and not (
+                        event_stat.st_size == previous.get("size")
+                        and event_stat.st_mtime_ns != previous.get("mtime_ns")
+                    )
+                )
+                cursor = int(previous.get("cursor", 0)) if same_file else 0
+                references = list(previous.get("references", [])) if same_file else []
+                with event_file.open("rb") as stream:
+                    stream.seek(cursor)
+                    next_cursor = cursor
+                    while line := stream.readline():
+                        line_start = next_cursor
+                        if not line.endswith(b"\n"):
+                            next_cursor = line_start
+                            break
+                        next_cursor = stream.tell()
+                        try:
+                            envelope = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        for reference in envelope.get("references", []):
+                            if (
+                                isinstance(reference, dict)
+                                and reference not in references
+                            ):
+                                references.append(reference)
+                    cursor = next_cursor
+                new_index[key] = {
+                    "agent": agent,
+                    "device": event_stat.st_dev,
+                    "inode": event_stat.st_ino,
+                    "size": event_stat.st_size,
+                    "mtime_ns": event_stat.st_mtime_ns,
+                    "cursor": cursor,
+                    "references": references,
+                }
+                for reference in references:
+                    source = source_from_reference(
+                        agent, reference.get("kind", ""), reference.get("path", "")
+                    )
+                    if source is not None:
+                        sources.append(source)
+            except OSError:
+                continue
+    if persist_index:
+        ensure_cache_path(root, index_path, "runtime")
+        atomic_json(index_path, {"version": 1, "event_files": new_index})
+    return dedupe_sources(sources)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(CHUNK):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def source_id(source: Source) -> str:
+    digest = hashlib.sha256(os.fsencode(source.root)).hexdigest()[:16]
+    safe_kind = re.sub(r"[^a-z0-9_-]+", "-", source.kind.lower()).strip("-")
+    return f"{safe_kind}-{digest}"
+
+
+def read_manifest(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(value, dict) and isinstance(value.get("files"), list):
+            return value
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {"files": []}
+
+
+def atomic_json(path: Path, value: dict[str, Any]) -> None:
+    private_dir(path.parent)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            json.dump(value, output, sort_keys=True, indent=2)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def atomic_copy(source: Path, destination: Path, source_stat: os.stat_result) -> str:
+    private_dir(destination.parent)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
+    digest = hashlib.sha256()
+    try:
+        os.fchmod(fd, 0o600)
+        with source.open("rb") as input_stream, os.fdopen(fd, "wb") as output:
+            opened_stat = os.fstat(input_stream.fileno())
+            expected = (
+                source_stat.st_dev,
+                source_stat.st_ino,
+                source_stat.st_size,
+                source_stat.st_mtime_ns,
+                source_stat.st_ctime_ns,
+            )
+            opened = (
+                opened_stat.st_dev,
+                opened_stat.st_ino,
+                opened_stat.st_size,
+                opened_stat.st_mtime_ns,
+                opened_stat.st_ctime_ns,
+            )
+            if opened != expected:
+                raise OSError(f"source changed before copy: {source}")
+            while chunk := input_stream.read(CHUNK):
+                output.write(chunk)
+                digest.update(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+            final_fd_stat = os.fstat(input_stream.fileno())
+            final_path_stat = source.stat(follow_symlinks=False)
+            final_fd = (
+                final_fd_stat.st_dev,
+                final_fd_stat.st_ino,
+                final_fd_stat.st_size,
+                final_fd_stat.st_mtime_ns,
+                final_fd_stat.st_ctime_ns,
+            )
+            final_path = (
+                final_path_stat.st_dev,
+                final_path_stat.st_ino,
+                final_path_stat.st_size,
+                final_path_stat.st_mtime_ns,
+                final_path_stat.st_ctime_ns,
+            )
+            if final_fd != opened or final_path != opened:
+                raise OSError(f"source changed during copy: {source}")
+        os.utime(temporary, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
+        os.replace(temporary, destination)
+        os.chmod(destination, 0o600)
+        return digest.hexdigest()
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def retention_days() -> int:
+    try:
+        return max(0, int(os.environ.get("CACHE_RETENTION_DAYS", "548")))
+    except ValueError:
+        return 548
+
+
+def entry_is_expired(entry: dict[str, Any], cutoff: float) -> bool:
+    try:
+        return int(entry.get("mtime_ns", 0)) / 1_000_000_000 < cutoff
+    except (TypeError, ValueError):
+        return False
+
+
+def remove_empty_parents(path: Path, stop: Path) -> None:
+    current = path
+    while current != stop and stop in current.parents:
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent
+
+
+def reconcile_source(
+    root: Path, source: Source, dry_run: bool, backfill: bool, cutoff: float
+) -> tuple[int, int, int]:
+    identity = source_id(source)
+    manifest_path = root / "manifests" / source.agent / f"{identity}.json"
+    ensure_cache_path(root, manifest_path, "manifests")
+    old_manifest = read_manifest(manifest_path)
+    entries = {
+        str(entry.get("source_path")): entry
+        for entry in old_manifest.get("files", [])
+        if isinstance(entry, dict) and entry.get("source_path")
+    }
+    copied = unchanged = failures = 0
+    expired: set[str] = set()
+    for path in walk_files(source.root, source.accept):
+        relative = path.relative_to(source.root)
+        destination_relative = Path("capture") / source.agent / identity / relative
+        destination = root / destination_relative
+        ensure_cache_path(root, destination, "capture")
+        source_stat = path.stat(follow_symlinks=False)
+        if not backfill and source_stat.st_mtime < cutoff:
+            expired.add(str(path))
+            continue
+        previous = entries.get(str(path))
+        fingerprint_matches = bool(
+            previous
+            and previous.get("size") == source_stat.st_size
+            and previous.get("source_mtime_ns", previous.get("mtime_ns"))
+            == source_stat.st_mtime_ns
+            and previous.get("source_ctime_ns") == source_stat.st_ctime_ns
+            and destination.is_file()
+            and not destination.is_symlink()
+            and destination.stat(follow_symlinks=False).st_size == previous.get("size")
+        )
+        if fingerprint_matches:
+            unchanged += 1
+            continue
+        digest = sha256_file(path)
+        if (
+            previous
+            and previous.get("sha256") == digest
+            and destination.is_file()
+            and not destination.is_symlink()
+        ):
+            if not dry_run:
+                os.utime(
+                    destination, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns)
+                )
+                previous.update(
+                    source_mtime_ns=source_stat.st_mtime_ns,
+                    source_ctime_ns=source_stat.st_ctime_ns,
+                    mtime_ns=source_stat.st_mtime_ns,
+                )
+            unchanged += 1
+            continue
+        if dry_run:
+            print(f"would capture: {path} -> {destination}")
+            copied += 1
+            continue
+        try:
+            copied_digest = atomic_copy(path, destination, source_stat)
+        except OSError as error:
+            failures += 1
+            print(f"agent-cache-capture: deferred {path}: {error}", file=sys.stderr)
+            continue
+        destination_size = destination.stat().st_size
+        entries[str(path)] = {
+            "agent": source.agent,
+            "source_kind": source.kind,
+            "source_root": str(source.root),
+            "source_path": str(path),
+            "relative_path": str(relative),
+            "destination": str(destination_relative),
+            "sha256": copied_digest,
+            "size": destination_size,
+            "copy_cursor": destination_size,
+            "mtime_ns": source_stat.st_mtime_ns,
+            "source_mtime_ns": source_stat.st_mtime_ns,
+            "source_ctime_ns": source_stat.st_ctime_ns,
+            "observed_source_mtime_ns": source_stat.st_mtime_ns,
+        }
+        copied += 1
+    if not backfill:
+        for source_path, entry in tuple(entries.items()):
+            if source_path not in expired and not entry_is_expired(entry, cutoff):
+                continue
+            destination_relative = entry.get("destination")
+            if not isinstance(destination_relative, str):
+                entries.pop(source_path, None)
+                continue
+            try:
+                destination = root / destination_relative
+                ensure_cache_path(root, destination, "capture")
+            except (OSError, ValueError):
+                print(
+                    f"agent-cache-capture: refusing unsafe manifest destination {destination_relative}",
+                    file=sys.stderr,
+                )
+                continue
+            capture_root = root / "capture"
+            if dry_run:
+                print(f"would expire: {destination}")
+                continue
+            if destination.is_file() and not destination.is_symlink():
+                destination.unlink()
+                remove_empty_parents(destination.parent, capture_root)
+            entries.pop(source_path, None)
+    if not dry_run:
+        manifest = {
+            "version": 1,
+            "agent": source.agent,
+            "source_kind": source.kind,
+            "source_root": str(source.root),
+            "source_id": identity,
+            "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "files": sorted(
+                entries.values(), key=lambda item: str(item["source_path"])
+            ),
+        }
+        atomic_json(manifest_path, manifest)
+    return copied, unchanged, failures
+
+
+def expire_event_sessions(root: Path, cutoff: float, dry_run: bool) -> None:
+    events_root = root / "events"
+    if not events_root.is_dir():
+        return
+    for agent in AGENTS:
+        agent_root = events_root / agent
+        if not agent_root.is_dir() or agent_root.is_symlink():
+            continue
+        for session in agent_root.iterdir():
+            if not session.is_dir() or session.is_symlink():
+                continue
+            event_file = session / "events.jsonl"
+            try:
+                expired = event_file.stat(follow_symlinks=False).st_mtime < cutoff
+            except OSError:
+                expired = False
+            if not expired:
+                continue
+            if dry_run:
+                print(f"would expire: {event_file}")
+            else:
+                lock_fd = os.open(
+                    session / ".append.lock", os.O_RDWR | os.O_CREAT, 0o600
+                )
+                with os.fdopen(lock_fd, "r+b") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    try:
+                        still_expired = (
+                            event_file.stat(follow_symlinks=False).st_mtime < cutoff
+                        )
+                    except OSError:
+                        still_expired = False
+                    if still_expired and not event_file.is_symlink():
+                        event_file.unlink()
+
+
+def expire_overflow_files(root: Path, cutoff: float, dry_run: bool) -> None:
+    overflow_root = root / "overflow"
+    if not overflow_root.is_dir() or overflow_root.is_symlink():
+        return
+    for agent_dir in overflow_root.iterdir():
+        if not agent_dir.is_dir() or agent_dir.is_symlink():
+            continue
+        for overflow_file in agent_dir.iterdir():
+            if (
+                overflow_file.suffix != ".json"
+                or overflow_file.is_symlink()
+                or not overflow_file.is_file()
+            ):
+                continue
+            ensure_cache_path(root, overflow_file, "overflow")
+            try:
+                expired = overflow_file.stat(follow_symlinks=False).st_mtime < cutoff
+            except OSError:
+                continue
+            if not expired:
+                continue
+            if dry_run:
+                print(f"would expire: {overflow_file}")
+            elif not overflow_file.is_symlink():
+                overflow_file.unlink()
+
+
+def expire_orphan_manifests(root: Path, cutoff: float, dry_run: bool) -> None:
+    manifests_root = root / "manifests"
+    if not manifests_root.is_dir() or manifests_root.is_symlink():
+        return
+    for manifest_path in manifests_root.glob("*/*.json"):
+        if manifest_path.is_symlink() or not manifest_path.is_file():
+            continue
+        manifest = read_manifest(manifest_path)
+        files = manifest.get("files", [])
+        retained: list[dict[str, Any]] = []
+        changed = False
+        for entry in files:
+            if not isinstance(entry, dict) or not entry_is_expired(entry, cutoff):
+                if isinstance(entry, dict):
+                    retained.append(entry)
+                continue
+            destination_relative = entry.get("destination")
+            if not isinstance(destination_relative, str):
+                retained.append(entry)
+                continue
+            try:
+                destination = root / destination_relative
+                ensure_cache_path(root, destination, "capture")
+            except (OSError, ValueError):
+                print(
+                    f"agent-cache-capture: refusing unsafe manifest destination {destination_relative}",
+                    file=sys.stderr,
+                )
+                retained.append(entry)
+                continue
+            if dry_run:
+                print(f"would expire: {destination}")
+                retained.append(entry)
+                continue
+            if destination.is_file() and not destination.is_symlink():
+                destination.unlink()
+                remove_empty_parents(destination.parent, root / "capture")
+            changed = True
+        if changed:
+            manifest["files"] = retained
+            manifest["updated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+            ensure_cache_path(root, manifest_path, "manifests")
+            atomic_json(manifest_path, manifest)
+
+
+def reconcile(dry_run: bool, backfill: bool) -> int:
+    root = cache_root()
+    cutoff = time.time() - retention_days() * 86400
+    if dry_run:
+        for source in dedupe_sources(
+            discover_static_sources() + referenced_sources(root, False)
+        ):
+            reconcile_source(root, source, True, backfill, cutoff)
+        if not backfill:
+            expire_event_sessions(root, cutoff, True)
+            expire_overflow_files(root, cutoff, True)
+            expire_orphan_manifests(root, cutoff, True)
+        return 0
+    private_dir(root)
+    lock_fd = os.open(root / ".reconcile.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    copied = unchanged = failures = 0
+    try:
+        with os.fdopen(lock_fd, "r+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            for source in dedupe_sources(
+                discover_static_sources() + referenced_sources(root, True)
+            ):
+                added, same, deferred = reconcile_source(
+                    root, source, False, backfill, cutoff
+                )
+                copied += added
+                unchanged += same
+                failures += deferred
+            if not backfill:
+                expire_event_sessions(root, cutoff, False)
+                expire_overflow_files(root, cutoff, False)
+                expire_orphan_manifests(root, cutoff, False)
+    except OSError as error:
+        print(f"agent-cache-capture: reconciliation failed: {error}", file=sys.stderr)
+        return 1
+    if copied:
+        print(
+            f"agent-cache-capture: {copied} captured, {unchanged} unchanged",
+            file=sys.stderr,
+        )
+    return 1 if failures else 0
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--agent", choices=AGENTS)
+    parser.add_argument("--event")
+    parser.add_argument("--reconcile", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true", help="compatibility flag")
+    parser.add_argument("--backfill", action="store_true", help="compatibility flag")
+    parser.add_argument("--prune", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    if args.prune:
+        parser.error("capture is copy-only and never prunes native agent state")
+    if args.reconcile:
+        if args.agent or args.event:
+            parser.error("--reconcile cannot be combined with hook options")
+    elif not (args.agent and args.event):
+        parser.error("hook mode requires --agent and --event")
+    elif args.dry_run or args.force or args.backfill:
+        parser.error("reconciliation flags require --reconcile")
+    if not args.reconcile and (
+        "/" in args.event or "\x00" in args.event or len(args.event) > 128
+    ):
+        parser.error("unsafe event name")
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.reconcile:
+        return reconcile(args.dry_run, args.backfill)
+    return capture_event(args.agent, args.event)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

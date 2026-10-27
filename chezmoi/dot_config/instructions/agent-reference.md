@@ -153,9 +153,14 @@ the nix-config repo.
   `secrets/gkion.toml`). That file is kept deliberately: the `gkion` CLI it is
   named for is no longer installed, but it remains the target configuration.
   It writes temporary credentials only to `~/.cache/kion-aws-cache/`.
-- **`monitor-gh-run <run-id>`** — Poll a GitHub Actions run, printing per-job
-  status transitions. Cancels older duplicate runs; switches to newer runs
-  automatically. Exits 0 on success, 1 on failure. Deps: `gh`, `jq`.
+- **`monitor-gh-run RUN [--job NAME] [--repo OWNER/REPO]`** — Observe a run
+  or exact job name without changing runs. Uses `gh-wait-job`; only success
+  exits 0, failures/missing jobs exit 1, timeout exits 124. `--timeout` defaults
+  to 2400 seconds; `--interval` to 20. Only explicit `--cancel-duplicates`
+  cancels older active runs and follows the newest workflow/branch run.
+- **`gh-wait-job RUN --job NAME [--repo OWNER/REPO]`** — Passive job waiter;
+  succeeds as soon as the named job succeeds, even if other jobs are running.
+  Omit `--job` to wait for the entire run. Deps: `gh`, Python standard library.
 - **`gh-run-logs <run-id> [--repo owner/name] [--all] [--tail N]`** — Save a
   run's failed-job logs (`--all`: every job) to
   `~/.cache/<agent>/run-<id>-failed.log` and tail the last N lines (default
@@ -169,14 +174,28 @@ the nix-config repo.
   any extra `-F`/`-f`/`--paginate` args. Enforces the only sanctioned shape for
   GraphQL + jq pipelines — no inline brace/quote rot. See the
   gh-graphql-jq-pipelines skill. Deps: `gh`.
-- **`gh-pr-threads PR [--repo OWNER/REPO] [--author LOGIN] [--all] [--json]`**
-  — List unresolved PR review threads using checked-in, file-backed GraphQL and
-  jq resources. Author means thread opener; the query is capped at 100 threads.
-  Use `--all` for resolved threads and `--json` for automation.
+- **`gh-pr-threads PR [--repo OWNER/REPO] [--author LOGIN] [--all] [--json] [--context]`**
+  — List unresolved PR review threads using checked-in GraphQL resources and
+  `gh-graphql`. All thread pages are read. Author means thread opener.
+  Use `--all` for resolved threads and `--json` for the compact array.
+  `--context` returns an object with `threads`, `comments`, and `reviews`,
+  including paginated replies, IDs, and timestamps. Filters apply to threads;
+  PR-wide comments/reviews remain complete. Deps: `gh`, Python standard library.
 - **`aws-stack-triage STACK [--region REGION] [--summary|--nested|--failures|--resources|--all]`**
   — Read-only CloudFormation status, nested resources, and failure events. It
   sources `kac ensure`; the default is summary + nested + failures, including
   failed events from direct child stacks.
+- **`aws-log-fetch LOG_GROUP --start ISO8601 --end ISO8601 --output FILE`** —
+  Save a bounded, paginated CloudWatch query as private JSON. Use explicit
+  timezone offsets and an existing directory under `~/.cache/<agent>/`.
+  Optional `--region` and `--request-id` narrow the query. Sources `kac ensure`
+  before AWS; validates JSON and publishes atomically. Existing files require
+  `--force`. Prints the artifact path, never event bodies.
+- **`aws-lambda-metrics INPUT [--output FILE]`** — Extract request IDs,
+  duration/billed/init time, memory, and status from saved text REPORT lines
+  or structured `platform.report`/CloudWatch JSON. Missing fields are null.
+  Offline, standard library only, no credentials/model calls/credits. Keep
+  application-specific metric extraction in the application's tooling.
 - **`git-worktree-audit [REPO] [--base REF ...]`** — Read-only worktree
   inventory showing merge, detached/stale, and dirty state. It never prunes or
   removes worktrees.
@@ -448,11 +467,11 @@ agent hooks / MCP clients via absolute path, never by hand.
   `~/.cache/claude/session_<id>.log` with `event=instructions`. This is the ground truth
   for "did the federated instructions load?" — transcripts do not record the
   injection.
-- **`log-thinking.sh`** — agent-reasoning logger. Wired as Claude
-  `Stop`/`SubagentStop` hooks and a Copilot `postToolUse` hook. Appends new
+- **`log-thinking.sh`** — agent-reasoning logger. Wired as a Copilot
+  `postToolUse` hook. The Claude hook is disabled because its transcripts can
+  contain only encrypted thinking signatures. Appends available
   reasoning to `~/.cache/<agent>/session_<id>.log` with `event=thinking`, deduped by a
-  per-source line cursor. Best-effort for Claude (some sessions persist only
-  encrypted signatures). **Security**: reasoning can contain secret values;
+  per-source line cursor. **Security**: reasoning can contain secret values;
   known secrets and token-shaped strings are redacted before write, files are
   `0600`, and session logs are excluded from the gdrive sync profile.
   Treat these logs as sensitive regardless.
@@ -462,14 +481,39 @@ agent hooks / MCP clients via absolute path, never by hand.
   `CACHE_RETENTION_DAYS` (default 548 ≈ 1.5 years).
   `COMPRESS_OLD_CACHE_DRY_RUN=1` lists retention candidates without deleting.
   Agent-aware via `AGENT_NAME` (or explicit `CACHE_DIR`) and self-throttling
-  (`COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC`, default 1800s). Invoked by agent
-  hooks and a daily systemd/launchd timer. This archives the helper scripts
+  (`COMPRESS_OLD_CACHE_MIN_INTERVAL_SEC`, default 1800s). Invoked by a daily
+  systemd/launchd timer. This archives the helper scripts
   and data files a session writes to the cache root too, so a top-level
   `helper.py` becomes `helper.py.zst` — an exact `ls helper.py` / anchored
   `fd 'helper\.py$'` then reports it missing and a fresh session rebuilds a
   script that already exists. Before rewriting a cache helper, run `cache-scan`
   (its **SCRIPTS** section lists these, `.zst` included) or match the `.zst`
   sibling, and recover with `zstdcat helper.py.zst > helper.py`.
+- **`agent-cache-capture`** — Passive command-hook capture plus fifteen-minute
+  launchd/systemd reconciliation. Stores original event payloads, native
+  transcripts, tool results, logs, and session files under
+  `~/.cache/copilot/agent-capture/{events,capture,manifests}/`, separated by
+  agent even when the cache aliases share storage. Files are private; manifests
+  record source paths, hashes, timestamps and copied byte counts. Standard
+  library only, no inference or network calls. Honors `XDG_CACHE_HOME`,
+  `CACHE_DIR` and `AGENT_CACHE_CAPTURE_ROOT`; configured and legacy agent homes
+  are deduplicated. Collection never deletes harness sources. The compatibility
+  `sweep-agent-assets` delegates to reconciliation and refuses `--prune`.
+  Nested retention follows `CACHE_RETENTION_DAYS` (548 by default).
+  Raw capture and runtime directories are excluded from the Drive sync.
+  `cache-scan --audit` and `--transcript` consume cached native copies and
+  failure events; keep raw payloads private, as they can contain sensitive data.
+  Codex requires review/trust of changed definitions in `/hooks`. Sandboxed
+  hooks need access to the collector and cache directory; native-file recovery
+  by the OS timer is independent. Test with synthetic homes through
+  `task check:agent-tools`, not manual invocation of production hooks.
+  Copilot ephemeral runtime caches use `COPILOT_CACHE_HOME` under
+  `~/.cache/copilot/runtime`; session/config/auth state stays in its native home.
+  On Darwin, activation sets a default Codex `log_dir` inside
+  `~/.cache/codex/runtime/codex-logs` only if no explicit value exists. This
+  enables the plaintext TUI log; the collector also discovers custom log dirs.
+  Existing TOML settings and comments are preserved. Legacy Codex-home migration
+  must finish before this default is applied.
 - **`claude-cache-stats`** — Claude `SessionEnd` hook; appends a one-line
   prompt-cache-hit summary per session to `cache-stats.log`.
 - **`aws-mcp-server`** — MCP wrapper for the AWS API MCP server.

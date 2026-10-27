@@ -294,6 +294,18 @@ in {
         ${pkgs.coreutils}/bin/rm -rf "$_work"
       '';
 
+      # Set the runtime-log destination only when the user has no explicit
+      # choice. This enables Codex's plaintext TUI log in the local-only cache.
+      ensureCodexCaptureLogs = lib.hm.dag.entryAfter ["writeBoundary" "linkCodexHome" "ensureCacheAgentSymlinks"] ''
+        # Do not seed a competing config while legacy-home migration is
+        # deferred: it would shadow the user's original config during merging.
+        if [ ! -d "$HOME/.codex" ] || [ -L "$HOME/.codex" ]; then
+          ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
+            --codex-log-dir ${lib.escapeShellArg "${codexHome}/config.toml"} \
+            ${lib.escapeShellArg "${config.xdg.cacheHome}/codex/runtime/codex-logs"}
+        fi
+      '';
+
       # CODEX_HOME (zsh.nix) is $XDG_CONFIG_HOME/codex, but the ChatGPT desktop
       # app bundles its own codex app-server that reads ~/.codex and never sees
       # shell env — so ~/.codex stays as a symlink to the XDG dir and the CLI
@@ -681,59 +693,39 @@ in {
       # tool_response as the model-facing output string), so log-bash.sh's Claude
       # branch handles it. Codex skips non-managed hooks until they are trusted
       # once in /hooks; trust is keyed to this definition's hash.
-      "codex/hooks.json".text = builtins.toJSON {
-        hooks = {
-          PostToolUse = [
-            {
-              matcher = "Bash";
-              hooks = [
+      "codex/hooks.json".text = builtins.toJSON (let
+        capture = builtins.fromJSON (builtins.readFile ../ai-tools/hooks/codex-capture.json);
+      in {
+        hooks =
+          capture.hooks
+          // {
+            PostToolUse =
+              capture.hooks.PostToolUse
+              ++ [
                 {
-                  type = "command";
-                  command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
+                  matcher = "Bash";
+                  hooks = [
+                    {
+                      type = "command";
+                      command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
+                    }
+                  ];
+                }
+                # Skill uses the same Claude-shaped hook payload as Bash. Keep it in
+                # the canonical session stream too, so cache-scan sees automatic and
+                # slash-command skill loads rather than only terminal activity.
+                {
+                  matcher = "Skill";
+                  hooks = [
+                    {
+                      type = "command";
+                      command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
+                    }
+                  ];
                 }
               ];
-            }
-            # Skill uses the same Claude-shaped hook payload as Bash. Keep it in
-            # the canonical session stream too, so cache-scan sees automatic and
-            # slash-command skill loads rather than only terminal activity.
-            {
-              matcher = "Skill";
-              hooks = [
-                {
-                  type = "command";
-                  command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
-                }
-              ];
-            }
-          ];
-          # Keep Codex's shared cache bounded after each completed turn. The helper
-          # is self-throttled, so most Stop events return without doing any work.
-          Stop = [
-            {
-              hooks = [
-                {
-                  type = "command";
-                  command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/compress-old-cache"'';
-                  timeout = 20;
-                }
-              ];
-            }
-          ];
-          # Gather any agent-owned files into the cache root when the main Codex
-          # session ends. Codex runs SessionEnd synchronously and caps it at 3s.
-          SessionEnd = [
-            {
-              hooks = [
-                {
-                  type = "command";
-                  command = ''AGENT_NAME=codex exec bash "$HOME/.local/bin/ai-tools/sweep-agent-assets"'';
-                  timeout = 3;
-                }
-              ];
-            }
-          ];
-        };
-      };
+          };
+      });
 
       "kitty/kitty.conf".text = let
         c = import ./lib/colors.nix;

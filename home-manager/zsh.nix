@@ -131,6 +131,7 @@ in {
           export GOBIN="''${GOBIN:-$XDG_BIN_HOME}"
           export CLAUDE_CONFIG_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/claude"
           export COPILOT_HOME="''${XDG_CONFIG_HOME:-$HOME/.config}/copilot"
+          export COPILOT_CACHE_HOME="''${COPILOT_CACHE_HOME:-$XDG_CACHE_HOME/copilot/runtime}"
           # Codex has no XDG support; CODEX_HOME is its only lever. Held back
           # while ~/.codex is still a real directory (darwin's linkCodexHome
           # activation has not migrated it yet), so the CLI never starts a

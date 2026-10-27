@@ -19,9 +19,35 @@ STDOUT: / STDERR: sections
 
 `status` is a heuristic (no exit code is exposed to the hook): `interrupted`, else `stderr` when stderr is non-empty, else `ok`. Activation also enforces `~/.cache/claude` and `~/.cache/codex` → `~/.cache/copilot` as symlinks so every agent shares one log dir.
 
-### The log cannot see failures — read this before triaging one
+### Capture coverage and legacy failure limits
 
-Two limits, both measured on 2026-09-03, and together they mean **an empty
+Managed command hooks also append original event payloads under
+`~/.cache/copilot/agent-capture/events/<agent>/<session>/events.jsonl`.
+Claude and Copilot have dedicated tool-failure hooks; Codex failure evidence
+comes from native transcripts. A user timer reconciles native transcripts,
+logs, tool results and session artifacts every fifteen minutes into
+`agent-capture/capture/<agent>/`, with provenance in `agent-capture/manifests/`.
+The collector uses local Python only: no model calls or model credits.
+
+`cache-scan --audit` and `--transcript` read the mirrored transcripts even when
+their originals are gone. Prompts and errors from all three agents work without
+a legacy Bash log. Hook failures are reported separately because they can
+overlap native transcript errors; do not add the two counts together.
+Captured files retain their source hierarchy and timestamps. Copies update when
+content changes and never remove native source data; the old sweeper's
+`--prune` option is refused. Native formats are vendor-specific and adapters
+need regression fixtures when upgrading a CLI.
+
+After deployment, review and trust the changed Codex hook definitions in
+`/hooks`; Codex trust is keyed to their definition hash. Sandbox policies must
+permit the collector executable and its cache output directory. The timer
+still recovers available native files when a hook cannot run. Neither path can
+recover content a vendor never writes locally, and files created and removed
+between reconciliation runs may not be copied. Do not run hook automation by
+hand against real state during an investigation; use the deployed timer and
+fixture tests (`task check:agent-tools`).
+
+The legacy Bash log has two limits, measured on 2026-09-03. **An empty
 `FAILURES` section is absence of evidence, never evidence of absence**:
 
 1. **A Bash call that exits non-zero produces no record at all.** The
@@ -35,8 +61,7 @@ Two limits, both measured on 2026-09-03, and together they mean **an empty
    corpus: 84 `status=stderr` records in 2026-06, then **0** across ~16,700
    commands in 2026-07 through 2026-09.
 
-So `FAILURES (stderr|interrupted): none` is what you will always see. Triage a
-real failure from these instead, in order:
+Do not rely on the legacy `FAILURES` section. Triage a real failure from:
 
 - **`SILENT FAILURES (exit-0 errors, heuristic)`** — `cache-scan` pattern-matches
   error text inside `STDOUT` and classifies it (`nullglob-miss`, `stat-dialect`,
@@ -52,7 +77,7 @@ real failure from these instead, in order:
 Never report "no failures in the window" on the strength of the `FAILURES`
 section alone.
 
-Lifecycle: `compress-old-cache` (hook + daily timer) zstd-compresses top-level cache files older than 1 day (or over 1 MB), then applies a **retention pass** — top-level `.zst` archives and subdirectories untouched for `CACHE_RETENTION_DAYS` (default 548 ≈ 1.5 years) are deleted. Subdirectories are never compressed, only pruned, so anything that must survive long-term does not belong in the cache dir.
+Lifecycle: the daily `compress-old-cache` timer zstd-compresses top-level cache files older than 1 day (or over 1 MB), then applies a **retention pass** — top-level `.zst` archives and subdirectories untouched for `CACHE_RETENTION_DAYS` (default 548 ≈ 1.5 years) are deleted. Capture reconciliation applies the same retention window to its nested data. Anything that must survive long-term does not belong in the cache dir.
 
 This is *not* something a session needs to wire up — if the host has had `home-manager switch` run successfully, the hook is already firing on every Bash call. This skill consumes that log stream; it does not produce it. The companion read-side workflow lives in [flow-systematic-debugging](../flow-systematic-debugging/SKILL.md) Phase 0.
 
@@ -65,14 +90,17 @@ This is *not* something a session needs to wire up — if the host has had `home
 - `--limit N` timeline / decision length (defaults to `10`).
 - `-t|--transcript` enrich with the free native signal the Bash log never
   captures — your typed prompts, the assistant's decision text, the files
-  changed, and the non-Bash tool tally. Works for **both agents**: Claude reads
+  changed, and the non-Bash tool tally. Claude reads
   its session transcripts (`~/.config/claude/projects/*/<id>.jsonl`, older runs
   under `~/.claude/projects`) + prompt-input log
   (`~/.config/claude/history.jsonl`); Copilot reads its event stream
   (`~/.config/copilot/session-state/<id>/events.jsonl`) plus the process log
   (`~/.config/copilot/logs/process-*.log`) for the model and real error lines.
-  Joined to the cache logs by session id. Read-only — no model calls, no
-  credits. Needs `jq`.
+  Codex reads `CODEX_HOME/sessions` and `archived_sessions`, with fallbacks to
+  `~/.config/codex` and `~/.codex`, deduplicated by real path. Its errors,
+  prompts, and decisions work without a cache log, including `--session ID`.
+  Additional Claude/Copilot tool/diff enrichment joins cache logs by session id. Read-only — no
+  model calls, no credits. Needs `jq` and Python standard library.
 - `--diffs` implies `-t` and additionally reconstructs the exact edits — Claude
   from the transcript's verbatim `old_string`/`new_string`, Copilot from the
   `apply_patch` V4A payloads. Capped by `--limit`; behind its own flag because
@@ -109,6 +137,13 @@ This is *not* something a session needs to wire up — if the host has had `home
    script families: `cache-scan --audit` (or `--audit --days 60`)
 
 ## What To Extract
+
+Audit errors are ordered by event timestamp, with session and command
+provenance. Its date/window filters apply to events rather than transcript
+mtime. Script families include compressed scripts, deduplicate decompressed
+content, and omit generated assets and helper query snapshots. Documentation
+and self-audit reads are excluded from heuristic signals; actual failed tools
+remain visible. Counts are leads, not failure-rate statistics.
 
 `cache-scan` already structures this; read its sections directly:
 

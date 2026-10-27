@@ -11,7 +11,7 @@ fi
 
 protected_branches='refs/heads/main refs/heads/master'
 
-while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+while IFS=' ' read -r _local_ref _local_sha remote_ref _remote_sha; do
 	case " $protected_branches " in
 	*" $remote_ref "*)
 		printf '%s\n' "pre-push: blocked push to protected branch ${remote_ref#refs/heads/}." >&2
