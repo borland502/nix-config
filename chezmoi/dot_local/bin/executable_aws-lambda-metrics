@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Extract Lambda REPORT metrics from saved logs, without network access."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+
+FIELDS = ("requestId", "durationMs", "billedDurationMs", "memorySizeMB",
+          "maxMemoryUsedMB", "initDurationMs", "status")
+# Long labels precede Duration so a missing Duration never reuses Billed/Init.
+TEXT_FIELD = re.compile(
+    r"(?P<label>Billed Duration|Init Duration|Max Memory Used|Memory Size|RequestId|Status|Duration):\s*(?P<value>[^\s]+)"
+)
+LABELS = {"RequestId": "requestId", "Duration": "durationMs",
+          "Billed Duration": "billedDurationMs", "Memory Size": "memorySizeMB",
+          "Max Memory Used": "maxMemoryUsedMB", "Init Duration": "initDurationMs",
+          "Status": "status"}
+
+
+def numeric(value):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def claims_json(value):
+    stripped = value.lstrip()
+    # A bracketed logger/level followed by a message is ordinary log text.
+    # Keep malformed arrays (including [invalid]) subject to JSON validation.
+    if re.match(r"^\[[A-Za-z][A-Za-z0-9_-]*\]\s+\S", stripped):
+        return False
+    return stripped.startswith(("{", "["))
+
+
+def extract(value):
+    if isinstance(value, str):
+        stripped = value.strip()
+        if claims_json(stripped):
+            try:
+                decoded = json.loads(stripped)
+            except json.JSONDecodeError:
+                # Whole pretty JSON and JSON lines both occur in saved logs.
+                lines = stripped.splitlines()
+                if len(lines) == 1:
+                    raise
+                for line in lines:
+                    yield from extract(line)
+                return
+            yield from extract(decoded)
+            return
+        for line in value.splitlines():
+            if claims_json(line):
+                yield from extract(line)
+                continue
+            if not re.search(r"\bREPORT\s+RequestId:", line):
+                continue
+            report = dict.fromkeys(FIELDS)
+            for match in TEXT_FIELD.finditer(line):
+                key = LABELS[match["label"]]
+                raw = match["value"]
+                if key in ("requestId", "status"):
+                    report[key] = raw
+                else:
+                    try:
+                        report[key] = float(raw)
+                    except ValueError:
+                        pass
+            yield report
+    elif isinstance(value, list):
+        for item in value:
+            yield from extract(item)
+    elif isinstance(value, dict):
+        if "events" in value:
+            if not isinstance(value["events"], list):
+                raise ValueError("events must be an array")
+            for event in value["events"]:
+                if isinstance(event, dict):
+                    yield from extract(event.get("message", ""))
+        elif value.get("type") == "platform.report":
+            record = value.get("record", {})
+            if not isinstance(record, dict):
+                raise ValueError("platform.report record must be an object")
+            metrics = record.get("metrics", {})
+            if not isinstance(metrics, dict):
+                raise ValueError("platform.report metrics must be an object")
+            report = {key: numeric(metrics.get(key)) for key in FIELDS}
+            report["requestId"] = record.get("requestId")
+            report["status"] = record.get("status")
+            yield report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("input", type=Path)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    temporary = None
+    try:
+        content = args.input.expanduser().read_text(encoding="utf-8")
+        result = json.dumps(list(extract(content)), indent=2, allow_nan=False) + "\n"
+        if args.output is None:
+            sys.stdout.write(result)
+        else:
+            target = args.output.expanduser().absolute()
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent,
+                                             prefix="." + target.name + ".", delete=False) as output:
+                temporary = output.name
+                output.write(result)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, target)
+            temporary = None
+    except (OSError, ValueError) as exc:
+        print(f"aws-lambda-metrics: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if temporary is not None:
+            os.unlink(temporary)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

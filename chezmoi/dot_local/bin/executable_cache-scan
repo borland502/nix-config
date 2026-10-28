@@ -51,7 +51,7 @@ Usage: cache-scan [--days N] [--date YYYY-MM-DD] [--session ID] [--limit N]
                    prompts, the assistant's decision text, the files changed,
                    the non-Bash tool tally, and TOOL ERRORS — the tool calls
                    that actually failed, which the Bash log cannot record at
-                   all — for Claude and Copilot sessions alike (needs jq)
+                   all — for Claude, Copilot and Codex sessions (needs jq)
       --diffs      Imply -t and also reconstruct the exact edits (Claude
                    old/new strings, Copilot V4A patches); capped by --limit
       --classify   Aggregate failure categories across the window (incl. .zst
@@ -161,147 +161,27 @@ if [[ -n "$session" ]] && ((days_set == 0)); then days=36500; fi
 # symlink (otherwise every file is counted twice).
 declare -A seen=()
 roots=()
-for cand in "$HOME/.cache/claude" "$HOME/.cache/copilot"; do
+for cand in "$HOME/.cache/claude" "$HOME/.cache/copilot" "$HOME/.cache/codex"; do
 	[[ -d "$cand" ]] || continue
 	real=$(cd "$cand" 2>/dev/null && pwd -P) || continue
 	[[ -n "${seen[$real]:-}" ]] && continue
 	seen[$real]=1
 	roots+=("$real")
 done
-if [[ ${#roots[@]} -eq 0 ]]; then
-	echo "No cache log dir found under ~/.cache/claude or ~/.cache/copilot"
-	exit 0
-fi
-
+# Native and mirrored transcripts do not depend on a legacy Bash log.
+scan_lib="$(cd -- "$(dirname -- "$0")/../lib" && pwd)/cache_scan.py"
 if ((audit)); then
-	echo "ACTUAL TOOL ERRORS"
-	python3 - "$days" "$limit" "$HOME" <<'PY'
-import glob, json, os, sys, time
-
-days, limit, home = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
-cutoff = time.time() - days * 86400
-hits = []
-for path in (glob.glob(os.path.join(home, ".config/claude/projects/*/*.jsonl")) +
-             glob.glob(os.path.join(home, ".claude/projects/*/*.jsonl"))):
-    try:
-        if os.path.getmtime(path) < cutoff:
-            continue
-        calls = {}
-        with open(path, errors="replace") as stream:
-            for raw in stream:
-                try:
-                    event = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                message = event.get("message", {})
-                content = message.get("content", [])
-                if not isinstance(content, list):
-                    continue
-                if event.get("type") == "assistant":
-                    for item in content:
-                        if isinstance(item, dict) and item.get("type") == "tool_use":
-                            calls[item.get("id")] = item.get("name", "?")
-                elif event.get("type") == "user":
-                    for item in content:
-                        if not isinstance(item, dict) or item.get("type") != "tool_result" or item.get("is_error") is not True:
-                            continue
-                        body = item.get("content", "")
-                        if isinstance(body, list):
-                            body = " ".join(part.get("text", "") for part in body if isinstance(part, dict))
-                        elif isinstance(body, dict):
-                            body = body.get("message") or body.get("error") or json.dumps(body, sort_keys=True)
-                        error = " ".join(str(body).split())[:140]
-                        hits.append((calls.get(item.get("tool_use_id"), "?"), error))
-    except OSError:
-        pass
-for path in glob.glob(os.path.join(home, ".config/copilot/session-state/*/events.jsonl")):
-    try:
-        if os.path.getmtime(path) < cutoff:
-            continue
-        calls = {}
-        with open(path, errors="replace") as stream:
-            for raw in stream:
-                try:
-                    event = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                data = event.get("data", {})
-                if event.get("type") == "tool.execution_start":
-                    calls[data.get("toolCallId")] = data.get("toolName", "?")
-                elif event.get("type") == "tool.execution_complete" and data.get("success") is False:
-                    error = " ".join(str(data.get("error", "")).split())[:140]
-                    hits.append((calls.get(data.get("toolCallId"), "?"), error))
-    except OSError:
-        pass
-if not hits:
-    print("  (none found in retained native transcripts)")
-else:
-    for tool, error in hits[-limit:]:
-        print(f"  {tool}: {error}")
-PY
-	echo
-	echo "HEURISTIC FAILURE SIGNALS"
-	CACHE_SCAN_CLASSIFY_EXAMPLES=1 "$0" --classify --days "$days"
-	echo
-	echo "SCRIPT ARTIFACT FAMILIES"
-	python3 - "$days" "${roots[@]}" <<'PY'
-import collections, os, pathlib, re, sys, time
-
-days = int(sys.argv[1])
-roots = sys.argv[2:]
-cutoff = time.time() - days * 86400
-extensions = {".sh": "shell", ".bash": "shell", ".zsh": "shell", ".py": "python",
-              ".jq": "jq", ".graphql": "graphql", ".sql": "sql", ".js": "javascript",
-              ".ts": "typescript"}
-counts = collections.Counter()
-examples = collections.defaultdict(list)
-excluded = {".git", "node_modules", "vendor", ".venv", "venv", "dist", "build"}
-rules = [
-    ("github-review", ("github", "graphql", "review", "thread", "pull-request", "gh-pr")),
-    ("cloud-triage", ("cloudformation", "cfn", "aws", "stack", "ecs", "lambda")),
-    ("database", ("database", "postgres", "rds", "sql", "db-")),
-    ("git-worktree", ("worktree", "rebase", "cherry-pick", "git-branch")),
-    ("ticket-docs", ("jira", "confluence", "ticket")),
-    ("browser", ("playwright", "browser", "screenshot")),
-    ("verification", ("verify", "verification", "validation", "acceptance", "check-")),
-]
-
-def family(relative, path, kind):
-    searchable = relative.lower()
-    for label, needles in rules:
-        if any(needle in searchable for needle in needles):
-            return label
-    stem = re.sub(r"^\d{4}[-_]\d{2}[-_]\d{2}[-_]?", "", path.stem.lower())
-    stem = re.sub(r"[0-9a-f]{8,}|\d+", "id", stem)
-    words = [word for word in re.split(r"[^a-z]+", stem)
-             if word and word not in {"script", "helper", "tmp", "run", "test"}]
-    return "-".join(words[:3]) if words else f"other-{kind}"
-
-for root in roots:
-    for current, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in excluded]
-        for name in files:
-            path = pathlib.Path(current, name)
-            kind = extensions.get(path.suffix.lower())
-            if not kind:
-                continue
-            try:
-                if path.stat().st_mtime >= cutoff:
-                    relative = str(path.relative_to(root))
-                    label = family(relative, path, kind)
-                    counts[label] += 1
-                    if len(examples[label]) < 3:
-                        examples[label].append(path.name)
-            except OSError:
-                pass
-repeated = [(label, count) for label, count in counts.most_common() if count >= 2]
-if not repeated:
-    print("  (none)")
-else:
-    for label, count in repeated:
-        sample = ", ".join(examples[label])
-        print(f"  {label:<20} {count:<4} {sample}")
-PY
+	exec python3 "$scan_lib" audit "$days" "$limit" "$date_filter" "$session"
+fi
+native_found=0
+if ((transcript)) || [[ -n "$session" ]]; then
+	if python3 "$scan_lib" transcript "$days" "$limit" "$date_filter" "$session"; then
+		native_found=1
+	fi
+fi
+if [[ ${#roots[@]} -eq 0 ]]; then
+	if ((transcript)) || [[ -n "$session" ]]; then exit 0; fi
+	echo "No cache log dir found under ~/.cache/claude or ~/.cache/copilot"
 	exit 0
 fi
 
@@ -402,6 +282,11 @@ for root in roots:
                 cmd = m.group(1).strip().replace("\n", " ")[:90]
             if META.search(cmd):
                 continue
+            # A successful documentation read may contain every error example
+            # in a skill. Retain stderr/interruption records as genuine leads.
+            doc_read = re.search(r"(?:bat|cat|rg|grep|head|tail)\b.*(?:SKILL|AGENTS|README)\.md", cmd)
+            if doc_read and "status=stdout" in rec.split("\n", 1)[0]:
+                continue
             out = ""
             for mo in re.finditer(r"(?ms)^(?:STDOUT|STDERR):\n(.*?)(?=^---|\Z)", rec):
                 out += mo.group(1)
@@ -457,7 +342,11 @@ printf 'cache-scan  roots=%s  lookback=%dd  sessions=%d%s\n' \
 	"$roots_disp" "$days" "${#logs[@]}" "${session:+  session~$session}"
 
 if [[ ${#logs[@]} -eq 0 ]]; then
-	echo "(none in window; raise --days or check the log-bash PostToolUse hook)"
+	if ((native_found)); then
+		echo "(no legacy Bash logs; native or cached observations shown above)"
+	else
+		echo "(none in window; raise --days or check the capture hooks)"
+	fi
 	exit 0
 fi
 
@@ -902,6 +791,8 @@ if ((transcript)); then
 			distill_claude "$id" "$ct"
 		elif [[ -f "$ce" ]]; then
 			distill_copilot "$id" "$ce"
+		elif ((native_found)); then
+			echo "  native or cached transcript shown above"
 		else
 			echo "  no transcript found (claude projects or copilot session-state)"
 		fi

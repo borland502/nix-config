@@ -8,6 +8,16 @@ version: "3"
 # reference no root-level vars, which is what made the split safe.
 
 tasks:
+  check:agent-tools:
+    desc: Run offline regression checks for cache and operational helpers
+    platforms: [linux, darwin]
+    cmds:
+      - python3 -m unittest discover -s tests -p 'test_*.py'
+      - bash tests/test_cache_scan_audit.sh
+      - bash tests/test_gh_pr_threads.sh
+      - bash tests/test_aws_stack_triage.sh
+      - bash tests/test_git_worktree_audit.sh
+
   check:
     desc: Check flake for errors
     platforms: [linux, darwin]
@@ -139,13 +149,9 @@ tasks:
     cmd: markdownlint-cli2 "**/*.md" "#**/node_modules" "#**/.venv" "#result" "#result-*" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
 
   lint:sh:
-    desc: Lint and check formatting of shell scripts (skips ai-tools/ and secrets/)
+    desc: Check shell sources by shebang, including extensionless helpers and agent hooks
     platforms: [linux, darwin]
-    cmd: |
-      shellcheck $(fd -e sh . --exclude node_modules --exclude ai-tools --exclude secrets)
-      shfmt -f . | awk '!/^ai-tools\// && !/^secrets\//' | while IFS= read -r f; do
-        shfmt -d -i 0 "$f"
-      done
+    cmd: python3 scripts/lint-shell.py --format
 
   lint:py:
     desc: Lint Python files (skips ai-tools/ and secrets/)

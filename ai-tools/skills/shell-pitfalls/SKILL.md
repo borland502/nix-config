@@ -75,6 +75,14 @@ chmod +x ~/.cache/claude/post.sh
 
 The file form is also re-runnable (the agent's PostToolUse hook captures the path and contents in the log) and edit-friendly when the API call needs adjusting.
 
+For bounded CloudWatch captures, use
+`aws-log-fetch LOG_GROUP --start ISO8601 --end ISO8601 --output FILE`
+with a file under `~/.cache/<agent>/` and optional `--request-id ID`.
+It refreshes credentials, handles the CLI arguments and pagination, and saves
+validated JSON privately. `aws-lambda-metrics FILE` extracts generic Lambda
+REPORT metrics offline. Use a custom script only for queries these interfaces
+cannot express.
+
 The other recurring offender is **`aws logs` + `jq` one-shots**: a CloudWatch
 log-stream name contains `[$LATEST]` (dollar + brackets — both shell-active),
 the filter pattern needs its own quotes, and the whole thing gets wrapped in
@@ -428,6 +436,11 @@ Some IDE harnesses wrap shell invocations in a capture command that tightens the
 Per [agent-defaults.md L25](../../../chezmoi/dot_config/instructions/agent-defaults.md), retry with the explicit interpreter form *before* assuming a real file-permission problem.
 
 ## Empty command substitution poisons the next command
+
+For uncertain source filenames, let ripgrep match paths instead of the shell:
+`rg -n 'pattern' src -g '*worker*'`. Use `rg --files src -g '*worker*'` to
+discover candidates first. This handles zero matches without a zsh glob error
+and avoids repeating the same failed wildcard command in a different form.
 
 `$(...)` that finds nothing yields an empty string, and the empty string is
 still passed as an argument. The failure surfaces one command later, wearing

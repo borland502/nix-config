@@ -6,6 +6,11 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$repo_root/tests/helpers/testlib.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+# Keep configured native roots inside the fixture, including under direnv.
+export HOME="$tmp/home"
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_CACHE_HOME="$HOME/.cache"
+unset CODEX_HOME COPILOT_HOME CLAUDE_CONFIG_DIR CACHE_DIR AGENT_CACHE_CAPTURE_ROOT
 mkdir -p "$tmp/home/.cache/copilot/2026-09-01-pr-review/node_modules" \
 	"$tmp/home/.config/copilot/session-state/recent" \
 	"$tmp/home/.config/copilot/session-state/retained-session"

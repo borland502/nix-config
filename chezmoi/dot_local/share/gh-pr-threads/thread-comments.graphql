@@ -1,0 +1,10 @@
+query ThreadComments($id: ID!, $cursor: String) {
+  node(id: $id) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id databaseId author { login } body url createdAt }
+      }
+    }
+  }
+}

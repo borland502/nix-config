@@ -155,7 +155,11 @@ if ((check_only)); then
 		rc=1
 	fi
 
-	((rc == 0)) && note "state: FULLY APPLIED" || note "state: INCOMPLETE"
+	if ((rc == 0)); then
+		note "state: FULLY APPLIED"
+	else
+		note "state: INCOMPLETE"
+	fi
 	exit "$rc"
 fi
 

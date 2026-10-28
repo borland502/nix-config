@@ -62,20 +62,6 @@
         command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/log-thinking.sh"'';
         timeoutSec = 30;
       }
-      {
-        type = "command";
-        command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/compress-old-cache"'';
-        timeoutSec = 20;
-      }
-      # Copilot writes agent-authored files into session-state/<id>/files/,
-      # which no cache tooling reaches. Copy them to the cache root before
-      # compress-old-cache archives that root. Self-throttled to 30 min, so
-      # running it per-tool-call is cheap.
-      {
-        type = "command";
-        command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/sweep-agent-assets"'';
-        timeoutSec = 30;
-      }
     ];
   };
   copilotLogSkillHook = builtins.toJSON {
@@ -99,18 +85,6 @@
       {
         type = "command";
         command = ''bash "${xdgBinHome}/ai-tools/log-thinking.sh"'';
-        env.AGENT_NAME = "copilot";
-        timeout = 30;
-      }
-      {
-        type = "command";
-        command = ''bash "${xdgBinHome}/ai-tools/compress-old-cache"'';
-        env.AGENT_NAME = "copilot";
-        timeout = 20;
-      }
-      {
-        type = "command";
-        command = ''bash "${xdgBinHome}/ai-tools/sweep-agent-assets"'';
         env.AGENT_NAME = "copilot";
         timeout = 30;
       }
@@ -379,6 +353,7 @@
   # standalone bin) is excluded. executable = true because the bit is forced here
   # rather than relying on the repo file mode.
   aiToolsScriptNames = [
+    "agent-cache-capture"
     "aws-mcp-server"
     "claude-cache-stats"
     "compress-old-cache"
@@ -447,6 +422,7 @@ in {
       # catches it. (A turn with reasoning but no tool call is captured on the
       # next tool call; switch to a stop/session-end event if Copilot adds one.)
       "copilot/hooks/log-bash.json".text = copilotLogBashHook;
+      "copilot/hooks/capture.json".source = ../ai-tools/hooks/copilot-capture.json;
 
       # Wires the Copilot skill-invocation logger. log-skill.sh self-filters on
       # toolName == "Skill" and appends a canonical record to
@@ -509,6 +485,7 @@ in {
       XDG_DATA_HOME = xdgDataHome;
       XDG_LIB_HOME = xdgLibHome;
       XDG_STATE_HOME = xdgStateHome;
+      COPILOT_CACHE_HOME = "${xdgCacheHome}/copilot/runtime";
       LS_COLORS = "$(${pkgs.coreutils}/bin/cat ${lsColors})";
     };
 
@@ -619,17 +596,10 @@ in {
             '.hooks.SessionEnd |= (. // []) + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/ai-tools/claude-cache-stats","async":true}]}]' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
-        # SessionEnd: copy agent-written assets into the cache root. Claude
-        # spills large tool output to projects/<slug>/<session>/tool-results/
-        # and scratch files to $TMPDIR/claude-<uid>/**/scratchpad/ — both below
-        # the depth cache-scan reads, so neither is discoverable without this.
-        # Copies rather than moves; the harness still owns those directories.
-        if ! jq -e '.hooks.SessionEnd[]? | .hooks[]? | select(.command | test("sweep-agent-assets"))' "$_settings" > /dev/null 2>&1; then
-          _tmp=$(${pkgs.coreutils}/bin/mktemp)
-          jq \
-            '.hooks.SessionEnd |= (. // []) + [{"hooks":[{"type":"command","command":"AGENT_NAME=claude bash \"$HOME/.local/bin/ai-tools/sweep-agent-assets\"","async":true}]}]' \
-            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
-        fi
+        # Replace only our capture handlers and obsolete broad sweep. Preserve
+        # user hooks; keep shutdown work short and reconcile files on the timer.
+        ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
+          "$_settings" ${../ai-tools/hooks/claude-capture.json}
         # Claude reasoning capture via log-thinking.sh is DISABLED. Claude Code
         # 2.1.69+ stores thinking blocks signature-only (empty text + encrypted
         # signature) in the transcript, so the hook's Claude path can never
@@ -1002,6 +972,23 @@ in {
   # hooks. AGENT_NAME=copilot targets ~/.cache/copilot (the real dir that
   # ~/.cache/claude symlinks to). Off-minute (03:17) by habit.
   launchd.agents = {
+    agent-cache-capture = lib.mkIf pkgs.stdenv.isDarwin {
+      enable = true;
+      config = {
+        ProgramArguments = ["${pkgs.python3}/bin/python3" "${xdgBinHome}/ai-tools/agent-cache-capture" "--reconcile"];
+        EnvironmentVariables = {
+          HOME = homeDirectory;
+          XDG_CACHE_HOME = xdgCacheHome;
+          XDG_CONFIG_HOME = xdgConfigHome;
+        };
+        RunAtLoad = true;
+        StartInterval = 900;
+        ProcessType = "Background";
+        StandardOutPath = "${xdgCacheHome}/copilot/agent-capture-timer.log";
+        StandardErrorPath = "${xdgCacheHome}/copilot/agent-capture-timer.log";
+        Umask = 63;
+      };
+    };
     compress-old-cache = lib.mkIf pkgs.stdenv.isDarwin {
       enable = true;
       config = {
@@ -1106,6 +1093,28 @@ in {
   };
 
   systemd.user = lib.mkIf pkgs.stdenv.isLinux {
+    services.agent-cache-capture = {
+      Unit = {
+        Description = "Mirror native agent transcripts and artifacts into the cache";
+        ConditionFileIsExecutable = "${xdgBinHome}/ai-tools/agent-cache-capture";
+      };
+      Service = {
+        Type = "oneshot";
+        ExecStart = "${pkgs.python3}/bin/python3 ${xdgBinHome}/ai-tools/agent-cache-capture --reconcile";
+        Environment = ["HOME=${homeDirectory}" "XDG_CACHE_HOME=${xdgCacheHome}" "XDG_CONFIG_HOME=${xdgConfigHome}"];
+        StandardOutput = "append:${xdgCacheHome}/copilot/agent-capture-timer.log";
+        StandardError = "append:${xdgCacheHome}/copilot/agent-capture-timer.log";
+        UMask = "0077";
+      };
+    };
+    timers.agent-cache-capture = {
+      Unit.Description = "Reconcile agent capture every fifteen minutes";
+      Timer = {
+        OnBootSec = "2m";
+        OnUnitInactiveSec = "15m";
+      };
+      Install.WantedBy = ["timers.target"];
+    };
     services.compress-old-cache = {
       Unit = {
         Description = "Compress old agent cache files with zstd";

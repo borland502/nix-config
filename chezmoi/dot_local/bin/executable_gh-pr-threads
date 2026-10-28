@@ -1,86 +1,122 @@
-#!/usr/bin/env bash
-# Inspect GitHub pull-request review threads with a reusable file-backed query.
-set -euo pipefail
+#!/usr/bin/env python3
+"""Read paginated PR threads, optionally with replies and PR-wide discussion."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from urllib.parse import urlparse
 
-usage() {
-	printf '%s\n' 'Usage: gh-pr-threads PR [--repo OWNER/REPO] [--author LOGIN] [--all] [--json]'
-}
 
-[[ $# -gt 0 ]] || {
-	usage >&2
-	exit 64
-}
-pr="$1"
-shift
-repo=""
-author=""
-include_all=0
-json=0
-while [[ $# -gt 0 ]]; do
-	case "$1" in
-	--repo)
-		shift
-		repo="${1:?--repo needs OWNER/REPO}"
-		;;
-	--author)
-		shift
-		author="${1:?--author needs LOGIN}"
-		;;
-	--all) include_all=1 ;;
-	--json) json=1 ;;
-	-h | --help)
-		usage
-		exit 0
-		;;
-	*)
-		printf 'gh-pr-threads: unknown argument: %s\n' "$1" >&2
-		exit 64
-		;;
-	esac
-	shift
-done
+def run_json(command):
+    result = subprocess.run(command, capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)
 
-if [[ -z "$repo" ]]; then
-	metadata="$(gh pr view "$pr" --json number,url)"
-	pr="$(jq -r '.number' <<<"$metadata")"
-	pr_url="$(jq -r '.url' <<<"$metadata")"
-	case "$pr_url" in
-	https://github.com/*/*/pull/*)
-		repo="${pr_url#https://github.com/}"
-		repo="${repo%/pull/*}"
-		;;
-	*)
-		printf 'gh-pr-threads: unexpected PR URL: %s\n' "$pr_url" >&2
-		exit 1
-		;;
-	esac
-fi
-[[ "$pr" =~ ^[0-9]+$ ]] || {
-	printf 'gh-pr-threads: PR must resolve to a number\n' >&2
-	exit 64
-}
-[[ "$repo" == */* ]] || {
-	printf 'gh-pr-threads: repository must be OWNER/REPO\n' >&2
-	exit 64
-}
-owner="${repo%%/*}"
-name="${repo#*/}"
 
-data_dir="${GH_PR_THREADS_DATA_DIR:-$HOME/.local/share/gh-pr-threads}"
-query="$data_dir/review-threads.graphql"
-filter="$data_dir/review-threads.jq"
-[[ -f "$query" && -f "$filter" ]] || {
-	printf 'gh-pr-threads: resources missing under %s\n' "$data_dir" >&2
-	exit 1
-}
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('pr')
+    parser.add_argument('--repo')
+    parser.add_argument('--author', help='filter threads by opening comment author')
+    parser.add_argument('--all', action='store_true', help='include resolved threads')
+    parser.add_argument('--json', action='store_true')
+    parser.add_argument('--context', action='store_true', help='include all replies, PR comments and reviews')
+    args = parser.parse_args()
+    try:
+        repo, number = args.repo, args.pr
+        if not repo or not number.isdecimal():
+            command = ['gh', 'pr', 'view', number, '--json', 'number,url']
+            if repo:
+                command.extend(['--repo', repo])
+            metadata = run_json(command)
+            number = str(metadata['number'])
+            parts = urlparse(metadata['url']).path.strip('/').split('/')
+            if len(parts) != 4 or parts[2] != 'pull':
+                raise ValueError('unexpected PR URL')
+            repo = '/'.join(parts[:2])
+        if not re.fullmatch(r'[^/\s]+/[^/\s]+', repo) or not number.isdecimal():
+            raise ValueError('expected a numeric PR and OWNER/REPO')
+        owner, name = repo.split('/')
+        default_data = Path(__file__).resolve().parent.parent / 'share/gh-pr-threads'
+        data_dir = Path(os.environ.get('GH_PR_THREADS_DATA_DIR', default_data))
+        common = {'owner': owner, 'repo': name, 'number': number}
 
-result="$(
-	GH_PR_THREADS_AUTHOR="$author" GH_PR_THREADS_ALL="$include_all" \
-		gh-graphql "pr-${pr}-threads" "$query" --jq "$filter" \
-		-F "owner=$owner" -F "repo=$name" -F "number=$pr"
-)"
-if ((json)); then
-	printf '%s\n' "$result" | jq -s 'add // []'
-else
-	printf '%s\n' "$result" | jq -r '.[] | "\(.path):\(.line // "-")  @\(.author)  \(.body | gsub("[\\r\\n]+"; " "))\n  \(.url)"'
-fi
+        def query(resource, variables):
+            document = data_dir / resource
+            if not document.is_file():
+                raise ValueError(f'query resource missing: {document}')
+            command = ['gh-graphql', f'pr-{number}-{document.stem}', str(document)]
+            for key, value in variables.items():
+                command.extend(['-F', f'{key}={value}'])
+            response = run_json(command)
+            if response.get('errors'):
+                raise ValueError('GraphQL: ' + '; '.join(e.get('message', str(e)) for e in response['errors']))
+            if not response.get('data'):
+                raise ValueError('GraphQL response has no data')
+            return response['data']
+
+        def connection(data, path):
+            for key in path:
+                if not isinstance(data, dict) or data.get(key) is None:
+                    raise ValueError('missing GraphQL connection: ' + '.'.join(path))
+                data = data[key]
+            if not isinstance(data.get('nodes'), list) or not isinstance(data.get('pageInfo'), dict):
+                raise ValueError('invalid GraphQL connection: ' + '.'.join(path))
+            return data
+
+        def pages(resource, variables, path, initial=None):
+            nodes, seen = [], set()
+            page = initial
+            while True:
+                if page is None:
+                    page = connection(query(resource, variables), path)
+                nodes.extend(page['nodes'])
+                info = page['pageInfo']
+                if not info.get('hasNextPage'):
+                    return nodes
+                cursor = info.get('endCursor')
+                if not cursor or cursor in seen:
+                    raise ValueError('pagination did not advance')
+                seen.add(cursor)
+                variables = dict(variables, cursor=cursor)
+                page = None
+
+        raw_threads = pages('review-threads.graphql', dict(common, commentsCount=100 if args.context else 1),
+                            ['repository', 'pullRequest', 'reviewThreads'])
+        threads = []
+        for thread in raw_threads:
+            comments = thread['comments']['nodes']
+            first = comments[0] if comments else {}
+            author = (first.get('author') or {}).get('login', 'unknown')
+            if (thread['isResolved'] and not args.all) or (args.author and author != args.author):
+                continue
+            item = dict(resolved=thread['isResolved'], outdated=thread['isOutdated'],
+                        path=thread['path'], line=thread.get('line'), author=author,
+                        body=first.get('body') or '', url=first.get('url') or '')
+            if args.context:
+                item.update(id=thread['id'], comments=pages('thread-comments.graphql', {'id': thread['id']},
+                    ['node', 'comments'], initial=thread['comments']))
+            threads.append(item)
+        output = threads
+        if args.context:
+            output = {'threads': threads,
+                      'comments': pages('pr-comments.graphql', common, ['repository', 'pullRequest', 'comments']),
+                      'reviews': pages('pr-reviews.graphql', common, ['repository', 'pullRequest', 'reviews'])}
+        if args.json or args.context:
+            print(json.dumps(output, indent=2))
+        else:
+            for item in threads:
+                body = ' '.join(item['body'].splitlines())
+                print(f"{item['path']}:{item['line'] or '-'}  @{item['author']}  {body}\n  {item['url']}")
+        return 0
+    except subprocess.CalledProcessError as error:
+        print(f'gh-pr-threads: {error.stderr.strip() or error}', file=sys.stderr)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f'gh-pr-threads: {error}', file=sys.stderr)
+    return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

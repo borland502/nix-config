@@ -21,6 +21,8 @@
 
 set -euo pipefail
 
+# Consumed by the sourced hosts-toml logging functions.
+# shellcheck disable=SC2034
 readonly TAG=wake
 
 # Inventory access (hosts_load/host_field/host_known), note/warn/die, need,
