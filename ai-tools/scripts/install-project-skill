@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Explicitly copy a reusable skill template into one project's harness directory."""
+
+import argparse
+import os
+from pathlib import Path
+import shutil
+import sys
+
+TEMPLATES = ("database-investigation", "api-contract-parity")
+HARNESS_DIRS = {"claude": ".claude", "codex": ".agents", "copilot": ".github"}
+
+
+def template_root():
+    source = Path(__file__).resolve().parents[1] / "project-skills"
+    if source.is_dir():
+        return source
+    data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    return data_home / "agent-tools/project-skills"
+
+
+def install(name, project, harness, templates):
+    project = project.expanduser().resolve(strict=True)
+    home = Path.home().resolve()
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config").resolve()
+    global_roots = [home / ".agents", home / ".claude", home / ".codex", home / ".copilot",
+                    config / "claude", config / "codex", config / "copilot"]
+    for variable in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "COPILOT_HOME"):
+        if os.environ.get(variable):
+            global_roots.append(Path(os.environ[variable]).expanduser().resolve())
+    target = project / HARNESS_DIRS[harness] / "skills" / name
+    protected_roots = [p.resolve() for p in global_roots]
+    if project == home or any(
+        candidate.is_relative_to(protected)
+        for candidate in (project, target.resolve())
+        for protected in protected_roots
+    ):
+        raise ValueError("project and destination must be outside global harness state and home root")
+    if not (project / ".git").exists():
+        raise ValueError("--project must name a repository root (including linked worktrees)")
+    source = templates.expanduser().resolve(strict=True) / name
+    if source.is_symlink() or not (source / "SKILL.md").is_file():
+        raise ValueError("template must be a real skill directory with SKILL.md")
+    for candidate in source.rglob("*"):
+        if candidate.is_symlink() or not (candidate.is_file() or candidate.is_dir()):
+            raise ValueError("template contains a symlink or special file")
+    for candidate in [*reversed(target.parents), target]:
+        if candidate != project and candidate.is_relative_to(project) and candidate.is_symlink():
+            raise ValueError("refusing redirected project skill path")
+    if target.exists():
+        raise ValueError("skill destination already exists; no files were overwritten")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, target)
+    return target
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("template", choices=TEMPLATES)
+    parser.add_argument("--project", type=Path, required=True)
+    parser.add_argument("--harness", choices=HARNESS_DIRS, required=True)
+    parser.add_argument("--templates", type=Path, default=template_root(),
+                        help="explicit template source override (default: source tree or XDG data assets)")
+    args = parser.parse_args()
+    try:
+        target = install(args.template, args.project, args.harness, args.templates)
+    except (OSError, ValueError) as error:
+        print(f"install-project-skill: {error}", file=sys.stderr)
+        return 1
+    print(f"Installed {args.template}: {target}")
+    print("Configure references/project-baseline.md before using project-specific evidence.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

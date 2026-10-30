@@ -38,6 +38,451 @@ class CacheScanTests(unittest.TestCase):
     def event(self, payload, stamp=None):
         return {"timestamp":stamp or self.stamp,"type":"response_item","payload":payload}
 
+    def test_overlap_with_proven_call_identity_and_identical_retries_all_modes(self):
+        records = []
+        for cid in ("one", "two"):
+            records += [
+                self.event(
+                    {
+                        "type": "function_call",
+                        "name": "exec_command",
+                        "call_id": cid,
+                        "arguments": {"cmd": "false retry"},
+                    }
+                ),
+                self.event(
+                    {
+                        "type": "function_call_output",
+                        "call_id": cid,
+                        "output": {"exit_code": 1, "output": "retry failure"},
+                    }
+                ),
+                self.event(
+                    {
+                        "type": "item_completed",
+                        "item": {
+                            "type": "CommandExecution",
+                            "call_id": cid,
+                            "command": "false retry",
+                            "exit_code": 1,
+                            "aggregated_output": "retry failure",
+                        },
+                    }
+                ),
+            ]
+        self.write_session("overlap", records)
+        for mode in ((), ("--audit",), ("--classify",), ("--transcript",)):
+            with self.subTest(mode=mode):
+                out = self.scan(*mode, "--session", "overlap")
+                self.assertIn("errors=2", out)
+
+    def test_status_ok_documentation_is_not_a_failure_in_any_mode(self):
+        root = self.home / ".cache/codex"
+        root.mkdir(parents=True)
+        (root / "session_docs.log").write_text(
+            f"## [{self.today} 12:00:00] status=ok\nCMD: bat README.md\nSTDOUT:\njq: parse error\nExpiredToken\n---\n"
+        )
+        for mode in ((), ("--audit",), ("--classify",)):
+            with self.subTest(mode=mode):
+                out = self.scan(*mode)
+                self.assertNotIn("jq-non-json-input", out)
+                self.assertNotIn("expired-token", out)
+                self.assertNotIn("stale-aws-creds", out)
+
+    def test_json_evidence_retains_full_output_locators_and_ambiguous_observations(
+        self,
+    ):
+        output = (
+            "boilerplate\n" * 100 + "Permission denied: useful error after boilerplate"
+        )
+        self.write_session(
+            "uncertain",
+            [
+                self.event(
+                    {
+                        "type": "function_call_output",
+                        "output": {"exit_code": 1, "output": output},
+                    }
+                ),
+                self.event(
+                    {
+                        "type": "item_completed",
+                        "item": {
+                            "type": "CommandExecution",
+                            "command": "",
+                            "exit_code": 1,
+                            "aggregated_output": output,
+                        },
+                    }
+                ),
+            ],
+        )
+        data = json.loads(self.scan("--json", "--session", "uncertain"))
+        self.assertEqual(data["error_observations"], 2)
+        self.assertIsNone(data["unique_executions"])
+        self.assertEqual(len(data["events"]), 2)
+        for event in data["events"]:
+            self.assertEqual(event["output"], output)
+            self.assertIn("Permission denied", event["excerpt"])
+            self.assertTrue(event["sources"][0]["line"])
+            self.assertTrue(event["sources"][0]["path"].endswith(".jsonl"))
+
+    def test_index_hits_append_rotation_corruption_and_unavailable_directory(self):
+        source = self.write_session(
+            "indexed",
+            [
+                self.event(
+                    {
+                        "type": "function_call",
+                        "name": "exec_command",
+                        "call_id": "x",
+                        "arguments": {"cmd": "original-command"},
+                    }
+                )
+            ],
+        )
+        first = json.loads(self.scan("--json", "--session", "indexed"))
+        second = json.loads(self.scan("--json", "--session", "indexed"))
+        self.assertEqual(first["index"]["parsed_sources"], 1)
+        self.assertEqual(second["index"]["parsed_sources"], 0)
+        with source.open("a") as stream:
+            stream.write(
+                "\n"
+                + json.dumps(
+                    self.event(
+                        {
+                            "type": "function_call_output",
+                            "call_id": "x",
+                            "output": {"exit_code": 1, "output": "appended-failure"},
+                        }
+                    )
+                )
+            )
+        appended = json.loads(self.scan("--json", "--session", "indexed"))
+        self.assertEqual(appended["events"][0]["command"], "original-command")
+        self.assertEqual(appended["index"]["parsed_sources"], 1)
+        source.write_text(
+            json.dumps(
+                self.event(
+                    {
+                        "type": "function_call_output",
+                        "output": "Error: replacement-failure",
+                    }
+                )
+            )
+        )
+        replaced = json.loads(self.scan("--json", "--session", "indexed"))
+        self.assertEqual(replaced["error_observations"], 1)
+        self.assertIn("replacement-failure", replaced["events"][0]["output"])
+        index = Path(replaced["index"]["path"])
+        index.write_text("{broken")
+        self.assertEqual(
+            json.loads(self.scan("--json", "--session", "indexed"))[
+                "error_observations"
+            ],
+            1,
+        )
+        index.unlink()
+        index.parent.rmdir()
+        index.parent.write_text("index directory unavailable")
+        self.assertEqual(
+            json.loads(self.scan("--json", "--session", "indexed"))[
+                "error_observations"
+            ],
+            1,
+        )
+
+    def test_two_identical_missing_id_failures_remain_two_observations(self):
+        self.write_session(
+            "missing-ids",
+            [
+                self.event(
+                    {
+                        "type": "function_call_output",
+                        "output": {"exit_code": 1, "output": "same failure"},
+                    }
+                )
+            ]
+            * 2,
+        )
+        out = self.scan("--audit", "--session", "missing-ids")
+        self.assertIn("errors=2", out)
+
+    def test_stale_mirror_prefix_and_disappearing_sources_with_index(self):
+        output = self.event(
+            {
+                "type": "function_call_output",
+                "output": {"exit_code": 1, "output": "mirrored failure"},
+            }
+        )
+        original = self.write_session("mirror-index", [output])
+        mirror = (
+            self.home
+            / ".cache/copilot/agent-capture/capture/codex/sessions-source/mirror-index.jsonl"
+        )
+        mirror.parent.mkdir(parents=True)
+        mirror.write_bytes(original.read_bytes())
+        self.assertEqual(
+            json.loads(self.scan("--json", "--session", "mirror-index"))[
+                "error_observations"
+            ],
+            1,
+        )
+        with original.open("a") as stream:
+            stream.write("\n" + json.dumps(output))
+        self.assertEqual(
+            json.loads(self.scan("--json", "--session", "mirror-index"))[
+                "error_observations"
+            ],
+            2,
+        )
+        original.unlink()
+        data = json.loads(self.scan("--json", "--session", "mirror-index"))
+        self.assertEqual(data["error_observations"], 1)
+        self.assertEqual(data["index"]["parsed_sources"], 0)
+        mirror.unlink()
+        self.assertEqual(
+            json.loads(self.scan("--json", "--session", "mirror-index"))[
+                "error_observations"
+            ],
+            0,
+        )
+
+    def test_original_overlap_without_relationship_is_honestly_uncertain(self):
+        self.write_session(
+            "unlinked",
+            [
+                self.event(
+                    {
+                        "type": "function_call",
+                        "name": "functions.exec",
+                        "call_id": "outer",
+                        "arguments": "text(await tools.exec_command(...))",
+                    }
+                ),
+                self.event(
+                    {
+                        "type": "function_call_output",
+                        "call_id": "outer",
+                        "output": {"exit_code": 1, "output": "actual failure"},
+                    }
+                ),
+                self.event(
+                    {
+                        "type": "item_completed",
+                        "item": {
+                            "type": "CommandExecution",
+                            "command": "false",
+                            "exit_code": 1,
+                            "aggregated_output": "actual failure",
+                        },
+                    }
+                ),
+            ],
+        )
+        data = json.loads(self.scan("--json", "--session", "unlinked"))
+        self.assertEqual(data["error_observations"], 2)
+        self.assertEqual(data["ambiguous_observations"], 2)
+        self.assertIsNone(data["unique_executions"])
+        self.assertIn(
+            "unique_executions=unknown", self.scan("--audit", "--session", "unlinked")
+        )
+
+    def test_schema_replacement_and_evidence_alias(self):
+        source = self.write_session(
+            "schema",
+            [
+                self.event(
+                    {"type": "function_call_output", "output": "Error: before rotation"}
+                )
+            ],
+        )
+        data = json.loads(self.scan("--json", "--session", "schema"))
+        index = Path(data["index"]["path"])
+        content = json.loads(index.read_text())
+        content["schema"] = -1
+        index.write_text(json.dumps(content))
+        self.assertEqual(
+            json.loads(self.scan("--evidence", "--session", "schema"))["index"][
+                "parsed_sources"
+            ],
+            1,
+        )
+        replacement = source.with_suffix(".new")
+        replacement.write_text(
+            json.dumps(
+                self.event(
+                    {"type": "function_call_output", "output": "Error: after rotation"}
+                )
+            )
+        )
+        replacement.replace(source)
+        data = json.loads(self.scan("--json", "--session", "schema"))
+        self.assertEqual(data["error_observations"], 1)
+        self.assertEqual(data["events"][0]["output"], "Error: after rotation")
+
+    def test_classify_preserves_retained_session_window_and_categories(self):
+        root = self.home / ".cache/copilot"
+        root.mkdir(parents=True)
+        (root / "session_retained-category.log").write_text(
+            "## [2001-01-01 12:00:00] status=stderr\nCMD: psql fixture\nSTDERR:\ncould not connect to server\n---\n"
+        )
+        out = self.scan("--classify", "--session", "retained-category")
+        self.assertIn("db-docker-conn", out)
+
+    def test_failed_read_native_and_hook_string_arguments_keep_locators(self):
+        root = self.home / ".cache/copilot/agent-capture/events/copilot/hook-args"
+        root.mkdir(parents=True)
+        (root / "events.jsonl").write_text(
+            json.dumps(
+                {
+                    "event": "PostToolUseFailure",
+                    "session_id": "hook-args",
+                    "agent": "copilot",
+                    "captured_at": self.stamp,
+                    "payload": {
+                        "toolName": "Bash",
+                        "toolArgs": json.dumps({"command": "bat README.md"}),
+                        "error": "Permission denied",
+                    },
+                }
+            )
+        )
+        data = json.loads(self.scan("--json", "--session", "hook-args"))
+        self.assertEqual(data["hook_observations"][0]["command"], "bat README.md")
+        self.assertTrue(data["hook_observations"][0]["sources"][0]["line"])
+
+    def test_semantically_corrupt_index_falls_back_to_source(self):
+        self.write_session("bad-index", [self.event({"type":"function_call_output", "output":"Error: valid source"})])
+        result = json.loads(self.scan("--json", "--session", "bad-index"))
+        index = Path(result["index"]["path"])
+        saved = json.loads(index.read_text())
+        next(iter(saved["sources"].values()))["events"][0]["session"] = 123
+        index.write_text(json.dumps(saved))
+        result = json.loads(self.scan("--json", "--session", "bad-index"))
+        self.assertEqual(result["error_observations"], 1)
+        self.assertEqual(result["index"]["parsed_sources"], 1)
+
+    def test_explicit_batch_child_identity_reconciles_command_items_and_keeps_retries(self):
+        children = [{"call_id":cid, "exit_code":1, "command":"false identical", "output":"identical failure"}
+                    for cid in ("child-a", "child-b")]
+        records = [self.event({"type":"function_call", "call_id":"outer", "name":"functions.exec", "arguments":"batch fixture"}),
+                   self.event({"type":"function_call_output", "call_id":"outer", "output":children})]
+        for child in children:
+            records.append(self.event({"type":"item_completed", "item":{"type":"CommandExecution", "call_id":child["call_id"],
+                "command":child["command"], "exit_code":1, "aggregated_output":child["output"]}}))
+        records.extend([self.event({"type":"function_call", "call_id":"retry-c", "name":"exec_command", "arguments":{"cmd":"false identical"}}),
+                        self.event({"type":"function_call_output", "call_id":"retry-c", "output":{"exit_code":1, "output":"identical failure"}})])
+        self.write_session("batch-identity", records)
+        for attempt in range(2):
+            data = json.loads(self.scan("--json", "--session", "batch-identity"))
+            self.assertEqual(data["error_observations"], 3)
+            self.assertEqual(data["unique_executions"], 3)
+            by_id = {event["call_id"]:event for event in data["events"]}
+            self.assertEqual(set(by_id), {"child-a", "child-b", "retry-c"})
+            self.assertEqual(len(by_id["child-a"]["sources"]), 2)
+            self.assertEqual(len(by_id["child-b"]["sources"]), 2)
+            self.assertEqual(data["index"]["parsed_sources"], 1 if attempt == 0 else 0)
+
+    def test_nonfinite_or_unrenderable_index_timestamps_reparse_source(self):
+        self.write_session("timestamp-index", [self.event({"type":"function_call_output", "output":"Error: usable timestamp"})])
+        data = json.loads(self.scan("--json", "--session", "timestamp-index"))
+        index = Path(data["index"]["path"])
+        saved = json.loads(index.read_text())
+        for stamp in (float("nan"), float("inf"), float("-inf"), 1e300, -1e300, 253402300800, 10**1000):
+            for mode in ("--json", "--audit"):
+                with self.subTest(stamp=repr(stamp)[:30], mode=mode):
+                    next(iter(saved["sources"].values()))["events"][0]["timestamp"] = stamp
+                    index.write_text(json.dumps(saved))
+                    output = self.scan(mode, "--session", "timestamp-index", "--date", self.today)
+                    if mode == "--json":
+                        data = json.loads(output)
+                        self.assertEqual(data["error_observations"], 1)
+                        self.assertEqual(data["index"]["parsed_sources"], 1)
+                    else:
+                        self.assertIn("usable timestamp", output)
+
+    def test_prior_identity_index_schema_is_reparsed(self):
+        self.write_session("old-schema", [self.event({"type":"function_call_output", "output":"Error: current source"})])
+        data = json.loads(self.scan("--json", "--session", "old-schema"))
+        index = Path(data["index"]["path"])
+        saved = json.loads(index.read_text())
+        saved["schema"] = 1
+        index.write_text(json.dumps(saved))
+        self.assertEqual(json.loads(self.scan("--json", "--session", "old-schema"))["index"]["parsed_sources"], 1)
+
+    def test_machine_evidence_caps_each_array_and_reports_omissions(self):
+        records, hooks, logs = [], [], []
+        # Write newest first so selection must follow timestamps, not file order.
+        for number in (2, 0, 1):
+            stamp = (self.now - dt.timedelta(minutes=3 - number)).isoformat()
+            output = f"Permission denied: record-{number} " + "x" * 3000
+            command = f"probe-{number} " + "y" * 3000
+            records.append(self.event({"type": "item_completed", "item": {
+                "type": "CommandExecution", "command": command,
+                "exit_code": 1, "aggregated_output": output,
+            }}, stamp))
+            hooks.append({"event": "PostToolUseFailure", "session_id": "array-cap",
+                          "agent": "codex", "captured_at": stamp,
+                          "payload": {"tool_name": "Bash", "error": output,
+                                      "tool_input": {"command": command}}})
+            logs.append(f"## [{stamp}] status=stderr\nCMD: {command}\nSTDERR:\n{output}\n---\n")
+        native = self.write_session("array-cap", records)
+        hook = self.home / ".cache/copilot/agent-capture/events/codex/array-cap/events.jsonl"
+        log = self.home / ".cache/codex/session_array-cap.log"
+        for source in (hook, log):
+            source.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text("\n".join(json.dumps(row) for row in hooks))
+        log.write_text("".join(logs))
+        originals = {source: source.read_bytes() for source in (native, hook, log)}
+        for alias in ("--json", "--evidence"):
+            for limit in (0, 1):
+                for full in (False, True):
+                    with self.subTest(alias=alias, limit=limit, full=full):
+                        flags = [alias, "--limit", str(limit), "--session", "array-cap", "--date", self.today]
+                        if full:
+                            flags.append("--full-output")
+                        data = json.loads(self.scan(*flags))
+                        self.assertEqual(data["error_observations"], 3)
+                        for key in ("events", "hook_observations", "heuristic_signals"):
+                            self.assertEqual(len(data[key]), limit, key)
+                        self.assertIn("record_counts", data)
+                        for key in ("events", "hook_observations", "heuristic_signals"):
+                            self.assertEqual(data["record_counts"][key], {
+                                "total": 3, "selected": limit, "omitted": 3 - limit,
+                            })
+                            for row in data[key]:
+                                self.assertIn("record-2", row["output"])
+                                self.assertIn("probe-2", row["command"])
+                                for field in ("output", "command"):
+                                    self.assertGreater(row[field + "_chars"], 2000)
+                                    self.assertEqual(row[field + "_truncated"], not full)
+                                    self.assertEqual(len(row[field]), row[field + "_chars"] if full else 2000)
+                                self.assertTrue(row["sources"][0]["path"])
+                                self.assertGreater(row["sources"][0]["line"], 0)
+                        self.assertEqual(data["record_limit"], limit)
+        for source, original in originals.items():
+            self.assertEqual(source.read_bytes(), original)
+        index = json.loads(Path(data["index"]["path"]).read_text())
+        indexed = next(iter(index["sources"].values()))["events"]
+        self.assertEqual(len(indexed), 3)
+        self.assertTrue(all(len(row["output"]) > 2000 for row in indexed))
+
+    def test_evidence_output_is_bounded_with_explicit_full_output_opt_in(self):
+        output = "ordinary boilerplate\n" * 2000 + "Permission denied: meaningful failure at end"
+        self.write_session("bounded-evidence", [self.event({"type":"function_call_output", "output":{"exit_code":1, "output":output}})])
+        bounded = json.loads(self.scan("--json", "--session", "bounded-evidence"))["events"][0]
+        self.assertLessEqual(len(bounded["output"]), 2000)
+        self.assertTrue(bounded["output_truncated"])
+        self.assertEqual(bounded["output_chars"], len(output))
+        self.assertIn("Permission denied", bounded["excerpt"])
+        self.assertTrue(bounded["sources"][0]["path"].endswith(".jsonl"))
+        self.assertGreater(bounded["sources"][0]["line"], 0)
+        full = json.loads(self.scan("--json", "--full-output", "--session", "bounded-evidence"))["events"][0]
+        self.assertEqual(full["output"], output)
+        self.assertFalse(full["output_truncated"])
+        self.assertEqual(full["sources"], bounded["sources"])
+
     def test_codex_errors_provenance_filters_and_running_outputs(self):
         records = [
             self.event({"type":"function_call","name":"exec_command","call_id":"a","arguments":json.dumps({"cmd":"false real-command"})}),

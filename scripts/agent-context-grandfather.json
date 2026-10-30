@@ -1,0 +1,74 @@
+{
+  "ai-tools/skills/flow-brainstorming/SKILL.md": {
+    "bytes": 10759,
+    "sha256": "16b9c01d9fbf282bd3fb4f912552953420fc5458c2a948dcd8912e818325846e"
+  },
+  "ai-tools/skills/flow-systematic-debugging/SKILL.md": {
+    "bytes": 11870,
+    "sha256": "cf3475edcc3f1252d869a3775da84dc9a79b3fc978eb13fbd736ee5509c8ea29"
+  },
+  "ai-tools/skills/flow-test-driven-development/SKILL.md": {
+    "bytes": 10854,
+    "sha256": "bcc71c75f712d9a034e4eb8ee9324bbd7515bc1f95f82c27171689c20fe97a6c"
+  },
+  "ai-tools/skills/flow-writing-plans/SKILL.md": {
+    "bytes": 7894,
+    "sha256": "8f69128bef9a1c3f224f35ff20f2576c99b5d5acea6a94a76b9b655c85d9abf7"
+  },
+  "ai-tools/skills/gh-graphql-jq-pipelines/SKILL.md": {
+    "bytes": 5739,
+    "sha256": "de477e1b54b8b1abf9146a3b10e427c410adc37d7c3102f5ccd8a9ba753c8c1c"
+  },
+  "ai-tools/skills/git-finish-branch/SKILL.md": {
+    "bytes": 7791,
+    "sha256": "411a2fc7a2e5faa225f19b7ffae8955cc626d696fd3e6aff0688146f16061632"
+  },
+  "ai-tools/skills/git-receive-review/SKILL.md": {
+    "bytes": 6379,
+    "sha256": "9229ae24a6d9c3b7c077f712996d8c47b96f12dc43ae4e96059f31f2416df8a2"
+  },
+  "ai-tools/skills/git-troubleshooting/SKILL.md": {
+    "bytes": 8203,
+    "sha256": "1fcc7f4532ba45ad2fe79bef75bb2d05d258cfad417b6a5ca754b6a4c557ea0b"
+  },
+  "ai-tools/skills/github-ops/SKILL.md": {
+    "bytes": 7044,
+    "sha256": "e1300adce4ce8e90a132bf73fb812d33c578355d00557bf6e4c0baaa8b5751e2"
+  },
+  "ai-tools/skills/ops-chezmoi/SKILL.md": {
+    "bytes": 8906,
+    "sha256": "a484fea80b06ec1bdf2756ead39d520600afe657638c99cc954e1e867cfda987"
+  },
+  "ai-tools/skills/ops-confluence/SKILL.md": {
+    "bytes": 7574,
+    "sha256": "a408dd73a3f1dabd92f0db2d1273e8e34869ba3d88d03e9d86e2803716e80ce9"
+  },
+  "ai-tools/skills/ops-deploy-probes/SKILL.md": {
+    "bytes": 9136,
+    "sha256": "3a780cbee10c36dd0291731e795469000b5aad91c882f1cb44fd4ee43f6f3ce7"
+  },
+  "ai-tools/skills/ops-jira-integration/SKILL.md": {
+    "bytes": 5321,
+    "sha256": "765c6802e4f873ad755ab2f7aaa531242742d5a5017311a99055d91eb63b114e"
+  },
+  "ai-tools/skills/ops-kde-pitfalls/SKILL.md": {
+    "bytes": 7449,
+    "sha256": "f263f77212c4a6e4d1e9c41a5e3d899339e78f1faa35cc14ebf0688b5db9bd2f"
+  },
+  "ai-tools/skills/ops-nix-pitfalls/SKILL.md": {
+    "bytes": 7024,
+    "sha256": "0c819182edaa2dee8f656c47166c10ae982e7b0479798d8267cec5286e346165"
+  },
+  "ai-tools/skills/sec-credentials/SKILL.md": {
+    "bytes": 7331,
+    "sha256": "61a498d34eab6455ce407989e60c3e15cb184744af7afba63eced69ce0e7f2a8"
+  },
+  "ai-tools/skills/sec-kion-credential-recovery/SKILL.md": {
+    "bytes": 8044,
+    "sha256": "f48c17c2725586f6575b31d9cd7a0c3b29716fc106b7a39d87ec0c6ffc5f6770"
+  },
+  "ai-tools/skills/sec-sops-encrypt/SKILL.md": {
+    "bytes": 6393,
+    "sha256": "078febbd8ec244e0b79026fc2bffff9000512ad934511faed27c41845c67fe67"
+  }
+}

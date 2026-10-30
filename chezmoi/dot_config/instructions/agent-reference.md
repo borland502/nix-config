@@ -130,6 +130,17 @@ Lookup order: `~/.cache` first, then `~/.config`. Known locations by service:
 
 ## Helper Script Catalog (~/.local/bin)
 
+- **`agent-context [PATH] [--json]`** — Read-only discovery of the canonical
+  repository/worktree, branch, bounded dirty filenames, applicable ancestor
+  instructions, chezmoi source, direnv approval and installed helper paths.
+  It never allows direnv, changes branches or refreshes credentials. Missing
+  commands are reported as unavailable. Discovery is an inventory of candidate
+  instruction paths; each harness decides which files it actually loads.
+- **`task check:agent-context-budget`** — Enforce global skill entry budgets,
+  local Markdown references and helper-index coverage. The checker exposes
+  `--json` and `--report-only` inventory modes. Existing large entries have
+  explicit content-hash allowances; edits must fit the current budget.
+
 Utility scripts deployed to `~/.local/bin` (on `$PATH`) by chezmoi. Source
 files live in `chezmoi/dot_local/bin/` (and `chezmoi/dot_local/lib/`) within
 the nix-config repo.
@@ -423,11 +434,37 @@ the nix-config repo.
   Jira/Confluence credentials. Agents should prefer `--tool` (deterministic,
   cheaper); the prompt mode is mainly for humans.
 
+## Explicit project skill templates
+
+`~/.local/bin/ai-tools/install-project-skill TEMPLATE --project REPOSITORY_ROOT
+--harness claude|codex|copilot` copies a generic template into that project's
+`.claude/skills`, `.agents/skills` or `.github/skills` directory. The template
+names are `database-investigation` and `api-contract-parity`. Configure the
+copied `references/project-baseline.md` before project-specific validation.
+
+Templates live in `ai-tools/project-skills/` and deploy as XDG data assets at
+`~/.local/share/agent-tools/project-skills`; they are outside global skill
+discovery. These project destinations follow the repository's Claude convention
+and the official [Codex local skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)
+and [Copilot CLI skill locations](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills).
+Fixture tests validate copying and guards; they do not exercise live harness
+discovery. Installation is explicit and never part of activation. The helper
+refuses existing destinations, redirected project skill directories and global
+harness state, including configured `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and
+`COPILOT_HOME` roots and descendants after canonicalization. `--templates PATH`
+selects an explicit alternate source; source
+trees are rejected if they contain symlinks or special files. Run isolated
+installer checks through `task check:agent-tools`. Installing guidance does not
+authorize live database or API operations.
+
 ## Automation Scripts (~/.local/bin/ai-tools)
 
-Hook/automation scripts deployed by home-manager from `ai-tools/scripts/`.
-The subdirectory is deliberately **not** on `$PATH` — these are invoked by
-agent hooks / MCP clients via absolute path, never by hand.
+Hook/timer automation and MCP launchers deployed by home-manager from
+`ai-tools/scripts/` are listed below. The subdirectory is deliberately **not**
+on `$PATH`; configured hooks, timers and MCP clients invoke these through
+absolute paths. Never run the listed automation by hand against real state.
+The separately documented `install-project-skill` command is an explicit manual
+CLI in the same directory; its opt-in use does not permit manual hook execution.
 
 - **`log-bash.sh`** — Bash `PostToolUse` hook logger. Wired for Claude via
   `~/.config/claude/settings.json`, Copilot via
@@ -599,3 +636,11 @@ task generate:agent-instructions
 `task check:agent-instructions`, `task check:copilot-instructions`, and
 `task check:instruction-size` guard drift and token bloat in pre-commit and
 CI.
+
+Cache evidence JSON (`cache-scan --json` or `--evidence`) applies `--limit N`
+to each native, hook and heuristic observation array, with total, selected and
+omitted record counts. Selected command and output fields are bounded to 2,000
+characters with truncation and original-size metadata. `--full-output` lifts
+selected-record text caps only; record caps remain. The private event index
+preserves full source text and reuses unchanged native sources; source files
+are never rewritten by the scanner.
