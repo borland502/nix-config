@@ -1,570 +1,69 @@
 ---
 name: shell-pitfalls
-description: Use when a shell command fails with a confusing error, an alias interferes, or a heavily-quoted inline `zsh -c` keeps failing. Also use BEFORE any command that globs a path, loops over multi-field strings, passes a URL or query string as an argument, or waits on a long-running job. Triggering errors: "no matches found", "ambiguous argument 'A B...'", "empty string is not a valid pathspec", "read-only variable", "invalid option -- 'j'" / "cannot read file system information for '%'" (GNU-vs-BSD dialect), "jq: parse error", "ModuleNotFoundError" from an inline python3, "Blocked: sleep N followed by", a tool erroring on an empty argument, and bash snippets that behave differently under zsh.
+description: Use when constructing shell commands with globs, URL queries, multi-field records or long-running jobs, or diagnosing quoting, alias, environment, GNU/BSD flag or zsh expansion failures.
 ---
 
-# Shell Pitfalls
-
-Use this skill when a shell-level issue is the actual blocker — not a logic bug, not a missing file, but the *shell itself* doing something unexpected.
-
-## Aliases hide real binaries
-
-This repo's zsh config aliases `ls` → `eza` and `cat` → `bat` (see [home-manager/zsh.nix](../../../home-manager/zsh.nix)). Both replacements are great for humans but break when a script depends on the exact output format of the original.
-
-**Rule:** when you need exact, unstyled output, bypass the alias by calling the binary directly.
-
-```bash
-# Wrong: gets eza's columnar output, breaks downstream parsers
-files=$(ls /var/log/*.log)
-
-# Right: real BSD/GNU ls
-files=$(/bin/ls /var/log/*.log)
-
-# Wrong: gets bat's syntax highlighting + pager
-config=$(cat /etc/hosts)
-
-# Right: raw file contents
-config=$(/bin/cat /etc/hosts)
-```
-
-The same applies to anything you alias — `command <name>` works as a generic escape hatch (`command ls /tmp`) when you don't want to hardcode `/bin/`.
-
-## zsh `$status` is read-only
-
-In zsh, `status` is a read-only special variable (it mirrors `$?` for the previous pipeline). Assigning to it crashes the script.
-
-```zsh
-# Crashes: "status: read-only variable"
-status=0
-some_command
-status=$?
-
-# Use a different name
-rc=0
-some_command
-rc=$?
-
-# Or use $? directly without re-storing
-some_command
-if [[ $? -ne 0 ]]; then ...; fi
-```
-
-**Names to avoid as zsh variables:** `status`, `path`, `cdpath`, `fpath`, `manpath` — these are linked to special arrays/integers. `rc`, `exit_code`, `result` are safe.
-
-Related quoting trap: never emit a bare `==` or `===` as standalone shell text — zsh treats it as a glob/comparison operator and can error or mis-expand. Quote those strings (`"=="`) when they are literal data.
-
-## Heavy quoting → write a script file
-
-When a `zsh -c '...'` fails because of nested quoting, JSON payloads, or escaped-and-re-escaped characters: **stop retrying inline.** Write the command to a file under `~/.cache/<agent>/` and execute the file.
-
-```bash
-# Wrong: shell-quoting hell, the second retry will fail differently from the first
-zsh -c "curl -X POST https://api.example.com/foo -H 'Content-Type: application/json' -d '{\"key\":\"value with spaces\"}'"
-
-# Right: file-based, no quote escaping
-mkdir -p ~/.cache/claude
-cat > ~/.cache/claude/post.sh <<'SCRIPT'
-#!/usr/bin/env zsh
-curl -X POST https://api.example.com/foo \
-  -H 'Content-Type: application/json' \
-  -d '{"key":"value with spaces"}'
-SCRIPT
-chmod +x ~/.cache/claude/post.sh
-~/.cache/claude/post.sh
-```
-
-The file form is also re-runnable (the agent's PostToolUse hook captures the path and contents in the log) and edit-friendly when the API call needs adjusting.
-
-For bounded CloudWatch captures, use
-`aws-log-fetch LOG_GROUP --start ISO8601 --end ISO8601 --output FILE`
-with a file under `~/.cache/<agent>/` and optional `--request-id ID`.
-It refreshes credentials, handles the CLI arguments and pagination, and saves
-validated JSON privately. `aws-lambda-metrics FILE` extracts generic Lambda
-REPORT metrics offline. Use a custom script only for queries these interfaces
-cannot express.
-
-The other recurring offender is **`aws logs` + `jq` one-shots**: a CloudWatch
-log-stream name contains `[$LATEST]` (dollar + brackets — both shell-active),
-the filter pattern needs its own quotes, and the whole thing gets wrapped in
-`zsh -lc '… kac ensure >/dev/null && aws logs …'`. Every observed failure of
-this shape was quoting rot, not AWS. Same rule: put the `aws logs
-filter-log-events` invocation (and any `jq` filter) in a script file first.
-
-```bash
-# Wrong: [$LATEST] and the pattern fight three quoting layers deep
-zsh -lc "source ~/.local/bin/kac ensure >/dev/null && aws logs filter-log-events --log-group-name '/aws/lambda/foo' --log-stream-names '2026/06/30/[\$LATEST]abc' --filter-pattern '\"ERROR\"' | jq '.events[].message'"
-
-# Right: script file — single quoting layer, re-runnable, log-friendly
-cat > ~/.cache/claude/logscan.sh <<'SCRIPT'
-#!/usr/bin/env bash
-source ~/.local/bin/kac ensure >/dev/null || exit 1
-aws logs filter-log-events \
-  --log-group-name '/aws/lambda/foo' \
-  --log-stream-names '2026/06/30/[$LATEST]abc' \
-  --filter-pattern '"ERROR"' | jq '.events[].message'
-SCRIPT
-bash ~/.cache/claude/logscan.sh
-```
-
-This is the codified version of the heuristic in [chezmoi/dot_config/instructions/agent-defaults.md L27](../../../chezmoi/dot_config/instructions/agent-defaults.md). When you find yourself on the third inline retry, stop and write a script.
-
-For the specific case of `gh api graphql` calls and long/nested `jq` filters — the highest-frequency offender — file-backing is a hard precondition, not a third-retry fallback. See [gh-graphql-jq-pipelines](../gh-graphql-jq-pipelines/SKILL.md) for the sanctioned `.graphql` + `.jq` file shape and the four recurring failure signatures.
-
-## AWS / Kion credential safety
-
-When the local environment uses Kion, load temporary AWS credentials with `source ~/.local/bin/kac ensure` (or read `~/.cache/kion-aws-cache/`) rather than the frequently-stale `~/.aws/credentials` / `AWS_PROFILE`. Treat any value read from a credentials file as a secret — never echo it into command output or a summary.
-
-For CloudFormation failure triage, prefer
-`aws-stack-triage <stack> [--region REGION]`. It runs `kac ensure` itself and
-provides summary, nested-stack, and failed-event views without another ad-hoc
-AWS/jq loop. Use `--summary`, `--nested`, `--failures`, `--resources`, or
-`--all` to narrow or expand the read-only output. When nested resources are
-requested, failed events from direct child stacks are included. Kion refresh
-failures route to `sec-kion-credential-recovery`; other credential lookup
-questions route to `sec-credentials`.
-
-`ExpiredToken` / `InvalidClientTokenId` / `Unable to locate credentials` is a
-credential-lifecycle failure, not a shell one — go to
-[sec-credentials](../sec-credentials/SKILL.md) for the full lookup precedence
-(sops → XDG config → legacy paths) instead of debugging the command.
-
-## GNU coreutils shadow the BSD tools, even on macOS
-
-On these hosts nix `coreutils` puts **GNU `stat`** on `PATH` ahead of the macOS
-BSD `stat` — on darwin and Linux alike. So BSD format syntax silently fails:
-
-```bash
-# Wrong on these hosts: GNU stat reads -f as --file-system and treats '%Sm' as a
-# filename → "stat: cannot read file system information for '%Sm': No such file…"
-stat -f '%Sm' ~/.aws/config
-
-# Right: GNU format syntax
-stat -c '%y' ~/.aws/config        # mtime
-stat -c '%A %n' ~/.aws/config     # mode + name
-```
-
-If you need a portable mtime regardless of which `stat` wins, sidestep it:
-`eza -l --time-style=long-iso <file>` or `date -r <file>`. The repo's own
-scripts assume GNU `stat -c` for this reason (see `cache-scan`'s header note).
-
-**`date` has the same split, and it bites harder** because macOS documentation,
-Stack Overflow answers, and your own muscle memory all reach for BSD flags:
-
-```bash
-# Wrong on these hosts: -j/-f are BSD-only
-# → "date: invalid option -- 'j'"  … and under `set -e` the script dies mid-way,
-#   often after the arithmetic that consumed its empty output already broke
-S=$(date -u -j -f '%Y-%m-%d' "$D" +%s)
-
-# Right: GNU syntax
-S=$(date -u -d "$D" +%s)
-date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ    # relative windows for log queries
-```
-
-The same rule covers `readlink -f`, `sed -i` (GNU takes no backup suffix, BSD
-requires one), `base64 -w0`, and `find -printf`: **assume GNU syntax on every
-host in this fleet, darwin included.** When a flag error names a single letter
-you were sure about, check the dialect before rewriting the logic.
-
-## Subshell PATH loss
-
-`env -i`, `sudo`, and a bare `zsh -c '…'` (no `-l`) do **not** inherit the nix
-profile + Homebrew `PATH`. Tools that resolve fine interactively — GNU `stat`,
-`timeout`, `kion-aws-refresh`, `aws` — suddenly report `command not found`, and it looks
-like a missing install when it's a missing PATH.
-
-```bash
-# Wrong: bare zsh -c gets the system default PATH — timeout/aws are not on it
-zsh -c 'timeout 30 aws s3 ls'
-
-# Right: login shell pulls in the nix/Homebrew profile
-zsh -lc 'timeout 30 aws s3 ls'
-
-# Also right: stay in the current (already-provisioned) shell, or pass PATH /
-# absolute paths explicitly when a stripped environment is unavoidable
-env -i HOME="$HOME" PATH="$PATH" bash -c 'timeout 30 aws s3 ls'
-```
-
-The `kac` credential helper PATH-hardens its own refresh internally, but
-nothing else on your command line gets that rescue. If a "not found" error
-names a tool you know is installed, check *which shell* is resolving it before
-reinstalling anything. This is also why the GNU-vs-BSD `stat` trap (above)
-sometimes appears to flip: a stripped PATH can fall back to `/usr/bin/stat`
-(BSD) while the interactive shell resolves the nix GNU one.
-
-## zsh `local` drops the export attribute
-
-The inverse failure: PATH is fine in the parent, and children still get none.
-In zsh, `local VAR=…` creates a **non-exported** parameter even when `VAR` was
-exported in the environment; bash keeps the export attribute. So the common
-idiom for "adjust PATH without clobbering the caller's" silently launches every
-child process with no PATH at all.
-
-```zsh
-# Identical source, opposite behavior
-f() { local PATH="$PATH"; /usr/bin/env | grep -c '^PATH='; }
-f     # zsh  -> 0   children inherit NO PATH
-      # bash -> 1   children inherit it
-
-# Fix: re-export inside the function. The export stays function-scoped, so the
-# caller's PATH is still restored on return — in both shells.
-f() { local PATH="$PATH"; export PATH; PATH="/extra:$PATH"; … }
-```
-
-**Signature to memorize:** a child whose shebang is `#!/usr/bin/env python3`
-dies with `error: tool 'python3' not found`. That is not a missing interpreter
-— with no PATH in the environment, `env` falls back to the system default path
-and reaches macOS's `/usr/bin/python3` xcrun shim, which emits that message.
-
-This bit [chezmoi/dot_local/lib/kion-aws-cache](../../../chezmoi/dot_local/lib/kion-aws-cache):
-its PATH-hardening block opened with `local PATH="$PATH"`, which broke every
-sourced `kac dump` / `kac clear` under zsh — the shell `kac` exists to be
-sourced from — while the bash test fixtures kept passing. A bash-only test
-suite cannot catch this; exercise sourced helpers under `zsh -f` too.
-
-The trap is not PATH-specific. Any exported variable a function scopes with
-`local` stops reaching children until it is re-exported.
-
-## `rg -h` is `--help`, not "hide filenames"
-
-The most dangerous of the grep→rg habit slips, because it **fails silently in
-the wrong direction**: `grep -h` suppresses filename prefixes, but ripgrep uses
-`-h` for `--help`. So `rg -h PATTERN file` prints ripgrep's help text and exits
-0 — no error, no hint — and whatever consumes that output parses a manual page
-as if it were matches.
-
-```bash
-# Wrong: prints rg's help; downstream sees ~200 lines of option docs as "data"
-rg -h 'command not found' ~/.cache/claude/session_*.log | sort | uniq -c
-
-# Right
-rg --no-filename 'command not found' ~/.cache/claude/session_*.log | sort | uniq -c
-```
-
-Observed damage: three successive log-analysis passes produced counts of
-ripgrep's own `--binary` / `--block-buffered` option lines, and the mistake was
-invisible until the *same* output appeared for three different patterns.
-
-**Tell:** identical results from patterns that should differ, or option-looking
-strings (`--foo`) in what should be data. Other name collisions worth knowing:
-`rg -i` matches grep's `-i`, but grep's `-r`/`-R` have no rg equivalent
-(recursion is the default) and `-e` is `--regexp` in both.
-
-## zsh nullglob: "no matches found" aborts the command
-
-Unlike bash, zsh **errors out** when a glob matches nothing — the command never
-runs at all:
-
-```zsh
-# Aborts with "zsh: no matches found: docker-compose*.yml" if none exist
-ls docker-compose*.yml
-
-# Guard 1: null_glob in a subshell — the unmatched word vanishes, no error
-( setopt local_options null_glob; ls docker-compose*.yml )
-
-# Guard 2: let fd do the matching (no shell glob involved) — best for one-shots
-fd -g 'docker-compose*.yml' --max-depth 1
-
-# Guard 3: hand the quoted pattern to a tool that globs internally
-rg --glob 'docker-compose*.yml' 'needle' .
-```
-
-### The `(N)` qualifier does NOT work in the agent shell
-
-This is the trap inside the trap. `foo*(N)` is the answer every zsh reference
-gives, and it fails here:
-
-```zsh
-echo nomatch-probe-*.zst(N)
-# (eval):1: no matches found: nomatch-probe-*.zst(N)
-```
-
-The agent's Bash-tool shell runs with **`nobareglobqual`** set, which disables
-bare glob qualifiers entirely — so `(N)` is parsed as literal text, the word
-still matches nothing, and the abort fires anyway. Confirm on any host with:
-
-```zsh
-setopt          # agent shell prints exactly: nobareglobqual, nohashdirs
-zsh -f -c setopt  # a pristine zsh prints neither — the default is bareglobqual ON
-```
-
-That difference is why a `(N)` guard copied from an interactive session, from
-documentation, or from a committed script keeps failing when an agent runs it.
-Use Guard 1/2/3 above. If you truly need qualifiers, re-enable them first —
-`( setopt bareglobqual; ls docker-compose*.yml(N) )` — but `null_glob` is
-shorter and needs no qualifier.
-
-Observed failures: `docker-compose*.yml`, `~/.config/ops-agent/config*`,
-`session_*.log.zst(N)`, `/Applications/Brave*.app`, and
-`home-manager/modules/plasma*` with no match killed whole `&&` chains. In
-`zsh -c` one-shots prefer `fd`; in committed zsh scripts add `setopt nullglob`.
-Bash behaves differently (passes the literal pattern through), which is why a
-snippet tested in bash breaks under zsh.
-
-**The silent-truncation case is the expensive one.** A multi-target search
-where only one target is a no-match glob aborts before *any* of it runs:
-
-```zsh
-rg -n 'bareglobqual' ~/.zshrc ~/.zshenv ~/.config/zsh/* chezmoi/dot_zshrc*
-# (eval):1: no matches found: chezmoi/dot_zshrc*
-# → ~/.zshrc and ~/.zshenv were never searched. Nothing says so.
-```
-
-Reading that output as "the pattern is not in any of those files" is the wrong
-conclusion, and nothing on screen contradicts it. Quote or drop the speculative
-path rather than letting it decide whether the command runs.
-
-**How far the abort reaches** depends on the separator, and the pipeline case is
-the quiet one:
-
-```zsh
-zsh -c 'echo A && ls nope*glob && echo B'   # A, error — B never runs
-zsh -c 'ls nope*glob | wc -l'               # error, then prints 0 (!)
-```
-
-In a pipeline the globbing command is skipped but the rest still runs, so
-`wc -l` reports `0` — indistinguishable from a real "zero matches" answer.
-
-### `?` and `[` are glob characters too — quote URLs
-
-The same abort fires on characters that don't look like globs at all. A `gh api`
-path with a query string is the recurring case:
-
-```bash
-# Aborts: "(eval):1: no matches found: repos/OWNER/REPO/contents/f.ts?ref=prod"
-gh api repos/OWNER/REPO/contents/f.ts?ref=prod -q .content
-
-# Right: quote the whole path
-gh api 'repos/OWNER/REPO/contents/f.ts?ref=prod' -q .content
-```
-
-This hit four separate sessions on `contents/…?ref=<branch>` fetches. The `*`
-examples above read as "file globbing," so a URL doesn't register as in scope —
-it is. **Quote every argument containing `?`, `*`, `[`, or `~`**, including URLs,
-`curl` query strings, and regex passed positionally.
-
-## zsh does not word-split unquoted expansions
-
-The most expensive trap in this file, because nothing errors at the point of the
-mistake. Bash splits an unquoted `$var` on `$IFS`; **zsh does not** (no
-`SH_WORD_SPLIT` by default). Every bash idiom that relies on implicit splitting
-silently yields *one* word:
-
-```zsh
-p="a b"; set -- $p; echo $#        # zsh -> 1    bash -> 2
-l="x y z"; for w in $l; do …; done # zsh -> 1 iteration   bash -> 3
-arr=($var)                         # zsh -> one element   bash -> n elements
-```
-
-The damage lands downstream, disguised as a bug in whatever consumed the value:
-
-```zsh
-# Wrong: $1 becomes the entire pair, $2 is empty
-for pair in "origin/main origin/dev6" "origin/dev6 HEAD"; do
-  set -- $pair
-  git merge-base $1 $2
-done
-# fatal: ambiguous argument 'origin/main origin/dev6...': unknown revision…
-# fatal: empty string is not a valid pathspec
-```
-
-Two separate sessions wrote exactly this loop and burned ~20 git invocations
-before the cause was clear — the errors name *git* revisions, so they read as a
-bad ref, not a shell problem.
-
-**Fixes, in order of preference:**
-
-```zsh
-# 1. Use a real array — portable, no splitting needed
-pairs=("origin/main origin/dev6" "origin/dev6 HEAD")
-for pair in "${pairs[@]}"; do
-  a="${pair%% *}"; b="${pair##* }"     # parameter expansion, not splitting
-  git merge-base "$a" "$b"
-done
-
-# 2. Restructure so each field is its own loop variable
-for a b in origin/main origin/dev6  origin/dev6 HEAD; do …; done   # zsh-only
-
-# 3. Ask zsh for the split explicitly
-set -- ${=pair}                        # =  forces word splitting
-```
-
-**Signature to memorize:** an error quoting *two space-separated values inside
-one set of quotes* (`'origin/main origin/dev6...'`, `'mdpmdd-879 e6f6e07…'`)
-means an unquoted expansion didn't split. Paired with a second error about an
-*empty* argument (`'^{tree}'`, `empty string is not a valid pathspec`) from the
-variable that should have held field 2, it is conclusive.
-
-Do not "fix" this with `setopt SH_WORD_SPLIT` — it changes expansion semantics
-for the whole script and breaks correctly-quoted code elsewhere in it.
-
-## Piping non-JSON into `jq`
-
-`jq: parse error: Invalid numeric literal` almost never means malformed JSON —
-it means the payload isn't JSON at all: an HTML 401/error page from an
-unauthenticated `curl`, a log line, or an empty body. A related trap: a filter
-that yields `null` gets substituted into a later command as the literal string
-`null` (`bash: null: No such file or directory`).
-
-```bash
-# Wrong: a 401 HTML page goes straight into jq
-curl -s "$JIRA_URL/rest/api/2/issue/KEY-1" | jq '.fields.status.name'
-
-# Right: fail on HTTP errors so jq only ever sees a real body
-curl -fsS -H "Authorization: Bearer $TOKEN" \
-  "$JIRA_URL/rest/api/2/issue/KEY-1" | jq -r '.fields.status.name // empty'
-```
-
-Rules: `curl -fsS` (fail on 4xx/5xx) whenever the output feeds `jq`; give
-lookups a `// empty` (or explicit default) so `null` never leaks into a path
-or argument; when the payload's shape is unknown, `gron` it first. If the
-`jq` filter itself is long or quote-nested, file-back it
-(gh-graphql-jq-pipelines).
-
-## Wrapped-capture permission-denied retry
-
-Some IDE harnesses wrap shell invocations in a capture command that tightens the executing process's permissions. If a script that *should* be executable returns `permission denied` only when wrapped — but works on a manual run — try invoking it with an explicit `/bin/zsh -f`:
-
-```bash
-# Fails inside wrapped capture: "permission denied"
-~/.local/bin/some-script.sh
-
-# Works: the explicit interpreter sidesteps the wrapper's exec restrictions
-/bin/zsh -f ~/.local/bin/some-script.sh
-```
-
-Per [agent-defaults.md L25](../../../chezmoi/dot_config/instructions/agent-defaults.md), retry with the explicit interpreter form *before* assuming a real file-permission problem.
-
-## Empty command substitution poisons the next command
-
-For uncertain source filenames, let ripgrep match paths instead of the shell:
-`rg -n 'pattern' src -g '*worker*'`. Use `rg --files src -g '*worker*'` to
-discover candidates first. This handles zero matches without a zsh glob error
-and avoids repeating the same failed wildcard command in a different form.
-
-`$(...)` that finds nothing yields an empty string, and the empty string is
-still passed as an argument. The failure surfaces one command later, wearing
-the wrong tool's name:
-
-```bash
-F=$(fd -t f 'lambda_uri.py' "$S" | head -1)
-sed -n '1,40p' "$F"        # → "sed: : No such file or directory"
-```
-
-`sed` is not the problem; `fd` matched nothing. Same shape produces
-`ls: cannot access '': …`, `Is a directory: '/tmp/r.txt'` (the variable was
-empty so a directory path got reused), and `cd: no such file or directory`.
-
-```bash
-# Guard: fail loudly at the point the assumption breaks
-F=$(fd -t f 'lambda_uri.py' "$S" | head -1)
-[ -n "$F" ] || { echo "no lambda_uri.py under $S" >&2; exit 1; }
-```
-
-Guard every `$(...)` whose result becomes a path, an ARN, an ID, or a URL —
-especially inside a chain, where the empty value travels several steps before
-anything complains.
-
-## Relative `cd` does not survive between tool calls
-
-The Bash tool keeps a working directory across calls, but a one-shot `cd` in a
-compound command does not always stick, and a *relative* `cd` in the next call
-then resolves against the wrong parent:
-
-```bash
-# Call 1
-cd /repo/root && ./do-thing
-# Call 2 — assumes call 1's cwd persisted
-cd audits/rc-validation && pytest
-# → "(eval):cd:1: no such file or directory: audits/rc-validation"
-```
-
-Use an absolute path in every `cd`, or set a variable once and reuse it
-(`W=/repo/root; cd "$W/audits/rc-validation"`). Never let one call's `cd`
-be the precondition for the next call's relative path.
-
-## `sleep N; <cmd>` is blocked — poll with Monitor instead
-
-A foreground `sleep` followed by a check is rejected by the harness:
-
-> Blocked: sleep 45 followed by: … To wait for a condition, use Monitor with an
-> until-loop
-
-This shape recurs constantly when waiting on a background build, a deploy, or a
-log file, and the retry instinct — a shorter sleep — is blocked identically.
-
-```bash
-# Wrong (blocked): sleep 90; tail -25 ~/.cache/claude/run.log
-# Right: let the harness watch the condition
-#   Monitor with:  until rg -q 'BUILD COMPLETE' ~/.cache/claude/run.log; do :; done
-# Also right: start the long job with run_in_background and let the harness
-#   re-invoke you when it exits — no polling at all.
-```
-
-If the thing you are waiting on is external and untracked (a CI run, a remote
-deploy), use the purpose-built poller — `monitor-gh-run <run-id>` for Actions —
-rather than reinventing a sleep loop.
-
-## The nix `python3` / `node` have no third-party libraries
-
-The interpreters on `PATH` come from the nix profile with a bare stdlib. An
-inline script that imports anything external dies at the import:
-
-```bash
-python3 -c "import yaml; …"    # → ModuleNotFoundError: No module named 'yaml'
-node shot.js                   # → Error: Cannot find module 'playwright'
-```
-
-This is not a broken install and `pip install` is the wrong fix (the store path
-is read-only). Options, in order of preference:
-
-1. **Use the CLI that already exists** — `yq` / `dasel` for YAML and TOML, `jq`
-   for JSON, `rg` for extraction. Almost every inline `import yaml` should have
-   been a `yq` filter.
-2. **Ask nix for the dependency for one command**:
-   `nix-shell -p 'python3.withPackages(ps: [ps.pyyaml])' --run 'python3 script.py'`
-3. **Run inside the project's own environment** — `.venv/bin/python`,
-   `npx --yes <pkg>`, or the repo's `uv run` / `bun` entry point — when the
-   library is a project dependency rather than a one-off need.
-
-## When the problem isn't shell
-
-If you've reached this skill but none of the above patterns match, the problem probably isn't shell-level. Check:
-
-- Is the binary actually installed? `command -v <name>` (use `command`, not `which` — `which` is itself shell-specific in zsh).
-- Is `$PATH` what you expect? Aliases and `direnv` can mutate it inside the shell only.
-- Is the working directory what you expect? Shell history and IDE harnesses can confuse `cwd`.
-- Is the file mode actually executable? `stat -c '%A %n' <file>` — GNU syntax on every host here, including macOS (see the `stat` section above; BSD `-f` syntax breaks).
-
-After ruling those out, check [ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md) for nix-specific traps that surface as shell errors, or [git-troubleshooting](../git-troubleshooting/SKILL.md) when the failing command is `git` and the argument reached it intact.
-
-## Quick checklist
-
-- No `status`/`path`/`cdpath`/`fpath`/`manpath` used as a plain variable name.
-- Variable expansions and file paths quoted (`"$var"`); literal `==`/`===` quoted.
-- Aliases bypassed (`/bin/cat`, `/bin/ls`, `command <name>`) when exact output matters.
-- Long/nested/JSON payload moved to a script file instead of retried inline.
-- `gh api graphql` / long `jq` filters file-backed up front (gh-graphql-jq-pipelines).
-- Credentials loaded via `kac ensure` (exit-code gated); never echoed into output.
-- Subshells launched with `-l` / explicit `PATH` when nix-profile tools are needed.
-- Any `local` on an exported variable (`local PATH=…`) followed by `export` so zsh children still inherit it.
-- zsh globs guarded (`fd`, or `setopt local_options null_glob`) so no-match
-  doesn't abort — **not** `(N)`, which is dead under the agent shell's
+# Shell pitfalls
+
+Use the observed command and result to distinguish shell expansion, environment,
+tool syntax and application failures. Inspect recent cached evidence first with
+`cache-scan --session ID --transcript`; a quoted error in a successful file read
+does not establish a failed invocation. Preserve the actual exit status and
+stderr. Route a confirmed application problem to its owner after ruling out
+shell behavior.
+
+## Before constructing the command
+
+- Run project commands through `direnv exec ROOT COMMAND` when an allowed
+  ancestor `.envrc` exists. A working directory or login shell does not load it.
+- Use explicit absolute working directories for every tool invocation; `cd`
+  does not persist across calls. Validate substituted paths, IDs and ARNs are
+  nonempty before passing them onward.
+- Quote paths, expansions and URL/query arguments containing `?`, `*`, `[` or
+  literal `~`. Let `fd` or `rg --glob` handle optional matches. In zsh an
+  unmatched glob aborts before the command runs, even inside a pipeline that
+  subsequently prints zero. Do not rely on `(N)` in an agent shell with
   `nobareglobqual`.
-- Every argument containing `?`, `*`, `[`, or `~` quoted — URLs and `gh api`
-  paths with `?ref=…` included.
-- No reliance on implicit word splitting (`set -- $var`, `for x in $list`,
-  `arr=($var)`) — zsh yields one word; use an array or `${=var}`.
-- GNU syntax assumed for `stat`/`date`/`sed`/`readlink`/`base64`/`find` on every
-  host, darwin included — no BSD `-j`, `-f`, or `stat -f`.
-- Every `$(...)` that becomes a path/ARN/ID guarded for empty before it is used.
-- Every `cd` absolute (or `"$W/sub"`), never relying on the previous call's cwd.
-- No foreground `sleep` before a check — Monitor until-loop or `run_in_background`.
-- No inline `python3`/`node` importing a third-party library — use `yq`/`jq`/`dasel`,
-  `nix-shell -p`, or the project's own env.
+- Use arrays or explicit field extraction for multi-field records. zsh does
+  not implicitly split `$pair`; one combined git ref and an empty second ref
+  often indicate this cause. Do not globally enable `SH_WORD_SPLIT`.
+- Never assign shell variables named `status`, `path`, `cdpath`, `fpath` or
+  `manpath`. Use `exit_code`, `p` or `result`. Quote literal `==`/`===` data.
 
-## References
+## Select the relevant recipe
 
-- [chezmoi/dot_config/instructions/agent-defaults.md](../../../chezmoi/dot_config/instructions/agent-defaults.md) — the source instruction file these patterns are codified from.
-- [home-manager/zsh.nix](../../../home-manager/zsh.nix) — the alias definitions.
-- [gh-graphql-jq-pipelines](../gh-graphql-jq-pipelines/SKILL.md) — the file-backed shape for `gh api graphql` + `jq`.
+Read only the matching reference before applying a conditional recipe:
+
+| Symptom or operation | Reference |
+| --- | --- |
+| Aliased output or special variable | [Aliases and runtime](references/aliases-and-runtime.md) |
+| Nested JSON/quoting, AWS logs or credentials | [Payloads and credentials](references/payloads-and-credentials.md) |
+| GNU/BSD flags, PATH loss, zsh local exports, rg flags | [Tool dialects and environment](references/tool-dialects-and-environment.md) |
+| Optional paths, URL queries, multi-field loops | [Globs and field splitting](references/globs-and-field-splitting.md) |
+| jq input, empty substitution, cwd, jobs or missing modules | [Capture, paths and jobs](references/capture-paths-and-jobs.md) |
+
+## Execution rules
+
+Use `/bin/cat`, `/bin/ls` or `command` when exact output must bypass aliases.
+Check `command -v` and the actual tool dialect before changing valid logic;
+these managed hosts normally resolve GNU coreutils even on macOS. Export a
+function-local environment variable explicitly in zsh if children need it.
+
+Put JSON payloads, inline scripts and heavy quoting in a named script under
+`~/.cache/codex` before execution. Stop retrying a mangled shared shell; use an
+isolated shell. Every `gh api graphql` call and jq filter over roughly 200
+characters or with nested escaped quotes must be file-backed on its first run;
+use [gh-graphql-jq-pipelines](../gh-graphql-jq-pipelines/SKILL.md).
+
+Validate HTTP success and content before jq; use `jq -e` for required values.
+Prefer installed structured-data CLIs or the project environment over importing
+third-party modules into bare Nix Python/Node. Use the harness's bounded job wait
+or a purpose-built monitor such as `monitor-gh-run`, keeping updates possible;
+do not busy-spin or put a long foreground sleep before another check.
+
+Confirmed AWS credential failures route to
+[sec-credentials](../sec-credentials/SKILL.md) and Kion recovery when applicable;
+never print credentials. Prefer `aws-stack-triage` and `aws-log-fetch` to ad hoc
+AWS/jq loops. Git errors with intact arguments route to
+[git-troubleshooting](../git-troubleshooting/SKILL.md); Nix failures route to
+[ops-nix-pitfalls](../ops-nix-pitfalls/SKILL.md).

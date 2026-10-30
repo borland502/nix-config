@@ -6,9 +6,18 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
-import tempfile
+# Support the managed installation and direct source-tree execution.
+for _lib in (Path(os.environ["AGENT_TOOLS_LIB"]) if os.environ.get("AGENT_TOOLS_LIB") else Path(__file__).resolve().parent.parent / "lib",
+             Path(__file__).resolve().parent.parent / "lib",
+             Path(__file__).resolve().parents[2] / "chezmoi/dot_local/lib",
+             Path.home() / ".local/lib"):
+    if (_lib / "agent_tools").is_dir():
+        sys.path.insert(0, str(_lib))
+        break
+
+from agent_tools.artifacts import atomic_output
+from agent_tools.process import run as checked_run, ProcessError
 
 
 def timestamp(value):
@@ -58,32 +67,18 @@ def main():
     # Keep the shell program constant: all user input travels as argv. Sourcing
     # loads refreshed credentials into the same process that executes AWS.
     bridge = 'source "$1" ensure >&2 || exit 1; shift; exec "$@"'
-    temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w+b", dir=target.parent, prefix="." + target.name + ".", delete=False) as output:
-            temporary = output.name
+        with atomic_output(target, replace=args.force) as output:
             env = dict(os.environ, AWS_PAGER="", AWS_CLI_AUTO_PROMPT="off")
-            subprocess.run(["bash", "-c", bridge, "aws-log-fetch", kac, *command],
-                           stdout=output, env=env, check=True)
+            checked_run(["bash", "-c", bridge, "aws-log-fetch", kac, *command],
+                        stdout=output, env=env, timeout=120)
             output.seek(0)
             payload = json.load(output)
             if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
                 raise ValueError("AWS response must contain an events array")
-            output.flush()
-            os.fsync(output.fileno())
-        if args.force:
-            os.replace(temporary, target)
-        else:
-            # Atomic no-clobber publication, including concurrent writers.
-            os.link(temporary, target)
-            os.unlink(temporary)
-        temporary = None
-    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, ProcessError) as exc:
         print(f"aws-log-fetch: {exc}", file=sys.stderr)
         return 1
-    finally:
-        if temporary is not None:
-            os.unlink(temporary)
     print(target)
     return 0
 

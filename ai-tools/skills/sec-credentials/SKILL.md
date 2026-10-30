@@ -27,7 +27,7 @@ Use this skill when a task needs a credential and you don't yet know where to fi
 
 ## Canonical example
 
-[home-manager/local/bin/ops-agent.py](../../../home-manager/local/bin/ops-agent.py) implements this pattern for the Jira token: read `~/.config/ops-agent/jira-token` (sops-decrypted), fall back to `~/.config/jira/token` (legacy), then error out. That precedence chain is the template — any new credential consumer in this repo should follow the same layering.
+[home-manager/local/bin/ops-agent.py](../../../ai-tools/scripts/ops-agent.py) implements this pattern for the Jira token: read `~/.config/ops-agent/jira-token` (sops-decrypted), fall back to `~/.config/jira/token` (legacy), then error out. That precedence chain is the template — any new credential consumer in this repo should follow the same layering.
 
 ## AWS credentials (Kion)
 

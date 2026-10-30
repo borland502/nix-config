@@ -722,3 +722,16 @@ class AgentCacheCaptureTests(CaptureFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedCaptureNormalizationTests(unittest.TestCase):
+    def test_json_object_hook_normalization_matches_string(self):
+        value = {
+            "sessionId": "isolated",
+            "toolName": "Bash",
+            "toolInput": {"command": "false"},
+        }
+        self.assertEqual(
+            CAPTURE_API["normalize"](value), CAPTURE_API["normalize"](json.dumps(value))
+        )
+        self.assertEqual(CAPTURE_API["normalize"](value)["session_id"], "isolated")

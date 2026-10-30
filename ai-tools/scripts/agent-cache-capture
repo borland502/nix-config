@@ -17,6 +17,21 @@ import time
 import tomllib
 from typing import Any, Callable, Iterable, Iterator, NamedTuple
 
+_library = os.environ.get("AGENT_TOOLS_LIB")
+if _library:
+    sys.path.insert(0, _library)
+else:
+    _source_library = Path(__file__).resolve().parents[2] / "chezmoi/dot_local/lib"
+    sys.path.insert(
+        0,
+        str(
+            _source_library if _source_library.is_dir() else Path.home() / ".local/lib"
+        ),
+    )
+from agent_tools.artifacts import atomic_output, atomic_write
+from agent_tools.events import normalize_hook
+from agent_tools.paths import agent_homes, capture_root
+
 
 AGENTS = ("claude", "copilot", "codex")
 CHUNK = 1024 * 1024
@@ -42,14 +57,7 @@ class Source(NamedTuple):
 
 
 def cache_root() -> Path:
-    override = os.environ.get("AGENT_CACHE_CAPTURE_ROOT")
-    if override:
-        return Path(override).expanduser().resolve(strict=False)
-    cache_base = os.environ.get("CACHE_DIR")
-    if not cache_base:
-        xdg_cache = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
-        cache_base = str(xdg_cache / "copilot")
-    return (Path(cache_base).expanduser() / "agent-capture").resolve(strict=False)
+    return capture_root()
 
 
 def private_dir(path: Path) -> None:
@@ -82,24 +90,14 @@ def ensure_cache_path(root: Path, candidate: Path, area_name: str) -> None:
         raise OSError(f"capture path resolves outside {area_name}: {candidate}")
 
 
-def camel_to_snake(value: str) -> str:
-    value = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", value)
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value).lower()
-
-
 def normalize(value: Any) -> dict[str, Any]:
-    """Return bounded hook metadata, not a second copy of tool output."""
-    if not isinstance(value, dict):
-        return {}
-    normalized: dict[str, Any] = {}
-    for key, item in value.items():
-        normalized_key = camel_to_snake(str(key))
-        if normalized_key not in NORMALIZED_FIELDS or not isinstance(
-            item, (str, int, float, bool, type(None))
-        ):
-            continue
-        normalized[normalized_key] = item
-    return normalized
+    """Return bounded hook metadata using shared string/object normalization."""
+    return {
+        key: item
+        for key, item in normalize_hook(value).items()
+        if key in NORMALIZED_FIELDS
+        and isinstance(item, (str, int, float, bool, type(None)))
+    }
 
 
 def safe_session_key(session_id: str) -> str:
@@ -229,19 +227,6 @@ def resolved_existing(path: Path) -> Path | None:
         return None
 
 
-def unique_homes(configured: str | None, defaults: Iterable[Path]) -> list[Path]:
-    candidates = ([Path(configured)] if configured else []) + list(defaults)
-    result: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in candidates:
-        resolved = resolved_existing(candidate)
-        if resolved is None or not resolved.is_dir() or resolved in seen:
-            continue
-        seen.add(resolved)
-        result.append(resolved)
-    return result
-
-
 def allow_all(_relative: Path) -> bool:
     return True
 
@@ -326,11 +311,8 @@ def dedupe_sources(sources: Iterable[Source]) -> list[Source]:
 
 def discover_static_sources() -> list[Source]:
     home = Path.home()
-    config = Path(os.environ.get("XDG_CONFIG_HOME", str(home / ".config")))
     sources: list[Source] = []
-    for codex in unique_homes(
-        os.environ.get("CODEX_HOME"), (config / "codex", home / ".codex")
-    ):
+    for codex in agent_homes("codex", home):
         add_dir_source(sources, "codex", "sessions", codex / "sessions", allow_all)
         add_dir_source(
             sources,
@@ -359,9 +341,7 @@ def discover_static_sources() -> list[Source]:
                 )
         except (OSError, tomllib.TOMLDecodeError):
             pass
-    for claude in unique_homes(
-        os.environ.get("CLAUDE_CONFIG_DIR"), (config / "claude", home / ".claude")
-    ):
+    for claude in agent_homes("claude", home):
         add_dir_source(
             sources, "claude", "projects", claude / "projects", claude_project_file
         )
@@ -386,9 +366,7 @@ def discover_static_sources() -> list[Source]:
                     lambda p: p.name == "history.jsonl",
                 )
             )
-    for copilot in unique_homes(
-        os.environ.get("COPILOT_HOME"), (config / "copilot", home / ".copilot")
-    ):
+    for copilot in agent_homes("copilot", home):
         add_dir_source(
             sources,
             "copilot",
@@ -589,83 +567,62 @@ def read_manifest(path: Path) -> dict[str, Any]:
 
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
     private_dir(path.parent)
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as output:
-            json.dump(value, output, sort_keys=True, indent=2)
-            output.write("\n")
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-        os.chmod(path, 0o600)
-    except BaseException:
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
+    atomic_write(
+        path,
+        (json.dumps(value, sort_keys=True, indent=2) + "\n").encode(),
+        replace=True,
+    )
 
 
 def atomic_copy(source: Path, destination: Path, source_stat: os.stat_result) -> str:
     private_dir(destination.parent)
-    fd, temporary = tempfile.mkstemp(
-        prefix=f".{destination.name}.", dir=destination.parent
-    )
     digest = hashlib.sha256()
-    try:
-        os.fchmod(fd, 0o600)
-        with source.open("rb") as input_stream, os.fdopen(fd, "wb") as output:
-            opened_stat = os.fstat(input_stream.fileno())
-            expected = (
-                source_stat.st_dev,
-                source_stat.st_ino,
-                source_stat.st_size,
-                source_stat.st_mtime_ns,
-                source_stat.st_ctime_ns,
-            )
-            opened = (
-                opened_stat.st_dev,
-                opened_stat.st_ino,
-                opened_stat.st_size,
-                opened_stat.st_mtime_ns,
-                opened_stat.st_ctime_ns,
-            )
-            if opened != expected:
-                raise OSError(f"source changed before copy: {source}")
-            while chunk := input_stream.read(CHUNK):
-                output.write(chunk)
-                digest.update(chunk)
-            output.flush()
-            os.fsync(output.fileno())
-            final_fd_stat = os.fstat(input_stream.fileno())
-            final_path_stat = source.stat(follow_symlinks=False)
-            final_fd = (
-                final_fd_stat.st_dev,
-                final_fd_stat.st_ino,
-                final_fd_stat.st_size,
-                final_fd_stat.st_mtime_ns,
-                final_fd_stat.st_ctime_ns,
-            )
-            final_path = (
-                final_path_stat.st_dev,
-                final_path_stat.st_ino,
-                final_path_stat.st_size,
-                final_path_stat.st_mtime_ns,
-                final_path_stat.st_ctime_ns,
-            )
-            if final_fd != opened or final_path != opened:
-                raise OSError(f"source changed during copy: {source}")
-        os.utime(temporary, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
-        os.replace(temporary, destination)
-        os.chmod(destination, 0o600)
-        return digest.hexdigest()
-    except BaseException:
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
+    with (
+        atomic_output(destination, replace=True) as output,
+        source.open("rb") as input_stream,
+    ):
+        opened_stat = os.fstat(input_stream.fileno())
+        expected = (
+            source_stat.st_dev,
+            source_stat.st_ino,
+            source_stat.st_size,
+            source_stat.st_mtime_ns,
+            source_stat.st_ctime_ns,
+        )
+        opened = (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+            opened_stat.st_size,
+            opened_stat.st_mtime_ns,
+            opened_stat.st_ctime_ns,
+        )
+        if opened != expected:
+            raise OSError(f"source changed before copy: {source}")
+        while chunk := input_stream.read(CHUNK):
+            output.write(chunk)
+            digest.update(chunk)
+        output.flush()
+        os.fsync(output.fileno())
+        final_fd_stat = os.fstat(input_stream.fileno())
+        final_path_stat = source.stat(follow_symlinks=False)
+        final_fd = (
+            final_fd_stat.st_dev,
+            final_fd_stat.st_ino,
+            final_fd_stat.st_size,
+            final_fd_stat.st_mtime_ns,
+            final_fd_stat.st_ctime_ns,
+        )
+        final_path = (
+            final_path_stat.st_dev,
+            final_path_stat.st_ino,
+            final_path_stat.st_size,
+            final_path_stat.st_mtime_ns,
+            final_path_stat.st_ctime_ns,
+        )
+        if final_fd != opened or final_path != opened:
+            raise OSError(f"source changed during copy: {source}")
+        os.utime(output.fileno(), ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
+    return digest.hexdigest()
 
 
 def retention_days() -> int:
