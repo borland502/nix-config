@@ -36,6 +36,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import unicodedata
 from collections import defaultdict, deque
 from collections.abc import Collection, Iterator
@@ -46,6 +47,11 @@ from pathlib import Path
 from typing import cast
 
 import pymupdf
+
+from htmlpdf.browser_checks import SOURCE_CHECKS_JS, WAIT_JS
+from htmlpdf.navigation import repair_named_links
+from htmlpdf.profiles import REPORT_LINK_COLOR, REPORT_MARGIN, write_template
+from htmlpdf.reporting import finish_report
 
 MERMAID_VERSION = "11.4.1"
 MERMAID_ASSET = f"mermaid-{MERMAID_VERSION}.min.js"
@@ -116,26 +122,6 @@ def mermaid_script_tag(override_url: str | None) -> Iterator[dict[str, str]]:
     with resources.as_file(asset) as path:
         yield {"path": str(path)}
 
-
-WAIT_JS = """
-async () => {
-  for (const img of document.images) img.loading = 'eager';
-  // Walk the page so lazy images and scroll-triggered content load.
-  const step = Math.max(200, window.innerHeight * 0.8);
-  for (let y = 0; y < document.documentElement.scrollHeight; y += step) {
-    window.scrollTo(0, y);
-    await new Promise((resolve) => setTimeout(resolve, 30));
-  }
-  window.scrollTo(0, 0);
-  await Promise.all([...document.images].map((img) => img.complete ? null : new Promise((resolve) => {
-    img.addEventListener('load', resolve, { once: true });
-    img.addEventListener('error', resolve, { once: true });
-  })));
-  if (window.MathJax?.startup?.promise) await window.MathJax.startup.promise;
-  if (typeof window.MathJax?.typesetPromise === 'function') await window.MathJax.typesetPromise();
-  await document.fonts.ready;
-}
-"""
 
 NEEDS_MERMAID_JS = """
 () => [...document.querySelectorAll('pre.mermaid, div.mermaid, code.language-mermaid')]
@@ -515,7 +501,7 @@ def preview_directory_lock(out_dir: Path) -> Iterator[None]:
 
 
 def save_previews_atomically(
-    _document: pymupdf.Document, pdf_path: Path, pages: list[int], dpi: int, *, lock_held: bool = False
+    _document: pymupdf.Document, pdf_path: Path, pages: list[int], dpi: int, *, lock_held: bool = False, extras=None
 ) -> Path:
     """Render and publish previews from the PDF state protected by its output lock.
 
@@ -536,6 +522,8 @@ def save_previews_atomically(
             try:
                 for number in pages:
                     current_document[number - 1].get_pixmap(dpi=dpi).save(staged / f"page-{number:02d}.png")
+                if extras:
+                    extras(current_document, staged)
             finally:
                 current_document.close()
 
@@ -585,6 +573,7 @@ def parse_margins(spec: str) -> dict[str, str]:
 
 def browser_font_report(page) -> list[tuple[str, int, bool]]:
     """Fonts Chrome actually rendered, by glyph count, flagged web font vs system."""
+    from playwright.sync_api import Error as PlaywrightError
     web_families = {name.casefold() for name in page.evaluate(WEB_FONT_FAMILIES_JS)}
     totals: dict[str, int] = defaultdict(int)
     try:
@@ -596,12 +585,12 @@ def browser_font_report(page) -> list[tuple[str, int, bool]]:
         for node_id in node_ids[:6000]:
             try:
                 fonts = cdp.send("CSS.getPlatformFontsForNode", {"nodeId": node_id})["fonts"]
-            except Exception:  # detached or non-rendered nodes
+            except PlaywrightError:  # detached or non-rendered nodes are expected
                 continue
             for font in fonts:
                 totals[font["familyName"]] += font["glyphCount"]
         cdp.detach()
-    except Exception as error:  # the report is advisory; never fail a conversion over it
+    except (PlaywrightError, KeyError) as error:  # font diagnostics remain advisory
         print(f"htmlpdf: warning — font report unavailable ({error})", file=sys.stderr)
     return [(family, count, is_web_font_family(family, web_families))
             for family, count in sorted(totals.items(), key=lambda item: -item[1])]
@@ -740,7 +729,7 @@ def audit(pdf_path: Path, preview: str, dpi: int, pdf_fonts: bool = True, previe
                         continue
                     value = span["color"]
                     rgb = ((value >> 16) & 255, (value >> 8) & 255, value & 255)
-                    entry = colors.setdefault("#%02X%02X%02X" % rgb, [0, contrast_on_white(rgb), text[:40]])
+                    entry = colors.setdefault("#{:02X}{:02X}{:02X}".format(*rgb), [0, contrast_on_white(rgb), text[:40]])
                     entry[0] += 1
 
     if pdf_fonts:
@@ -763,15 +752,18 @@ def audit(pdf_path: Path, preview: str, dpi: int, pdf_fonts: bool = True, previe
 
 
 def convert(args: argparse.Namespace) -> None:
+    started = time.perf_counter()
+    timings = {}
     from playwright.sync_api import Error as PlaywrightError
-    from playwright.sync_api import PdfMargins
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import PdfMargins, sync_playwright
 
     source = Path(args.input).expanduser().resolve()
     if not source.exists():
         raise SystemExit(f"htmlpdf: no such file {source}")
     output = Path(args.output).expanduser().resolve() if args.output else source.with_suffix(".pdf")
 
+    if output == source:
+        raise ValueError("output PDF must differ from the source")
     paper_w, paper_h = PAPER_INCHES[args.paper.lower()]
     if args.landscape:
         paper_w, paper_h = paper_h, paper_w
@@ -823,9 +815,11 @@ def convert(args: argparse.Namespace) -> None:
                     reduced_motion="reduce",
                 )
                 page = context.new_page()
-                page.goto(load.as_uri(), wait_until="networkidle", timeout=timeout_ms)
-                page.evaluate(WAIT_JS)
+                load_started = time.perf_counter()
+                page.goto(load.as_uri(), wait_until="domcontentloaded", timeout=timeout_ms)
+                page.evaluate(WAIT_JS, timeout_ms)
 
+                source_issues = []
                 if page.evaluate(NEEDS_MERMAID_JS):
                     try:
                         with mermaid_script_tag(args.mermaid_url) as script_tag:
@@ -834,13 +828,17 @@ def convert(args: argparse.Namespace) -> None:
                             RENDER_MERMAID_JS, {"config": MERMAID_CONFIG, "reorient": not args.keep_diagram_direction}
                         )
                     except PlaywrightError as error:
-                        print(f"htmlpdf: warning — Mermaid diagrams left as source ({error})", file=sys.stderr)
+                        source_issues.append({"code": "mermaid_failed", "severity": "error", "page": None,
+                                              "message": f"Mermaid diagrams left as source: {error}"})
                 if args.wait_for:
                     page.wait_for_selector(args.wait_for, timeout=timeout_ms)
                 page.wait_for_timeout(args.settle)
 
                 page.emulate_media(media="print", color_scheme="light", reduced_motion="reduce")
                 page.add_style_tag(content=print_css(link_color))
+                if args.profile == "report":
+                    page.add_style_tag(content=markdown_font_css() + load_asset("report.css"))
+                    page.evaluate(WAIT_JS, timeout_ms)
                 report = page.evaluate(
                     NORMALIZE_JS,
                     {
@@ -852,20 +850,25 @@ def convert(args: argparse.Namespace) -> None:
                 )
                 page.wait_for_timeout(150)
 
+                evidence = page.evaluate(SOURCE_CHECKS_JS)
+                source_issues.extend(evidence["issues"])
+                timings["load_seconds"] = round(time.perf_counter() - load_started, 4)
+                render_started = time.perf_counter()
                 fonts = browser_font_report(page)
                 contents = None if args.bookmarks != "auto" else page.evaluate(TOC_JS, args.toc_selector)
                 title = args.title or page.title() or source.stem
+                footer_size = "8pt" if args.profile == "report" else "7.5px"
                 footer = (
                     '<div style="box-sizing:border-box;width:100%;'
                     f'padding:0 {margins["right"]} 0 {margins["left"]};'
-                    f'font:7.5px {SANS_STACK};color:#6B7785;display:flex;justify-content:space-between;">'
+                    f'font:{footer_size} {SANS_STACK};color:#6B7785;display:flex;justify-content:space-between;">'
                     f"<span>{html.escape(args.footer if args.footer is not None else title)}</span>"
                     '<span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>'
                 )
                 pdf_bytes = page.pdf(
                     width=f"{paper_w}in",
                     height=f"{paper_h}in",
-                    margin=cast(PdfMargins, margins),
+                    margin=cast(PdfMargins, {key: f"{length_px(value)}px" for key, value in margins.items()}),
                     print_background=True,
                     display_header_footer=not args.no_footer,
                     header_template="<span></span>",
@@ -875,6 +878,7 @@ def convert(args: argparse.Namespace) -> None:
                     tagged=True,
                     scale=scale,
                 )
+                timings["render_seconds"] = round(time.perf_counter() - render_started, 4)
             finally:
                 browser.close()
     finally:
@@ -892,6 +896,8 @@ def convert(args: argparse.Namespace) -> None:
         origin = "the document's contents list"
     else:
         toc, unmatched, origin = outline_from_headings(doc, args.depth), [], "headings"
+    navigation = repair_named_links(doc, evidence["expectedLinks"])
+    source_issues.extend(navigation["issues"])
     doc.set_toc(toc, collapse=9)
     if toc:
         doc.set_pagemode("UseOutlines")
@@ -905,7 +911,10 @@ def convert(args: argparse.Namespace) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with preview_directory_lock(output.with_name(f"{output.stem}-preview")):
         save_pdf_atomically(doc, output)
-        audit(output, args.preview, args.dpi, pdf_fonts=False, preview_lock_held=True)
+        audit(output, "none", args.dpi, pdf_fonts=False, preview_lock_held=True)
+        quality = finish_report(output, args, source_issues=source_issues, expected_links=evidence["expectedLinks"],
+                                timings=timings, started=started)
+    doc.close()
 
     orientation = " landscape" if args.landscape else ""
     prepared = ", ".join(f"{key} {value}" for key, value in report.items() if value) or "nothing needed"
@@ -915,19 +924,25 @@ def convert(args: argparse.Namespace) -> None:
     print(f"  prepared for print: {prepared}")
     if mermaid["rendered"]:
         print(f"  mermaid: {mermaid['rendered']} rendered, {mermaid['reoriented']} redrawn top-to-bottom to fit")
+    print(f"  internal destinations aligned to source anchors: {navigation['repaired']}")
     print(f"  bookmarks from {origin}{'; UNMATCHED: ' + ', '.join(unmatched) if unmatched else ''}")
     total_glyphs = sum(count for _family, count, _web in fonts) or 1
     print("  fonts Chrome rendered (share of glyphs):")
     for family, count, is_web in fonts[:8]:
         kind = "web font" if is_web else "system font — check it is intended"
         print(f"    {count / total_glyphs:6.1%}  {family}  ({kind})")
+    if args.strict and quality["summary"]["errors"]:
+        raise SystemExit(2)
 
 
 def inspect(args: argparse.Namespace) -> None:
     pdf_path = Path(args.pdf).expanduser().resolve()
     preview = pdf_path.with_name(f"{pdf_path.stem}-preview")
     with preview_directory_lock(preview):
-        audit(pdf_path, args.preview, args.dpi, preview_lock_held=True)
+        audit(pdf_path, "none", args.dpi, preview_lock_held=True)
+        quality = finish_report(pdf_path, args)
+    if getattr(args, "strict", False) and quality["summary"]["errors"]:
+        raise SystemExit(2)
 
 
 def main() -> None:
@@ -937,9 +952,10 @@ def main() -> None:
     c = sub.add_parser("convert", help="HTML or Markdown → PDF")
     c.add_argument("input", help=".html/.htm (full document or fragment) or .md/.markdown")
     c.add_argument("-o", "--output", help="PDF path (default: next to the input)")
-    c.add_argument("--paper", default="letter", choices=sorted(PAPER_INCHES), help="page size (default letter)")
-    c.add_argument("--landscape", action="store_true")
-    c.add_argument("--margin", default="14mm,14mm,16mm,14mm", help="top,right,bottom,left (default 14mm,14mm,16mm,14mm)")
+    c.add_argument("--paper", default=None, choices=sorted(PAPER_INCHES), help="page size (default letter)")
+    c.add_argument("--landscape", action=argparse.BooleanOptionalAction, default=None)
+    c.add_argument("--profile", choices=["default", "report"], default="default", help="report: landscape tables, sections and references")
+    c.add_argument("--margin", default=None, help="top,right,bottom,left (default 14mm,14mm,16mm,14mm)")
     c.add_argument("--scale", type=float, default=1.0, help="Chrome print scale 0.1–2 (default 1)")
     c.add_argument("--layout-width", type=int,
                    help="lay the page out this many CSS px wide, then scale onto the paper (for desktop-only layouts)")
@@ -948,7 +964,7 @@ def main() -> None:
     c.add_argument("--no-footer", action="store_true", help="omit the footer and page numbers")
     c.add_argument("--subject")
     c.add_argument("--author")
-    c.add_argument("--link-color", default=DEFAULT_LINK_COLOR, help=f"print link color, or 'keep' (default {DEFAULT_LINK_COLOR})")
+    c.add_argument("--link-color", default=None, help=f"print link color, or 'keep' (default {DEFAULT_LINK_COLOR})")
     c.add_argument("--keep-theme", action="store_true", help="do not force the page's light theme")
     c.add_argument("--hide", action="append", default=[], help="CSS selector to drop from the PDF (repeatable)")
     c.add_argument("--bookmarks", default="auto", choices=["auto", "headings", "none"],
@@ -966,7 +982,7 @@ def main() -> None:
     c.add_argument("--mermaid-url", help="load Mermaid from this URL instead of the bundled runtime")
     c.add_argument("--chrome", help="Chrome/Chromium executable (default: auto-detect)")
     c.add_argument("--keep-html", action="store_true", help="keep the invocation-specific staged HTML beside the input")
-    c.add_argument("--preview", default="1", help="pages to render as PNG after conversion: 1,3-4 | all | none")
+    c.add_argument("--preview", default="1", help="pages to render as PNG: 1,3-4 | all | auto | changed | none")
     c.add_argument("--dpi", type=int, default=110)
     c.set_defaults(func=convert)
 
@@ -976,11 +992,49 @@ def main() -> None:
     i.add_argument("--dpi", type=int, default=110)
     i.set_defaults(func=inspect)
 
+    t = sub.add_parser("template", help="create an editable report HTML starter")
+    t.add_argument("profile", choices=["report"])
+    t.add_argument("-o", "--output", required=True)
+    t.set_defaults(func=lambda args: write_template(Path(args.output).expanduser()))
+
+    for command in (c, i):
+        command.add_argument("--strict", action="store_true", help="exit 2 for quality errors; keep PDF and diagnostics")
+        command.add_argument("--expected-pages", type=int, help="fail validation if the page count differs")
+        command.add_argument("--report-json", help="write machine-readable checks and timings")
+        command.add_argument("--contact-sheet", action="store_true", help="publish a page overview and visual comparison manifest")
+        command.add_argument("--compare-to", help="previous preview manifest.json for visual page comparison")
+
     argv = sys.argv[1:]
-    if argv and argv[0] not in {"convert", "inspect", "-h", "--help"}:
+    if argv and argv[0] not in {"convert", "inspect", "template", "-h", "--help"}:
         argv = ["convert", *argv]
     args = parser.parse_args(argv)
-    args.func(args)
+    if args.command == "convert":
+        report_profile = args.profile == "report"
+        args.paper = args.paper or "letter"
+        args.landscape = report_profile if args.landscape is None else args.landscape
+        args.margin = args.margin or (REPORT_MARGIN if report_profile else "14mm,14mm,16mm,14mm")
+        args.link_color = args.link_color or (REPORT_LINK_COLOR if report_profile else DEFAULT_LINK_COLOR)
+    if args.command in {"convert", "inspect"}:
+        if args.dpi < 1 or (args.expected_pages is not None and args.expected_pages < 1):
+            parser.error("dpi and expected-pages must be positive")
+        if args.command == "convert" and (args.timeout <= 0 or args.settle < 0):
+            parser.error("timeout must be positive and settle must not be negative")
+        if args.report_json:
+            source_path = Path(args.input if args.command == "convert" else args.pdf).expanduser().resolve()
+            pdf_path = source_path
+            if args.command == "convert":
+                pdf_path = Path(args.output).expanduser().resolve() if args.output else source_path.with_suffix(".pdf")
+            protected = {source_path, pdf_path}
+            if args.compare_to:
+                protected.add(Path(args.compare_to).expanduser().resolve())
+            report_path = Path(args.report_json).expanduser().resolve()
+            preview_path = pdf_path.with_name(f"{pdf_path.stem}-preview").resolve()
+            if report_path in protected or report_path == preview_path or preview_path in report_path.parents:
+                parser.error("report-json must differ from the source, PDF and comparison manifest, and be outside the preview directory")
+    try:
+        args.func(args)
+    except (ValueError, FileExistsError) as error:
+        parser.error(str(error))
 
 
 if __name__ == "__main__":

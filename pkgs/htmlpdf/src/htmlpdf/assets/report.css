@@ -1,0 +1,28 @@
+/* Landscape report profile: explicit sections, legible tables and reference lists. */
+:root { --report-navy:#153449; --report-teal:#176A72; --report-ink:#20313D; --report-muted:#526571; --report-pale:#EDF4F6; --report-line:#D7E1E5; }
+html { font-size:10.1pt; }
+body { margin:0; color:var(--report-ink); background:white; font-family:"Public Sans",Arial,sans-serif; line-height:1.386; }
+main.report, main.doc { width:100%; max-width:none; margin:0; }
+.report-section + .report-section { break-before:page; }
+h1,h2,h3 { font-family:inherit; font-weight:700; letter-spacing:normal; }
+h1 { font-size:20pt; line-height:24pt; color:var(--report-navy); margin:0 0 9pt; padding:0; border:0; }
+.report-section:first-child h1 { font-size:25pt; line-height:29pt; }
+h2 { font-size:12pt; line-height:15pt; color:var(--report-teal); margin:10pt 0 5pt; padding:0; border:0; }
+h3 { font-size:10.5pt; color:var(--report-teal); margin:8pt 0 4pt; }
+p { margin:0 0 7pt; }
+.report-label { color:var(--report-teal); font-size:8.5pt; line-height:11pt; font-weight:700; margin:0 0 7pt; }
+.report-subtitle,.report-small { color:var(--report-muted); font-size:8.4pt; line-height:11.3pt; margin:0 0 5pt; }
+.report-callout { color:var(--report-navy); background:var(--report-pale); border:0.5pt solid var(--report-line); padding:11pt 13pt; font-size:12.2pt; line-height:16.5pt; font-weight:700; margin:0 0 7pt; break-inside:avoid; }
+a { color:var(--report-teal); text-decoration:none; }
+table { width:100%; table-layout:fixed; border-collapse:collapse; font-family:inherit; font-size:8.8pt; line-height:11.4pt; margin:0 0 7pt; }
+th,td { padding:4pt 8pt; text-align:left; vertical-align:top; overflow-wrap:break-word; border:0; letter-spacing:normal; text-transform:none; }
+th { color:white; background:var(--report-navy); font-size:8.6pt; line-height:11pt; padding-top:8pt; padding-bottom:8pt; font-weight:700; }
+tbody tr:nth-child(even) td { background:var(--report-pale); }
+tbody tr:last-child td { border-bottom:0.5pt solid var(--report-line); }
+table.report-compact { font-size:8.1pt; line-height:10.4pt; }
+table.report-compact td { padding-top:3pt; padding-bottom:3pt; }
+.report-references { columns:2; column-gap:34pt; font-size:8.9pt; line-height:11.8pt; }
+.report-references p { margin:0 0 6pt; break-inside:avoid; }
+.report-reference-columns { display:flex; gap:34pt; font-size:8.9pt; line-height:11.8pt; }
+.report-reference-columns > div { flex:1; min-width:0; }
+.report-reference-columns p { margin:0 0 6pt; break-inside:avoid; }
