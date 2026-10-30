@@ -1,52 +1,43 @@
 ---
 name: htmlpdf
-description: Use when converting HTML or Markdown reports, notes, dashboards, tables, charts, or Mermaid diagrams to print-ready PDFs.
+description: Use when creating PDF reports, briefs, notes, dashboards, tables or charts, or converting HTML/Markdown to print-ready PDFs. Also use for PDF layout and navigation checks. Excludes filling forms and editing existing PDF objects.
 ---
 
 # HTMLPDF
 
-Use the installed `htmlpdf` command to make and audit readable, bookmarked
-PDFs. Use `convert` for `.html`, `.htm`, `.md`, or `.markdown`; use `inspect`
-for an existing PDF.
-
-## Workflow
+Use the installed `htmlpdf` for new report PDFs. Author content in HTML or
+Markdown; reuse its templates, fonts, pagination, bookmarks and checks.
 
 ```bash
-htmlpdf convert report.html -o report.pdf --preview 1,5
-htmlpdf convert notes.md -o notes.pdf --preview 1-3
-htmlpdf inspect report.pdf --preview 1,5
+htmlpdf template report -o report.html
+htmlpdf convert report.html --profile report --strict \
+  --report-json report.json --contact-sheet --preview all
+htmlpdf inspect report.pdf --strict --contact-sheet --preview all
 ```
 
-Always request preview pages during conversion, then inspect the PDF and the
-same requested preview pages before reporting success. Confirm that bookmarks
-reach the intended sections, the intended fonts are embedded and rendered, and
-links printed against white have contrast of at least 4.5:1. Visually assess
-links over tinted backgrounds; the PDF audit cannot reliably associate text
-with its painted background.
+Use the landscape `report` profile for table-heavy reports. Ordinary prose can
+use the default profile. When matching an existing document, preserve its
+content and visual hierarchy; compare the rendered pages, links and text.
+Use `--expected-pages` only when a page-count requirement exists.
 
-## Mermaid
+Inspect the JSON issues and all final pages. Strict errors require correction;
+small-text and sparse-page warnings require judgment. Confirm bookmarks and
+reference links reach the intended sections. Checks do not replace visual
+review or verify external URLs. Fix the source and reconvert; avoid patching
+only the final PDF or shrinking text to force a page count.
 
-Mermaid diagrams and Markdown's print fonts use htmlpdf's bundled, pinned
-assets by default, so normal conversion does not require CDN access or network
-egress. Use `--mermaid-url` only when intentionally overriding the Mermaid
-runtime.
+For revisions, `--preview auto` selects changed/flagged pages plus first/last;
+`--preview changed --compare-to previous-manifest.json` compares a saved review
+manifest. Contact sheets and pixel hashes live in the PDF's preview directory.
+Still inspect every page before final delivery. Follow workspace conventions
+for artifact locations; keep private report content out of public repositories.
 
-## Print CSS
+Mermaid and Markdown fonts are bundled for offline use. Prefer explicit table
+columns, `.report-compact` for dense tables, `.report-section` for intentional
+page starts, and `.report-references` for source columns. Give anchors unique
+IDs and distinctive heading or bold reference labels. Native footers handle
+page totals; authored page references must be checked after pagination.
 
-Set a legible root font size and let prose use the printable width. Declare
-dashboard and table grids explicitly instead of relying on automatic layout.
-Use `.page-break` for intentional section boundaries and `.no-print` for
-controls or navigation that must not appear in the PDF:
-
-```css
-html { font-size: 16px; }
-article { width: 100%; max-width: none; }
-.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-.page-break { break-before: page; }
-@media print { .no-print { display: none !important; } }
-```
-
-Use `htmlpdf convert --help` and `htmlpdf inspect --help` to select paper,
-orientation, bookmarks, waits, or preview pages. Re-convert after correcting
-any clipping, unreadable content, missing bookmarks, font substitution, or
-low-contrast links.
+Run `htmlpdf convert --help` or `inspect --help` for paper, margins, waits,
+bookmarks and previews. If the installed version lacks an option, inspect its
+help and use the supported workflow or update it; do not invent flags.
