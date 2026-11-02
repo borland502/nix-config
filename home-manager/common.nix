@@ -49,57 +49,11 @@
   codeEditorUserSettings = import ./lib/code-editor-user-settings.nix {
     inherit pkgs;
   };
-  copilotLogBashHook = builtins.toJSON {
-    version = 1;
-    hooks.postToolUse = [
-      {
-        type = "command";
-        command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/ai-tools/log-bash.sh"'';
-        timeoutSec = 10;
-      }
-      {
-        type = "command";
-        command = ''AGENT_NAME=copilot bash "$HOME/.local/bin/ai-tools/log-thinking.sh"'';
-        timeoutSec = 30;
-      }
-    ];
-  };
-  copilotLogSkillHook = builtins.toJSON {
-    version = 1;
-    hooks.postToolUse = [
-      {
-        type = "command";
-        command = ''AGENT_NAME=copilot exec bash "$HOME/.local/bin/ai-tools/log-skill.sh"'';
-        timeoutSec = 10;
-      }
-    ];
-  };
-  vscodeCopilotLogBashHook = builtins.toJSON {
-    hooks.PostToolUse = [
-      {
-        type = "command";
-        command = ''bash "${xdgBinHome}/ai-tools/log-bash.sh"'';
-        env.AGENT_NAME = "copilot";
-        timeout = 10;
-      }
-      {
-        type = "command";
-        command = ''bash "${xdgBinHome}/ai-tools/log-thinking.sh"'';
-        env.AGENT_NAME = "copilot";
-        timeout = 30;
-      }
-    ];
-  };
-  vscodeCopilotLogSkillHook = builtins.toJSON {
-    hooks.PostToolUse = [
-      {
-        type = "command";
-        command = ''bash "${xdgBinHome}/ai-tools/log-skill.sh"'';
-        env.AGENT_NAME = "copilot";
-        timeout = 10;
-      }
-    ];
-  };
+  agentHooks = import ./lib/agent-hooks.nix {inherit xdgBinHome;};
+  copilotLogBashHook = agentHooks.copilot "bash";
+  copilotLogSkillHook = agentHooks.copilot "skill";
+  vscodeCopilotLogBashHook = agentHooks.vscode "bash";
+  vscodeCopilotLogSkillHook = agentHooks.vscode "skill";
   # Names of skills currently in ai-tools/skills/ — baked in at eval time so
   # the cleanup activation hook can delete any directory whose name is absent.
   # This is also what evicts the former ai-tools/skills-stack/ tree from hosts
@@ -344,8 +298,26 @@
   keepassPython = pkgs.writeShellScriptBin "keepass-python" ''
     exec ${pkgs.python3.withPackages (ps: [ps.pykeepass])}/bin/python3 "$@"
   '';
+  agentToolsLib = builtins.path {
+    path = ../chezmoi/dot_local/lib;
+    name = "agent-tools-lib";
+    filter = source: type:
+      (type == "directory" && builtins.baseNameOf source != "__pycache__")
+      || (type == "regular" && lib.hasSuffix ".py" source);
+  };
   opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
+    export AGENT_TOOLS_LIB="''${AGENT_TOOLS_LIB:-${agentToolsLib}}"
     exec ${pkgs.python3}/bin/python ${../ai-tools/scripts/ops-agent.py} "$@"
+  '';
+  # Python entry point preserves timer/hook invocations through python3 while
+  # giving the store-copied collector the same explicit library root as ops-agent.
+  agentCacheCapture = pkgs.writeText "agent-cache-capture" ''
+    #!/usr/bin/env python3
+    import os
+    import runpy
+    if not os.environ.get("AGENT_TOOLS_LIB"):
+        os.environ["AGENT_TOOLS_LIB"] = "${agentToolsLib}"
+    runpy.run_path("${../ai-tools/scripts/agent-cache-capture}", run_name="__main__")
   '';
   # Automation scripts (hook loggers, cache compaction, MCP wrapper) deployed to
   # ~/.local/bin/ai-tools/ from the top-level ai-tools/scripts/ source. Listed
@@ -362,6 +334,7 @@
     "log-skill.sh"
     "log-thinking.sh"
     "sweep-agent-assets"
+    "install-project-skill"
   ];
 in {
   nixpkgs.config = {
@@ -382,6 +355,9 @@ in {
     configHome = xdgConfigHome;
     dataHome = xdgDataHome;
     stateHome = xdgStateHome;
+
+    # Generic project templates are data assets, never global skill discovery.
+    dataFile."agent-tools/project-skills".source = ../ai-tools/project-skills;
 
     configFile = {
       # Canonical XDG location for Claude Code global user instructions.
@@ -929,7 +905,10 @@ in {
         builtins.listToAttrs (map (n: {
             name = "${xdgBinHome}/ai-tools/${n}";
             value = {
-              source = ../ai-tools/scripts + "/${n}";
+              source =
+                if n == "agent-cache-capture"
+                then agentCacheCapture
+                else ../ai-tools/scripts + "/${n}";
               executable = true;
             };
           })

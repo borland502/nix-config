@@ -37,10 +37,20 @@ import mimetypes
 import os
 import re
 import sys
-import urllib.error
 import urllib.parse
-import urllib.request
 import uuid
+
+from pathlib import Path
+# Support the managed installation and direct source-tree execution.
+for _lib in (Path(os.environ["AGENT_TOOLS_LIB"]) if os.environ.get("AGENT_TOOLS_LIB") else Path(__file__).resolve().parent.parent / "lib",
+             Path(__file__).resolve().parent.parent / "lib",
+             Path(__file__).resolve().parents[2] / "chezmoi/dot_local/lib",
+             Path.home() / ".local/lib"):
+    if (_lib / "agent_tools").is_dir():
+        sys.path.insert(0, str(_lib))
+        break
+
+from agent_tools.atlassian import Client, AtlassianError
 
 CONFIG_DIR = os.path.expanduser("~/.config/confluence")
 TIMEOUT = 120
@@ -74,45 +84,12 @@ def read_config(name: str) -> str:
 
 def call(method, path, data=None, headers=None, raw=False):
     """One REST call. `path` is relative to the REST API root (no /rest/api)."""
-    base = read_config("base-url").rstrip("/")
-    token = read_config("token")
-    path = path.lstrip("/")
-    path = re.sub(r"^rest/api/", "", path)
-    url = f"{base}/rest/api/{path}"
-
-    hdrs = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    hdrs.update(headers or {})
-    body = data
-    if data is not None and not raw:
-        body = json.dumps(data).encode()
-        hdrs["Content-Type"] = "application/json"
-
-    req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            payload = resp.read()
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:600]
-        hint = ""
-        if exc.code == 400 and "same file name" in detail:
-            hint = "\n  hint: attachment exists — POST to /child/attachment/{id}/data instead"
-        elif exc.code == 404 and "/move/" in url:
-            hint = "\n  hint: /move 404s on this DC version — re-parent via `ancestors` in the PUT"
-        elif exc.code == 401:
-            hint = "\n  hint: PAT expired or Basic auth used; regenerate in the instance profile"
-        die(f"HTTP {exc.code} on {method} {url}\n  {detail}{hint}")
-    except urllib.error.URLError as exc:
-        die(f"cannot reach {url}: {exc.reason} (VPN up?)")
-
-    if not payload:
-        return {}
-    try:
-        return json.loads(payload)
-    except json.JSONDecodeError:
-        die(
-            f"non-JSON response from {method} {url} — Confluence errors are often "
-            f"HTML:\n  {payload.decode('utf-8', 'replace')[:300]}"
-        )
+        client = Client.configured("confluence", timeout=TIMEOUT, config_dir=CONFIG_DIR)
+        return client.request(method, path, data, headers=headers, raw=raw,
+                              allow_empty=method != "GET")
+    except AtlassianError as exc:
+        die(str(exc))
 
 
 def storage_to_text(s: str) -> str:

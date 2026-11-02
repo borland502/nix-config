@@ -1,4 +1,5 @@
 """Read-only native session audit. Uses the standard library and zstdcat."""
+
 import collections
 import datetime as dt
 import hashlib
@@ -10,11 +11,30 @@ import subprocess
 import sys
 import time
 
+if os.environ.get("AGENT_TOOLS_LIB"):
+    sys.path.insert(0, os.environ["AGENT_TOOLS_LIB"])
+from agent_tools.events import (
+    Event,
+    body,
+    command,
+    decode,
+    failure,
+    normalize_hook,
+    heuristic_output,
+    category,
+    excerpt,
+    reconcile,
+)
+from agent_tools.paths import agent_homes, capture_root, log_roots
+from agent_tools.event_index import EventIndex
+
 
 def read(path):
     try:
         if path.suffix == ".zst":
-            result = subprocess.run(["zstdcat", str(path)], capture_output=True, text=True, errors="replace")
+            result = subprocess.run(
+                ["zstdcat", str(path)], capture_output=True, text=True, errors="replace"
+            )
             return result.stdout if result.returncode == 0 else ""
         return path.read_text(errors="replace")
     except OSError:
@@ -45,33 +65,6 @@ def compact(value, length=180):
     return " ".join(value.split())[:length]
 
 
-def decode(value):
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except ValueError:
-            pass
-    return value
-
-
-def body(value):
-    if isinstance(value, list):
-        return " ".join(body(x) for x in value)
-    if isinstance(value, dict):
-        for key in ("text", "output", "content", "error"):
-            if key in value:
-                return body(value[key])
-        return json.dumps(value)
-    return str(value or "")
-
-
-def command(arguments):
-    args = decode(arguments)
-    if isinstance(args, dict):
-        return str(args.get("cmd", args.get("command", args.get("file_path", args.get("session_id", args)))))
-    return str(args or "")
-
-
 def result_parts(output):
     """Keep independent orchestration results separate instead of flattening.
 
@@ -88,7 +81,10 @@ def result_parts(output):
         if any(key in value for key in ("exit_code", "isError", "is_error", "error")):
             yield value
         elif value.get("status") == "rejected":
-            yield {"is_error": True, "output": value.get("reason", "rejected tool call")}
+            yield {
+                "is_error": True,
+                "output": value.get("reason", "rejected tool call"),
+            }
         else:
             for key in ("text", "content", "result", "value"):
                 if key in value:
@@ -118,35 +114,18 @@ def result_parts(output):
             yield text
 
 
-def failure(output):
-    """Running/yielded results and successful commands are never tool errors."""
-    value = decode(output)
-    if isinstance(value, dict):
-        if value.get("exit_code") is not None:
-            return value["exit_code"] != 0
-        if value.get("isError") or value.get("is_error") or value.get("error"):
-            return True
-        return False
-    text = body(value)
-    exit_match = re.search(r"(?:Process exited with code|exit_code[\"\s:]+)\s*(-?\d+)", text)
-    if exit_match:
-        return int(exit_match[1]) != 0
-    if re.search(r"(?:Process|Script) running|session ID|cell ID", text):
-        return False
-    return bool(re.match(r"\s*(?:Error(?: executing tool| calling tool)?[: ]|Tool error|Traceback|Error parsing function call)", text))
-
-
 def codex_roots(home):
-    roots = [Path(os.environ["CODEX_HOME"])] if os.environ.get("CODEX_HOME") else []
-    return list(unique([*roots, home / ".config/codex", home / ".codex"]))
+    return agent_homes("codex", home)
 
 
 def capture_roots(home):
     cache = Path(os.environ.get("XDG_CACHE_HOME", home / ".cache"))
-    roots = [Path(os.environ["AGENT_CACHE_CAPTURE_ROOT"])] if os.environ.get("AGENT_CACHE_CAPTURE_ROOT") else []
+    roots = [capture_root(home)]
     if os.environ.get("CACHE_DIR"):
         roots.append(Path(os.environ["CACHE_DIR"]) / "agent-capture")
-    roots.extend(cache / agent / "agent-capture" for agent in ("claude", "copilot", "codex"))
+    roots.extend(
+        cache / agent / "agent-capture" for agent in ("claude", "copilot", "codex")
+    )
     return list(unique(root for root in roots if root.is_dir()))
 
 
@@ -155,11 +134,12 @@ def native_paths(home):
     for root in codex_roots(home):
         for folder in ("sessions", "archived_sessions"):
             paths.extend((p, "codex") for p in (root / folder).rglob("*.jsonl"))
-    config = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
-    for root in unique([Path(os.environ.get("CLAUDE_CONFIG_DIR", config / "claude")), home / ".claude"]):
+    for root in agent_homes("claude", home):
         paths.extend((p, "claude") for p in (root / "projects").rglob("*.jsonl"))
-    for root in unique([Path(os.environ.get("COPILOT_HOME", config / "copilot")), home / ".copilot"]):
-        paths.extend((p, "copilot") for p in (root / "session-state").glob("*/events.jsonl"))
+    for root in agent_homes("copilot", home):
+        paths.extend(
+            (p, "copilot") for p in (root / "session-state").glob("*/events.jsonl")
+        )
     for root in capture_roots(home):
         for agent in ("codex", "claude", "copilot"):
             pattern = "events.jsonl" if agent == "copilot" else "*.jsonl"
@@ -177,7 +157,7 @@ def hook_failures(home):
         for path in (root / "events").glob("*/*/events.jsonl"):
             try:
                 with path.open(errors="replace") as stream:
-                    for line in stream:
+                    for line_number, line in enumerate(stream, 1):
                         try:
                             event = json.loads(line)
                         except ValueError:
@@ -185,16 +165,36 @@ def hook_failures(home):
                         if not isinstance(event, dict):
                             continue
                         name = str(event.get("event", "")).lower()
-                        if name not in ("posttoolusefailure", "stopfailure", "erroroccurred", "permissiondenied"):
+                        if name not in (
+                            "posttoolusefailure",
+                            "stopfailure",
+                            "erroroccurred",
+                            "permissiondenied",
+                        ):
                             continue
-                        payload = event.get("payload", {})
-                        if not isinstance(payload, dict):
+                        payload = normalize_hook(event.get("payload", {}))
+                        if not payload:
                             continue
-                        stamp = timestamp(event.get("captured_at", event.get("timestamp")), path.stat().st_mtime)
-                        yield (stamp, str(event.get("session_id", "unknown")), str(event.get("agent", "unknown")),
-                               str(payload.get("tool_name", payload.get("toolName", name))),
-                               command(payload.get("tool_input", payload.get("toolArgs", {}))),
-                               body(payload.get("error", payload.get("message", payload))), "error")
+                        stamp = timestamp(
+                            event.get("captured_at", event.get("timestamp")),
+                            path.stat().st_mtime,
+                        )
+                        yield Event(
+                            stamp,
+                            str(event.get("session_id", "unknown")),
+                            str(event.get("agent", "unknown")),
+                            str(payload.get("tool_name", name)),
+                            command(
+                                payload.get("tool_input", payload.get("tool_args", {}))
+                            ),
+                            body(payload.get("error", payload.get("message", payload))),
+                            "error",
+                            sources=[{"path": str(path), "line": line_number}],
+                            origin="hook",
+                            call_id=payload.get(
+                                "tool_use_id", payload.get("tool_call_id")
+                            ),
+                        )
             except OSError:
                 continue
 
@@ -203,17 +203,34 @@ def native_events(path, agent, include_messages=False):
     sid = path.parent.name if agent == "copilot" else path.stem
     fallback = path.stat().st_mtime
     calls, processes = {}, {}
+    line_number, child_number, cid, origin = 0, 0, None, "native"
+    chain = hashlib.sha256()
+
+    def emit(row):
+        return Event(
+            *row,
+            sources=[{"path": str(path), "line": line_number}],
+            call_id=str(cid) if cid is not None else None,
+            child=child_number,
+            origin=origin,
+            record_key=chain.hexdigest(),
+        )
+
     # Stream once: retaining only provenance and emitted events avoids rereading
     # a transcript per tool result or per cache-log session.
     with path.open(errors="replace") as stream:
-        for raw in stream:
+        for line_number, raw in enumerate(stream, 1):
+            chain.update(raw.rstrip("\r\n").encode("utf-8", "replace"))
+            child_number, cid, origin = 0, None, "native"
             try:
                 event = json.loads(raw)
             except ValueError:
                 continue
             if not isinstance(event, dict):
                 continue
-            data = event.get("payload", {}) if agent == "codex" else event.get("data", {})
+            data = (
+                event.get("payload", {}) if agent == "codex" else event.get("data", {})
+            )
             if not isinstance(data, dict):
                 continue
             kind = event.get("type")
@@ -226,94 +243,192 @@ def native_events(path, agent, include_messages=False):
                     args = data.get("arguments", data.get("input", ""))
                     parsed = decode(args)
                     cmd = command(args)
-                    if data.get("name", "").endswith("write_stdin") and isinstance(parsed, dict):
+                    if data.get("name", "").endswith("write_stdin") and isinstance(
+                        parsed, dict
+                    ):
                         cmd = processes.get(str(parsed.get("session_id")), cmd)
-                    calls[data.get("call_id")] = (data.get("name", "?"), cmd)
+                    if data.get("call_id") is not None:
+                        calls[data["call_id"]] = (data.get("name", "?"), cmd)
                 elif kind in ("function_call_output", "custom_tool_call_output"):
                     tool, cmd = calls.get(data.get("call_id"), ("?", ""))
+                    cid = data.get("call_id")
+                    origin = "wrapper"
                     out = data.get("output", "")
                     parts = list(result_parts(out))
+                    parent_cid = cid
                     for index, part in enumerate(parts, 1):
-                        process = part.get("session_id") if isinstance(part, dict) else None
+                        explicit_cid = part.get("call_id") if isinstance(part, dict) else None
+                        # Own call IDs identify an execution across representations.
+                        # Positions distinguish children known only by their parent.
+                        cid = explicit_cid if explicit_cid is not None else parent_cid
+                        child_number = 0 if explicit_cid is not None else index if len(parts) > 1 else 0
+                        process = (
+                            part.get("session_id") if isinstance(part, dict) else None
+                        )
                         match = re.search(r"session ID[: ]+(\d+)", body(part))
-                        child_cmd = command(part) if isinstance(part, dict) and any(k in part for k in ("cmd", "command")) else cmd
+                        child_cmd = (
+                            command(part)
+                            if isinstance(part, dict)
+                            and any(k in part for k in ("cmd", "command"))
+                            else cmd
+                        )
                         if process is not None or match:
-                            processes[str(process if process is not None else match[1])] = child_cmd
+                            processes[
+                                str(process if process is not None else match[1])
+                            ] = child_cmd
                         if failure(part):
-                            child_tool = f"{tool} child={index}" if len(parts) > 1 else tool
-                            yield (ts, sid, agent, child_tool, child_cmd, body(part), "error")
+                            child_tool = (
+                                f"{tool} child={index}" if len(parts) > 1 else tool
+                            )
+                            yield emit(
+                                (
+                                    ts,
+                                    sid,
+                                    agent,
+                                    child_tool,
+                                    child_cmd,
+                                    body(part),
+                                    "error",
+                                )
+                            )
                 elif kind == "item_completed":
                     item = data.get("item", {})
-                    if item.get("type") == "CommandExecution" and item.get("exit_code") not in (None, 0):
-                        yield (ts, sid, agent, "exec_command", body(item.get("command")), body(item.get("aggregated_output")), "error")
-                    elif item.get("type") == "McpToolCall" and str(item.get("status", "")).lower() in ("failed", "error"):
-                        yield (ts, sid, agent, item.get("tool", "?"), command(item.get("arguments")), body(item.get("result")), "error")
+                    cid = item.get("call_id", data.get("call_id"))
+                    child_number = 0 if item.get("call_id") is not None else item.get("child", 0)
+                    origin = "command-execution"
+                    if item.get("type") == "CommandExecution" and item.get(
+                        "exit_code"
+                    ) not in (None, 0):
+                        yield emit(
+                            (
+                                ts,
+                                sid,
+                                agent,
+                                "exec_command",
+                                body(item.get("command")),
+                                body(item.get("aggregated_output")),
+                                "error",
+                            )
+                        )
+                    elif item.get("type") == "McpToolCall" and str(
+                        item.get("status", "")
+                    ).lower() in ("failed", "error"):
+                        yield emit(
+                            (
+                                ts,
+                                sid,
+                                agent,
+                                item.get("tool", "?"),
+                                command(item.get("arguments")),
+                                body(item.get("result")),
+                                "error",
+                            )
+                        )
                 elif kind == "message" and include_messages:
                     role = data.get("role")
                     if role in ("user", "assistant"):
-                        yield (ts, sid, agent, role, "", body(data.get("content")), role)
+                        yield emit(
+                            (ts, sid, agent, role, "", body(data.get("content")), role)
+                        )
             elif agent == "copilot":
                 if kind == "tool.execution_start":
-                    calls[data.get("toolCallId")] = (data.get("toolName", "?"), command(data.get("arguments")))
+                    calls[data.get("toolCallId")] = (
+                        data.get("toolName", "?"),
+                        command(data.get("arguments")),
+                    )
                 elif kind == "tool.execution_complete" and data.get("success") is False:
-                    tool, cmd = calls.get(data.get("toolCallId"), ("?", ""))
-                    yield (ts, sid, agent, tool, cmd, body(data.get("error")), "error")
+                    cid = data.get("toolCallId")
+                    tool, cmd = calls.get(cid, ("?", ""))
+                    yield emit(
+                        (ts, sid, agent, tool, cmd, body(data.get("error")), "error")
+                    )
                 elif include_messages and kind in ("user.message", "assistant.message"):
                     role = kind.split(".")[0]
-                    yield (ts, sid, agent, role, "", body(data.get("content")), role)
+                    yield emit(
+                        (ts, sid, agent, role, "", body(data.get("content")), role)
+                    )
             else:
                 message = event.get("message", {})
-                content = message.get("content", []) if isinstance(message, dict) else []
+                content = (
+                    message.get("content", []) if isinstance(message, dict) else []
+                )
                 if include_messages and kind in ("user", "assistant"):
-                    text_content = content if isinstance(content, str) else "\n".join(
-                        body(item.get("text")) for item in content
-                        if isinstance(item, dict) and item.get("type") == "text"
-                    ) if isinstance(content, list) else ""
+                    text_content = (
+                        content
+                        if isinstance(content, str)
+                        else "\n".join(
+                            body(item.get("text"))
+                            for item in content
+                            if isinstance(item, dict) and item.get("type") == "text"
+                        )
+                        if isinstance(content, list)
+                        else ""
+                    )
                     if text_content:
-                        yield (ts, sid, agent, kind, "", text_content, kind)
+                        yield emit((ts, sid, agent, kind, "", text_content, kind))
                 if not isinstance(content, list):
                     continue
                 for item in content:
                     if not isinstance(item, dict):
                         continue
                     if item.get("type") == "tool_use":
-                        calls[item.get("id")] = (item.get("name", "?"), command(item.get("input")))
-                    elif item.get("type") == "tool_result" and item.get("is_error") is True:
-                        tool, cmd = calls.get(item.get("tool_use_id"), ("?", ""))
-                        yield (ts, sid, agent, tool, cmd, body(item.get("content")), "error")
-
-
-# A reading command with successful exit is excluded at collection time. These
-# output-only heuristic records have no exit code, so exclude documentation and
-# self-audit reads here without suppressing native failed read commands.
-META = re.compile(r"cache-scan|failscan|(?:bat|cat|rg|grep|head|tail)\b.*(?:SKILL\.md|AGENTS\.md|session_.*\.log|\.jsonl|\.cache/|\.output)|gh run (?:view|download)")
-CATEGORIES = [
-    ("stale-aws-creds", r"ExpiredToken|InvalidClientTokenId|Unable to locate credentials"),
-    ("stat-dialect", r"stat: illegal option|cannot read file system information"),
-    ("zsh-nullglob", r"no matches found"),
-    ("gh-graphql-jq", r"is not defined|declared but not used|RCURLY|jq: (?:error|syntax error)"),
-    ("jq-non-json-input", r"jq: parse error"),
-    ("permission-denied", r"[Pp]ermission denied|Operation not permitted"),
-    ("cmd-not-found", r"command not found"),
-    ("git-workflow", r"fatal:|CONFLICT|not a git repository"),
-    ("other-failure", r"[Ee]rror|[Ff]ailed|Traceback|Exception|No such file or directory"),
-]
+                        calls[item.get("id")] = (
+                            item.get("name", "?"),
+                            command(item.get("input")),
+                        )
+                    elif (
+                        item.get("type") == "tool_result"
+                        and item.get("is_error") is True
+                    ):
+                        cid = item.get("tool_use_id")
+                        tool, cmd = calls.get(cid, ("?", ""))
+                        yield emit(
+                            (
+                                ts,
+                                sid,
+                                agent,
+                                tool,
+                                cmd,
+                                body(item.get("content")),
+                                "error",
+                            )
+                        )
 
 
 def log_events(roots):
-    for path in unique(p for root in roots for p in root.glob("session_*.log*") if re.fullmatch(r"session_[^.]+\.log(?:\.zst)?", p.name)):
+    for path in unique(
+        p
+        for root in roots
+        for p in root.glob("session_*.log*")
+        if re.fullmatch(r"session_[^.]+\.log(?:\.zst)?", p.name)
+    ):
         fallback = path.stat().st_mtime
         sid = path.name.removeprefix("session_").split(".log")[0]
-        for rec in re.split(r"(?m)^## ", read(path))[1:]:
+        text = read(path)
+        starts = list(re.finditer(r"(?m)^## ", text))
+        for index, start in enumerate(starts):
+            end = starts[index + 1].start() if index + 1 < len(starts) else len(text)
+            rec = text[start.end() : end]
+            line_number = text.count("\n", 0, start.start()) + 1
             header = re.match(r"\[([^]]+)\]", rec)
             cmd = re.search(r"(?ms)^CMD: (.*?)(?=^STDOUT:|^STDERR:|^---|\Z)", rec)
             cmd = cmd[1].strip() if cmd else ""
-            doc_read = re.search(r"(?:bat|cat|rg|grep|head|tail)\b.*(?:SKILL|AGENTS|README)\.md", cmd)
-            if META.search(cmd) or (doc_read and "status=stdout" in rec.split("\n", 1)[0]):
+            status = re.search(r"status=(\w+)", rec.split("\n", 1)[0])
+            if not heuristic_output(cmd, status[1] if status else "unknown"):
                 continue
             output = re.search(r"(?ms)^(?:STDOUT|STDERR):\n(.*)", rec)
             if output:
-                yield (timestamp(header[1] if header else None, fallback), sid, "cache", "Bash", cmd, output[1], "heuristic")
+                yield Event(
+                    timestamp(header[1] if header else None, fallback),
+                    sid,
+                    "cache",
+                    "Bash",
+                    cmd,
+                    output[1],
+                    "heuristic",
+                    sources=[{"path": str(path), "line": line_number}],
+                    origin="heuristic",
+                )
 
 
 def families(roots, cutoff, date_filter, limit):
@@ -396,73 +511,149 @@ def main():
     mode, days, limit, date_filter, session = sys.argv[1:]
     days, limit = int(days), int(limit)
     home = Path.home()
+    if mode == "roots":
+        for root in log_roots(home):
+            print(root)
+        return 0
     cutoff = time.time() - days * 86400
-    roots = list(unique(p for p in (home / ".cache/claude", home / ".cache/copilot", home / ".cache/codex") if p.is_dir()))
+    roots = log_roots(home)
 
     def eligible(event):
         ts, sid = event[:2]
-        return ts >= cutoff and (not session or session in sid) and (not date_filter or dt.datetime.fromtimestamp(ts).isoformat().startswith(date_filter))
+        return (
+            ts >= cutoff
+            and (not session or session in sid)
+            and (
+                not date_filter
+                or dt.datetime.fromtimestamp(ts).isoformat().startswith(date_filter)
+            )
+        )
 
     events = []
+    index = EventIndex(home)
     for path, agent in native_paths(home):
-        # Native Codex rollout filenames contain the session UUID. Only use
-        # this optimization for UUID selectors, retaining metadata lookup for
-        # custom names and other harnesses.
-        if agent == "codex" and re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,}", session) and session not in path.name:
+        if (
+            agent == "codex"
+            and re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,}", session)
+            and session not in path.name
+        ):
             continue
         try:
-            events.extend(e for e in native_events(path, agent, mode == "transcript") if eligible(e))
+            events.extend(
+                e for e in index.events(path, agent, native_events) if eligible(e)
+            )
         except OSError:
             continue
-    # Stable ties retain transcript order when events share a timestamp (or
-    # use the same file-mtime fallback). A set would randomize --limit results.
-    events = sorted(dict.fromkeys(events), key=lambda e: e[0])
-    # CommandExecution and function outputs can describe the same command.
-    seen, errors = set(), []
-    for event in events:
-        if event[-1] != "error":
-            continue
-        key = event[:6]
-        if key not in seen:
-            seen.add(key)
-            errors.append(event)
-    print("NATIVE TRANSCRIPTS (live and cached)" if mode == "transcript" else "ACTUAL TOOL ERRORS")
+    index.save()
+    events = sorted(reconcile(events), key=lambda e: e.timestamp)
+    errors = [e for e in events if e.kind == "error"]
+    ambiguous = [e for e in errors if e.ambiguous]
     selected = errors[-limit:] if limit else []
-    for ts, sid, agent, tool, cmd, output, _ in selected:
+    captured_errors = sorted(
+        (e for e in hook_failures(home) if eligible(e)), key=lambda e: e[0]
+    )
+    signals = [e for e in log_events(roots) if eligible(e) and category(e[5])]
+
+    if mode in ("json", "json-full"):
+        # Record count and text lengths are independent bounds. Sources/index retain full evidence.
+        full_output = mode == "json-full"
+        observations = {
+            "events": errors,
+            "hook_observations": captured_errors,
+            "heuristic_signals": sorted(signals, key=lambda e: e.timestamp),
+        }
+        record_counts = {
+            name: {
+                "total": len(rows),
+                "selected": min(limit, len(rows)),
+                "omitted": max(0, len(rows) - limit),
+            }
+            for name, rows in observations.items()
+        }
+        evidence = {
+            name: [e.evidence(full_output=full_output) for e in (rows[-limit:] if limit else [])]
+            for name, rows in observations.items()
+        }
+        print(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "error_observations": len(errors),
+                    "unique_executions": None
+                    if ambiguous or any(not e.call_id for e in errors)
+                    else len(errors),
+                    "ambiguous_observations": len(ambiguous),
+                    "record_limit": limit,
+                    "record_counts": record_counts,
+                    **evidence,
+                    "index": index.stats(),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    print(
+        "NATIVE TRANSCRIPTS (live and cached)"
+        if mode == "transcript"
+        else "ACTUAL TOOL ERRORS"
+    )
+    for event in selected:
+        ts, sid, agent, tool, cmd, output, _ = event
         stamp = dt.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
-        print(f"  [{stamp}] {agent} session={sid} {tool}: {compact(cmd, 140)}")
-        print(f"    → {compact(output, 240)}")
+        uncertainty = " [possible overlap; observation]" if event.ambiguous else ""
+        print(
+            f"  [{stamp}] {agent} session={sid} {tool}: {compact(cmd, 140)}{uncertainty}"
+        )
+        print(f"    → {excerpt(output)}")
     if not selected:
         print("  (none found in retained native transcripts)")
-    print(f"  errors={len(errors)} shown={len(selected)}")
-    captured_errors = sorted(set(e for e in hook_failures(home) if eligible(e)), key=lambda e: e[0])
+    if ambiguous:
+        print(
+            f"  error_observations={len(errors)} ambiguous_observations={len(ambiguous)} unique_executions=unknown shown={len(selected)}"
+        )
+    else:
+        print(f"  errors={len(errors)} shown={len(selected)} (native observations)")
+        if any(not e.call_id for e in errors):
+            print("  unique_executions=unknown (missing execution IDs)")
     if captured_errors:
-        print("\nCAPTURED HOOK FAILURES (separate observations; may overlap native errors)")
-        for ts, sid, agent, tool, cmd, output, _ in captured_errors[-limit:] if limit else []:
-            print(f"  [{dt.datetime.fromtimestamp(ts).isoformat(timespec='seconds')}] {agent} session={sid} {tool}: {compact(cmd, 140)}")
-            print(f"    → {compact(output, 240)}")
+        print(
+            "\nCAPTURED HOOK FAILURES (separate observations; may overlap native errors)"
+        )
+        for ts, sid, agent, tool, cmd, output, _ in (
+            captured_errors[-limit:] if limit else []
+        ):
+            print(
+                f"  [{dt.datetime.fromtimestamp(ts).isoformat(timespec='seconds')}] {agent} session={sid} {tool}: {compact(cmd, 140)}"
+            )
+            print(f"    → {excerpt(output)}")
     if mode == "transcript":
         for role, title in (("user", "PROMPTS"), ("assistant", "DECISIONS")):
             print(title)
-            for event in [e for e in events if e[-1] == role][-limit:] if limit else []:
-                print(f"  [{dt.datetime.fromtimestamp(event[0]).isoformat(timespec='seconds')}] session={event[1]} {compact(event[5])}")
+            for event in (
+                [e for e in events if e.kind == role][-limit:] if limit else []
+            ):
+                print(
+                    f"  [{dt.datetime.fromtimestamp(event[0]).isoformat(timespec='seconds')}] session={event[1]} {compact(event[5])}"
+                )
         return 0 if events or captured_errors else 3
     print("\nHEURISTIC FAILURE SIGNALS")
     counts, examples = collections.Counter(), {}
-    for event in log_events(roots):
-        if not eligible(event):
-            continue
-        for label, pattern in CATEGORIES:
-            if re.search(pattern, event[5]):
-                counts[label] += 1
-                examples[label] = compact(event[4], 100)
-                break
+    for event in signals:
+        label = category(event[5])
+        counts[label] += 1
+        examples[label] = compact(event[4], 100)
+    if mode == "classify":
+        print(f"cache-scan --classify window={days}d")
+        print("CATEGORY             COUNT")
     for label, n in counts.most_common():
         print(f"  {label:<20} {n:<4} {examples[label]}")
     if not counts:
         print("  (none)")
-    print("\nSCRIPT ARTIFACT FAMILIES")
-    families(roots, cutoff, date_filter, limit)
+    if mode == "audit":
+        print("\nSCRIPT ARTIFACT FAMILIES")
+        families(roots, cutoff, date_filter, limit)
+    return 0
 
 
 if __name__ == "__main__":

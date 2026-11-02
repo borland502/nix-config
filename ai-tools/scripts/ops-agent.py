@@ -3,12 +3,21 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
+
+# Support the managed installation and direct source-tree execution.
+for _lib in (Path(os.environ["AGENT_TOOLS_LIB"]) if os.environ.get("AGENT_TOOLS_LIB") else Path(__file__).resolve().parent.parent / "lib",
+             Path(__file__).resolve().parent.parent / "lib",
+             Path(__file__).resolve().parents[2] / "chezmoi/dot_local/lib",
+             Path.home() / ".local/lib"):
+    if (_lib / "agent_tools").is_dir():
+        sys.path.insert(0, str(_lib))
+        break
+
+from agent_tools.process import run as checked_run, ProcessError, kac_env
+from agent_tools.atlassian import Client, AtlassianError
 
 # ---------------------------------------------------------------------------
 # Credentials
@@ -99,13 +108,7 @@ def _confluence_base_url() -> str:
 
 
 def _kion_creds() -> dict[str, str]:
-    base = Path.home() / ".cache" / "kion-aws-cache"
-    env: dict[str, str] = {}
-    for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
-        f = base / key
-        if f.exists():
-            env[key] = f.read_text().strip()
-    return env
+    return kac_env()
 
 
 # ---------------------------------------------------------------------------
@@ -114,36 +117,14 @@ def _kion_creds() -> dict[str, str]:
 
 
 def _jira_request(method: str, path: str, body: Any = None) -> Any:
-    url = f"{_jira_base_url()}{path}"
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        url,
-        data=data,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {_jira_token()}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req) as resp:
-            raw = resp.read()
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as exc:
-        return {"error": exc.code, "reason": exc.reason, "body": exc.read().decode()}
+    client = Client(_jira_base_url(), _jira_token())
+    return client.request(method, path, body, allow_empty=method != "GET")
 
 
 def _aws(*args: str) -> str:
-    env = {**os.environ, **_kion_creds()}
-    result = subprocess.run(
-        ["aws", *args],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    out = result.stdout + result.stderr
-    return out[:4000]
+    env = {**os.environ, **_kion_creds(), "AWS_PAGER": "", "AWS_CLI_AUTO_PROMPT": "off"}
+    result = checked_run(["aws", *args], env=env, timeout=120)
+    return (result.stdout + result.stderr)[:4000]
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +217,7 @@ TOOL_HANDLERS: dict[str, Any] = {
 def dispatch(tool_name: str, tool_input: dict[str, Any]) -> str:
     handler = TOOL_HANDLERS.get(tool_name)
     if handler is None:
-        return json.dumps({"error": f"unknown tool: {tool_name}"})
+        raise ValueError(f"unknown tool: {tool_name}")
     result = handler(tool_input)
     return json.dumps(result) if isinstance(result, (dict, list)) else str(result)
 
@@ -399,16 +380,34 @@ def run(prompt: str) -> None:
 
 def _run_tool(name: str, raw_input: str) -> None:
     """Deterministic single-tool mode: `ops-agent --tool <name> '<json>'`."""
-    _require_secrets()
     try:
-        tool_input = json.loads(raw_input) if raw_input.strip() else {}
-    except json.JSONDecodeError as exc:
-        print(f"[ops-agent] --tool input is not valid JSON: {exc}", file=sys.stderr)
-        sys.exit(1)
-    if not isinstance(tool_input, dict):
-        print("[ops-agent] --tool input must be a JSON object", file=sys.stderr)
-        sys.exit(1)
-    print(dispatch(name, tool_input))
+        if name not in TOOL_HANDLERS:
+            raise ValueError(f"unknown tool: {name}")
+        tool_input = json.loads(raw_input)
+        if not isinstance(tool_input, dict):
+            raise ValueError("--tool input must be a JSON object")
+        schema = next(t["input_schema"] for t in TOOLS if t["name"] == name)
+        for key in schema["required"]:
+            value = tool_input.get(key)
+            prop = schema["properties"][key]
+            if prop["type"] == "array":
+                valid = isinstance(value, list) and all(isinstance(v, str) for v in value)
+            else:
+                valid = isinstance(value, str) and bool(value.strip())
+            if not valid or ("enum" in prop and value not in prop["enum"]):
+                raise ValueError(f"invalid or missing input field: {key}")
+        if name.startswith("jira_"):
+            for p in (_SECRET_JIRA_URL, _SECRET_JIRA_TOKEN):
+                if not p.is_file() or not p.read_text().strip():
+                    raise ValueError("missing or empty Jira configuration")
+        result = dispatch(name, tool_input)
+        # Domain-level failures (for example an unavailable transition) are failures too.
+        if name.startswith("jira_") and "error" in json.loads(result):
+            raise ValueError(result[:2000])
+        print(result)
+    except (ValueError, OSError, ProcessError, AtlassianError) as exc:
+        print(f"[ops-agent] {exc}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 def _test_credentials() -> None:
@@ -417,7 +416,10 @@ def _test_credentials() -> None:
     ok = True
 
     # Jira: GET /myself (base URL already includes /rest/api/2)
-    result = _jira_request("GET", "/myself")
+    try:
+        result = _jira_request("GET", "/myself")
+    except AtlassianError as exc:
+        result = {"error": str(exc)}
     if "error" in result or not any(k in result for k in ("accountId", "key", "name")):
         print(f"[ops-agent] FAIL jira: {result}", file=sys.stderr)
         ok = False
@@ -427,37 +429,17 @@ def _test_credentials() -> None:
         )
 
     # Confluence: GET /rest/api/user/current
-    confluence_url = _confluence_base_url()
-    token = _confluence_token()
-    req = urllib.request.Request(
-        f"{confluence_url}/rest/api/user/current",
-        method="GET",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-        },
-    )
     try:
-        with urllib.request.urlopen(req) as resp:
-            body = resp.read()
-        try:
-            data = json.loads(body)
-        except json.JSONDecodeError:
-            print(
-                f"[ops-agent] FAIL confluence: non-JSON response: {body[:200]}",
-                file=sys.stderr,
-            )
-            ok = False
-            sys.exit(0 if ok else 1)
+        data = Client(_confluence_base_url().rstrip("/") + "/rest/api", _confluence_token()).request("GET", "user/current")
         if "accountId" not in data and "username" not in data and "userKey" not in data:
             print(f"[ops-agent] FAIL confluence: {data}", file=sys.stderr)
             ok = False
         else:
             name = data.get("displayName") or data.get("username", "")
             print(f"[ops-agent] OK   confluence: logged in as {name}")
-    except urllib.error.HTTPError as exc:
+    except AtlassianError as exc:
         print(
-            f"[ops-agent] FAIL confluence: HTTP {exc.code} {exc.reason}",
+            f"[ops-agent] FAIL confluence: {exc}",
             file=sys.stderr,
         )
         ok = False
@@ -466,12 +448,28 @@ def _test_credentials() -> None:
 
 
 def main() -> None:
+    if len(sys.argv) == 2 and sys.argv[1] in {"--help", "-h"}:
+        print("Usage: ops-agent <prompt>              # agentic (via claude CLI)")
+        print("       ops-agent --tool <name> '<json>' # run one tool directly")
+        print("       ops-agent --tool <name> --input-file FILE")
+        print("       ops-agent --test                 # verify credentials")
+        print("       ops-agent --help | -h            # show this help")
+        print(f"Tools: {', '.join(sorted(TOOL_HANDLERS))}")
+        return
     if len(sys.argv) == 2 and sys.argv[1] == "--test":
         _test_credentials()
         return
     if len(sys.argv) >= 2 and sys.argv[1] == "--tool":
+        if len(sys.argv) == 5 and sys.argv[3] == "--input-file":
+            try:
+                raw = Path(sys.argv[4]).read_text()
+            except (OSError, UnicodeError) as exc:
+                print(f"[ops-agent] cannot read input file: {exc}", file=sys.stderr)
+                raise SystemExit(1)
+            _run_tool(sys.argv[2], raw)
+            return
         if len(sys.argv) != 4:
-            print("Usage: ops-agent --tool <name> '<json-input>'", file=sys.stderr)
+            print("Usage: ops-agent --tool <name> '<json-input>' | --input-file FILE", file=sys.stderr)
             print(f"Tools: {', '.join(sorted(TOOL_HANDLERS))}", file=sys.stderr)
             sys.exit(1)
         _run_tool(sys.argv[2], sys.argv[3])

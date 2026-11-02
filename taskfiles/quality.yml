@@ -120,6 +120,7 @@ tasks:
       task check:copilot-instructions
       task check:agent-instructions
       task check:instruction-size
+      task check:agent-context-budget
       task check:model-agnostic
       task check:secret-hygiene
 
@@ -154,9 +155,9 @@ tasks:
     cmd: python3 scripts/lint-shell.py --format
 
   lint:py:
-    desc: Lint Python files (skips ai-tools/ and secrets/)
+    desc: Lint Python modules and shebang programs, including first-party ai-tools
     platforms: [linux, darwin]
-    cmd: ruff check --exclude ai-tools,secrets .
+    cmd: python3 scripts/lint-python.py
 
   lint:yaml:
     desc: Lint YAML files (skips secrets/ via .yamllint.yaml)
@@ -179,6 +180,11 @@ tasks:
   check:copilot-instructions:
     desc: Verify duplicated Copilot instruction files stay in sync
     cmd: bash ./scripts/check-copilot-instructions-sync.sh
+
+  check:agent-context-budget:
+    desc: Inventory agent entry sizes, local references, duplication and helper coverage
+    platforms: [linux, darwin]
+    cmd: python3 scripts/check-agent-context-budget.py
 
   check:instruction-size:
     desc: Guard the per-turn agent instruction source against token bloat

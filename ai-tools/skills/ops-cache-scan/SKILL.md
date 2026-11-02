@@ -3,204 +3,78 @@ name: ops-cache-scan
 description: Use when asked to read, find, or resume today's handoff; resuming context from an earlier session; investigating a recent command or tool failure; or asked what happened previously.
 ---
 
-# Cache Scan
+# Cache scan
 
-Use this skill when the user asks to recover context from recent cache activity, resume prior work, or summarize failures from terminal logs.
+Recover recent intent, handoffs and command evidence with the existing read-side
+`cache-scan` helper before reconstructing work from memory or rewriting helpers.
+Use focused output first; logs and transcripts can contain credentials and
+sensitive source. Redact excerpts and never paste whole sessions by default.
 
-## Why those logs exist
+## Choose the smallest useful view
 
-The logs under `~/.cache/<agent>/session_<id>.log` (where `<agent>` is `claude` or `copilot`) are populated automatically by a Bash `PostToolUse` hook. The hook is injected into `~/.config/claude/settings.json` (Claude) and declared in `~/.config/copilot/hooks/log-bash.json` (Copilot) — both wired by [home-manager/common.nix](../../../home-manager/common.nix). Every Bash tool call is piped through [ai-tools/scripts/log-bash.sh](../../scripts/log-bash.sh) (deployed to `~/.local/bin/ai-tools/log-bash.sh`), which appends a structured record:
+| Request | Start with |
+| --- | --- |
+| Recent activity or today's handoff | `cache-scan` or `cache-scan --date YYYY-MM-DD` |
+| Resume a known session | `cache-scan --session ID --transcript` |
+| Investigate a failing tool | `cache-scan --session ID --transcript` |
+| Exact prior edits | `cache-scan --session ID --diffs` |
+| Recurring patterns | `cache-scan --classify --days N` |
+| Remedy design across sessions | `cache-scan --audit --days N` |
 
-```text
-## [YYYY-MM-DD HH:MM:SS] status=ok|stderr|interrupted cwd=<dir>
-CMD: <command>
-STDOUT: / STDERR: sections
-```
+Use `--limit N` to bound excerpts; `--verbose` adds a timeline only when needed.
+`--session` without a date/window searches retained records rather than assuming
+the default two-day window. For machine-consumable bounded evidence use
+`--json` or `--evidence`: `--limit N` caps each native, hook and heuristic
+array to its newest N records; zero emits none. Totals and omitted counts remain.
+To retain selected records' full text, combine either with `--full-output`
+(record caps still apply) and redirect into a named private cache artifact; record its
+path, byte count and hash when handing it to a reviewer. Inspect `cache-scan --help` for supported flags.
+Do not expand a broad audit when one invocation's evidence will answer the ask.
 
-`status` is a heuristic (no exit code is exposed to the hook): `interrupted`, else `stderr` when stderr is non-empty, else `ok`. Activation also enforces `~/.cache/claude` and `~/.cache/codex` → `~/.cache/copilot` as symlinks so every agent shares one log dir.
+Read [modes and output](references/modes-and-output.md) for source-specific
+enrichment, section interpretation and archive retrieval. Read
+[capture provenance](references/capture-provenance.md) when diagnosing missing
+records, hooks, native capture coverage or retention; it explains the legacy
+format and collector limits. Neither reference is required for every lookup.
 
-### Capture coverage and legacy failure limits
+## Evidence rules
 
-Managed command hooks also append original event payloads under
-`~/.cache/copilot/agent-capture/events/<agent>/<session>/events.jsonl`.
-Claude and Copilot have dedicated tool-failure hooks; Codex failure evidence
-comes from native transcripts. A user timer reconciles native transcripts,
-logs, tool results and session artifacts every fifteen minutes into
-`agent-capture/capture/<agent>/`, with provenance in `agent-capture/manifests/`.
-The collector uses local Python only: no model calls or model credits.
+Distinguish actual failed invocations from heuristic text matches. A successful
+`bat` of documentation containing `ExpiredToken` is not an AWS failure. A
+nonzero exit establishes failure, not its cause. Correlate wrapper and native
+events by invocation identity/provenance and timestamps before counting; two
+representations of one command are one failure. Hook and transcript totals may
+overlap and must not be added blindly.
 
-`cache-scan --audit` and `--transcript` read the mirrored transcripts even when
-their originals are gone. Prompts and errors from all three agents work without
-a legacy Bash log. Hook failures are reported separately because they can
-overlap native transcript errors; do not add the two counts together.
-Captured files retain their source hierarchy and timestamps. Copies update when
-content changes and never remove native source data; the old sweeper's
-`--prune` option is refused. Native formats are vendor-specific and adapters
-need regression fixtures when upgrading a CLI.
+The legacy Bash log has no reliable exit status: failed tool calls can be
+absent and stderr can be folded into stdout. An empty `FAILURES` section is
+absence of evidence, never proof of no failures. Transcript `TOOL ERRORS` and
+audit `ACTUAL TOOL ERRORS` are stronger evidence; `HEURISTIC FAILURE SIGNALS`,
+keyword matches and classification counts are leads. Verify the raw command,
+result, session and timestamp before attributing a cause or changing a skill.
+Counts are not failure rates without a known denominator and capture coverage.
 
-After deployment, review and trust the changed Codex hook definitions in
-`/hooks`; Codex trust is keyed to their definition hash. Sandbox policies must
-permit the collector executable and its cache output directory. The timer
-still recovers available native files when a hook cannot run. Neither path can
-recover content a vendor never writes locally, and files created and removed
-between reconciliation runs may not be copied. Do not run hook automation by
-hand against real state during an investigation; use the deployed timer and
-fixture tests (`task check:agent-tools`).
+When resuming, inspect the latest handoff/progress ledger and referenced
+artifacts, then corroborate commit IDs and working-tree state. Preserve existing
+authorization and unrelated changes. Record missing or stale evidence instead
+of confidently redispatching completed work.
 
-The legacy Bash log has two limits, measured on 2026-09-03. **An empty
-`FAILURES` section is absence of evidence, never evidence of absence**:
+## Find artifacts without dumping logs
 
-1. **A Bash call that exits non-zero produces no record at all.** The
-   `PostToolUse` hook does not fire for a failed Bash tool call, so the command,
-   its output, and its error are absent from the log entirely — not logged as
-   `ok`, simply missing. A probe (`ls /nonexistent-path`, exit 2) left zero
-   trace in its session log.
-2. **`stderr` is folded into `stdout` by the harness.** The Bash tool result now
-   carries `stderr: ""` on every call and puts the error text in `stdout`, so
-   the `status=stderr` branch can no longer fire. Measured across the log
-   corpus: 84 `status=stderr` records in 2026-06, then **0** across ~16,700
-   commands in 2026-07 through 2026-09.
+Start with uncompressed files. Check listed `.zst` archives when those contain
+no useful example; use `zstdcat` on the specific named archive. The SCRIPTS
+section includes archived helpers: a missing `name.py` may still exist as
+`name.py.zst`. Search retained artifacts before recreating scripts. Keep any
+recovered file in a named cache path. Cache retention is finite; important
+long-term product records belong in their approved durable destination.
 
-Do not rely on the legacy `FAILURES` section. Triage a real failure from:
+This skill consumes logs; it does not configure or run automation hooks. Do not
+invoke live collectors or sweepers manually during an investigation. Use fixture
+tests (`task check:agent-tools`) for changed capture behavior. The source helper
+is `chezmoi/dot_local/bin/executable_cache-scan`, installed as
+`~/.local/bin/cache-scan`; it uses local tools without model calls.
 
-- **`SILENT FAILURES (exit-0 errors, heuristic)`** — `cache-scan` pattern-matches
-  error text inside `STDOUT` and classifies it (`nullglob-miss`, `stat-dialect`,
-  `cmd-not-found`, …). This is now the log's primary failure signal.
-- **`cache-scan -t`**, whose `TOOL ERRORS` section reads the failures out of the
-  transcript, where they *are* recorded — the failing tool, its command or path,
-  and the error text, for Claude (`is_error` tool results) and Copilot
-  (`tool.execution_complete` with `success: false`) alike. This is the real
-  failure list; reach for `-t` the moment triage is the goal.
-- **The user's own account** of what broke. When the log is silent, ask rather
-  than concluding the command succeeded.
-
-Never report "no failures in the window" on the strength of the `FAILURES`
-section alone.
-
-Lifecycle: the daily `compress-old-cache` timer zstd-compresses top-level cache files older than 1 day (or over 1 MB), then applies a **retention pass** — top-level `.zst` archives and subdirectories untouched for `CACHE_RETENTION_DAYS` (default 548 ≈ 1.5 years) are deleted. Capture reconciliation applies the same retention window to its nested data. Anything that must survive long-term does not belong in the cache dir.
-
-This is *not* something a session needs to wire up — if the host has had `home-manager switch` run successfully, the hook is already firing on every Bash call. This skill consumes that log stream; it does not produce it. The companion read-side workflow lives in [flow-systematic-debugging](../flow-systematic-debugging/SKILL.md) Phase 0.
-
-## Inputs
-
-- `--days N` lookback by file mtime (defaults to `2`).
-- `--date YYYY-MM-DD` to restrict records to a header date.
-- `--session ID` to focus a single session log. Without `--days` or `--date`,
-  this searches retained logs instead of inheriting the two-day default.
-- `--limit N` timeline / decision length (defaults to `10`).
-- `-t|--transcript` enrich with the free native signal the Bash log never
-  captures — your typed prompts, the assistant's decision text, the files
-  changed, and the non-Bash tool tally. Claude reads
-  its session transcripts (`~/.config/claude/projects/*/<id>.jsonl`, older runs
-  under `~/.claude/projects`) + prompt-input log
-  (`~/.config/claude/history.jsonl`); Copilot reads its event stream
-  (`~/.config/copilot/session-state/<id>/events.jsonl`) plus the process log
-  (`~/.config/copilot/logs/process-*.log`) for the model and real error lines.
-  Codex reads `CODEX_HOME/sessions` and `archived_sessions`, with fallbacks to
-  `~/.config/codex` and `~/.codex`, deduplicated by real path. Its errors,
-  prompts, and decisions work without a cache log, including `--session ID`.
-  Additional Claude/Copilot tool/diff enrichment joins cache logs by session id. Read-only — no
-  model calls, no credits. Needs `jq` and Python standard library.
-- `--diffs` implies `-t` and additionally reconstructs the exact edits — Claude
-  from the transcript's verbatim `old_string`/`new_string`, Copilot from the
-  `apply_patch` V4A payloads. Capped by `--limit`; behind its own flag because
-  diffs are token-heavy.
-- `--classify` aggregate failure categories across the window (`--days`
-  defaults to 21 here), including the `.zst` archives: buckets each record's
-  output into named categories (`stale-aws-creds`, `stat-dialect`,
-  `zsh-nullglob`, `zsh-word-split`, `gh-graphql-jq`, `jq-non-json-input`, …)
-  and prints counts plus example commands. Use for trend triage ("what keeps
-  failing?"), not
-  single-session debugging. Heuristic — the log has no exit codes; records
-  whose command is itself a log sweep are excluded, but real output quoting a
-  marker still counts. Treat counts as leads. Needs `python3`.
-- `--audit` review recurring operational waste in one pass. It defaults to 30
-  days and separates `ACTUAL TOOL ERRORS`, `HEURISTIC FAILURE SIGNALS`, and
-  recursively discovered `SCRIPT ARTIFACT FAMILIES`. Dependency/build trees
-  are excluded. Use this for remedy design; use `--transcript` for one failure.
-- `-v|--verbose` add the command timeline and keyword scan (default output is
-  intentionally terse to keep token cost low — read the default first and only
-  reach for `--verbose` when you need the full timeline).
-
-## Procedure
-
-1. Run the helper script (terse): `cache-scan`
-2. Wider lookback: `cache-scan --days 5`
-3. Single session, full detail: `cache-scan --session 4e8838e2 --verbose`
-4. Recover *intent* (prompts, decisions, edited files), not just commands:
-   `cache-scan --session 4e8838e2 --transcript`
-5. Reconstruct the exact edits made (Claude or Copilot):
-   `cache-scan --session 4e8838e2 --diffs`
-6. Trend triage — what keeps failing across sessions:
-   `cache-scan --classify` (or `--classify --days 60` for a longer horizon)
-7. Broad remediation audit — confirmed errors, heuristic signals, and repeated
-   script families: `cache-scan --audit` (or `--audit --days 60`)
-
-## What To Extract
-
-Audit errors are ordered by event timestamp, with session and command
-provenance. Its date/window filters apply to events rather than transcript
-mtime. Script families include compressed scripts, deduplicate decompressed
-content, and omit generated assets and helper query snapshots. Documentation
-and self-audit reads are excluded from heuristic signals; actual failed tools
-remain visible. Counts are leads, not failure-rate statistics.
-
-`cache-scan` already structures this; read its sections directly:
-
-- **SESSIONS** (default) — one line per session: id, command / stderr / interrupt
-  counts, last status + command.
-- **FAILURES** (default) — commands with `status=stderr|interrupted`. **In
-  practice always empty** on current harnesses, and it says so in its own output
-  rather than printing a reassuring `none`; see "The log cannot see failures"
-  above. Only archived pre-July logs still populate it.
-- **TOOL ERRORS** (`-t`) — the tool calls that actually failed, joined from the
-  transcript back to the tool name and its command/path. The section the
-  `FAILURES` line points you to, and the one to read when triaging.
-- **ARTIFACTS** (default) — standalone plan/spec/design/handoff/note/resume
-  files in the cache root (`PHASE*`, `*handoff*`, `*plan*.md*`, `*spec*.md*`,
-  `*design*.md*`, `*note*.md*`, `*resume*.md*`), newest first, including `.zst`
-  archives. These are hand-written context the `session_*.log` stream never
-  contained; open one directly (`zstdcat` for `.zst`) to resume.
-- **SCRIPTS** (default) — reusable helper scripts a prior session wrote to the
-  cache root (code / query extensions: `.py`, `.go`, `.sh`, `.js`, `.ts`, `.jq`,
-  `.graphql`, `.nix`, `.sql`, …), newest first, including the `.zst` archives
-  `compress-old-cache` makes after a day. Check this **before** rewriting a
-  helper: an exact `ls <name>.py` misses the archived `<name>.py.zst` and makes
-  an existing script look gone. `.zst` rows are tagged `(zstdcat)` — recover
-  with `zstdcat file.zst > file`. Widen with `--days` to reach older archives.
-- **TIMELINE** (`--verbose`) — `[ts] status :: cmd` from the newest session; the
-  tail is where work was interrupted.
-- **KEYWORD HITS** (`--verbose`) — heuristic backstop for errors a `status=ok`
-  line missed (and for pre-structured logs).
-- **NATIVE TRANSCRIPT ENRICHMENT** (`--transcript`) — PROMPTS (your asks),
-  DECISIONS (assistant text), FILE EDITS (paths × count), and NON-BASH TOOLS for
-  the focused session. This is the *why* behind the commands; the Bash log only
-  has the *what*. Empty PROMPTS usually means the session is still live
-  (`history.jsonl` flushes at session end). Copilot sessions additionally show
-  `AGENT/MODEL` and an `OPERATIONAL` block (process-log model + curated error
-  lines — useful when triaging tool/MCP failures).
-- **DIFFS** (`--diffs`) — the exact per-edit changes for the focused session;
-  read these when you need to see *what* a prior run actually wrote, not just
-  which files it touched.
-- **CLASSIFY** (`--classify`) — category counts + example commands across the
-  window. The input for remediation planning (which skill/doc/helper to fix),
-  not for debugging one failure.
-- **ACTUAL TOOL ERRORS / HEURISTIC FAILURE SIGNALS / SCRIPT ARTIFACT FAMILIES**
-  (`--audit`) — the consolidated remediation view. Keep the first two classes
-  distinct: heuristic matches are leads, not confirmed failed executions.
-
-## Output Contract
-
-Return a concise summary with:
-
-1. `Recent Activity`: top directories/files by recency.
-2. `Failure Signals`: grouped patterns with hit counts.
-3. `Resume Candidates`: 1-3 concrete next actions.
-4. `Confidence`: high/medium/low and what is missing.
-
-## Notes
-
-- Prefer `rg` and `fd`/`find` for speed.
-- Avoid dumping whole logs unless asked; include short excerpts only.
-- Do not expose secrets; redact tokens and keys in snippets.
-- Implementation source is `chezmoi/dot_local/bin/executable_cache-scan`, deployed by chezmoi to `~/.local/bin/cache-scan`.
+Return recent activity, confirmed failures separately from heuristic signals,
+one to three concrete resume actions, and confidence with missing evidence.
+Use short redacted examples linked to artifact paths, not unsupported causal
+claims or promises that the vendor recorded everything.

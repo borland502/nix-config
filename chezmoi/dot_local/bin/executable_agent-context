@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Discover repository context without changing configuration or credentials."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+
+library = os.environ.get("AGENT_TOOLS_LIB")
+if library:
+    sys.path.insert(0, library)
+else:
+    source_library = Path(__file__).resolve().parents[1] / "lib"
+    sys.path.insert(
+        0,
+        str(
+            source_library
+            if (source_library / "agent_tools").is_dir()
+            else Path.home() / ".local/lib"
+        ),
+    )
+from agent_tools.context import collect
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("path", nargs="?", type=Path, default=Path.cwd())
+parser.add_argument("--json", action="store_true")
+args = parser.parse_args()
+if not args.path.is_dir():
+    parser.error("path must be an existing directory")
+result = collect(args.path)
+if args.json:
+    print(json.dumps(result, indent=2))
+else:
+    for key, value in result.items():
+        print(f"{key}: {json.dumps(value, ensure_ascii=False)}")

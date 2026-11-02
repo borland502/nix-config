@@ -34,7 +34,7 @@ class HookTests(unittest.TestCase):
             executable.parent.mkdir(parents=True)
             shutil.copyfile(ROOT / "ai-tools/scripts/agent-cache-capture", executable)
             executable.chmod(0o700)
-            env = dict(os.environ, HOME=tmp, AGENT_CACHE_CAPTURE_ROOT=str(home / "capture"))
+            env = dict(os.environ, HOME=tmp, AGENT_CACHE_CAPTURE_ROOT=str(home / "capture"), AGENT_TOOLS_LIB=str(ROOT / "chezmoi/dot_local/lib"))
             for agent in ("claude", "copilot", "codex"):
                 config = json.loads((HOOKS / f"{agent}-capture.json").read_text())
                 for event, entries in config["hooks"].items():
