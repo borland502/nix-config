@@ -264,7 +264,19 @@ in {
       KeepAlive = true;
       # Nix-packaged flameshot (migrated from the cask, which needed a
       # quarantine-strip activation step); store path needs no xattr fixups.
-      ProgramArguments = ["${pkgs.flameshot}/bin/flameshot"];
+      #
+      # Run the stable nix-darwin copy, never the /nix/store path. TCC records
+      # this ad-hoc-signed binary by its path, so every rebuild that changed
+      # the store hash added another "flameshot" row under Privacy > Screen &
+      # System Audio Recording (nine of them by 2026-11-02). The copy's path
+      # never changes, so there is one row; a version bump changes the cdhash
+      # and needs that row toggled off/on, but adds no new one. Exec the
+      # binary directly rather than `open -W`, so a reload kills flameshot
+      # itself instead of orphaning it behind a killed `open`.
+      ProgramArguments = ["/Applications/Nix Apps/flameshot.app/Contents/MacOS/flameshot"];
+      # Unused by flameshot; keeps the store path in the plist so an upgrade
+      # still changes it and nix-darwin reloads the agent onto the new build.
+      EnvironmentVariables.FLAMESHOT_STORE_PATH = "${pkgs.flameshot}";
       ProcessType = "Interactive";
       RunAtLoad = true;
     };
