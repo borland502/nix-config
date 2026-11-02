@@ -80,10 +80,16 @@ else
 			# (hostname, api_url, admin_password) without inheriting it from a
 			# parent that merely happens to be called "hosts".
 			leafkey=${keypath##*.}
-			case "${leafkey,,}" in
-			*url* | *host* | *endpoint* | *token* | *secret* | *password* | *passwd* | *api_key* | *apikey* | *_pat) ;;
-			*) continue ;;
+			# Case-insensitive via nocasematch, not ${leafkey,,}: macOS ships
+			# bash 3.2, which rejects ${var,,} as a bad substitution, and the
+			# pre-commit hook can resolve `bash` to /bin/bash there.
+			in_scope=0
+			shopt -s nocasematch
+			case "$leafkey" in
+			*url* | *host* | *endpoint* | *token* | *secret* | *password* | *passwd* | *api_key* | *apikey* | *_pat) in_scope=1 ;;
 			esac
+			shopt -u nocasematch
+			[ "$in_scope" -eq 1 ] || continue
 
 			# Short or whitespace-bearing values produce noise, not signal.
 			[ ${#value} -ge 8 ] || continue
