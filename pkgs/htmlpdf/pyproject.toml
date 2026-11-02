@@ -5,6 +5,7 @@ description = "Convert HTML or Markdown documents to print-ready, bookmarked PDF
 authors = ["jhettenh"]
 packages = [{ include = "htmlpdf", from = "src" }]
 include = [
+  { path = "src/htmlpdf/assets/report.css", format = ["sdist", "wheel"] },
   { path = "src/htmlpdf/assets/markdown.css", format = ["sdist", "wheel"] },
   { path = "src/htmlpdf/assets/mermaid-11.4.1.min.js", format = ["sdist", "wheel"] },
   { path = "src/htmlpdf/assets/mermaid-11.4.1.LICENSE", format = ["sdist", "wheel"] },
