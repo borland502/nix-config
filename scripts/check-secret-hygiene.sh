@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 # Keep private detail out of this public repo. Two rules:
 #
 #   A. Every chezmoi source under chezmoi/Development/ must be an encrypted_*
@@ -15,8 +15,9 @@
 #
 # Rule B needs the age key. Without it the rule is skipped loudly rather than
 # passing silently — pre-commit runs locally, where the key exists, and that is
-# the gate that matters.
-set -euo pipefail
+# the gate that matters. tests/test_secret_hygiene.zsh covers both rules.
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
 
 fail=0
 
@@ -27,10 +28,10 @@ fail=0
 # grep's radar. Keep this list short and justify every entry -- it's the one
 # place this script trusts a human judgment call instead of a mechanical rule.
 is_exempt_value() {
-	case "$1" in
-	localhost) return 0 ;;                       # loopback; identifies nothing
-	github.com) return 0 ;;                      # public multi-tenant host; identifies nothing on its own
-	"https://github.com/borland502") return 0 ;; # the repo owner's own public GitHub
+	case $1 in
+	localhost) return 0 ;;                     # loopback; identifies nothing
+	github.com) return 0 ;;                    # public multi-tenant host; identifies nothing on its own
+	https://github.com/borland502) return 0 ;; # the repo owner's own public GitHub
 		# profile -- already this repo's own git remote (`git remote -v`), so it
 		# is maximally public already, not a leak
 	*) return 1 ;;
@@ -38,12 +39,12 @@ is_exempt_value() {
 }
 
 # --- Rule A: the private work tree stays encrypted ---------------------------
-if [ -d chezmoi/Development ]; then
+if [[ -d chezmoi/Development ]]; then
 	while IFS= read -r f; do
-		case "${f##*/}" in
+		case ${f:t} in
 		encrypted_*) ;;
 		*)
-			printf 'secret-hygiene: unencrypted file in the private work tree: %s\n' "$f" >&2
+			printf 'secret-hygiene: unencrypted file in the private work tree: %s\n' $f >&2
 			fail=1
 			;;
 		esac
@@ -51,19 +52,19 @@ if [ -d chezmoi/Development ]; then
 fi
 
 # --- Rule B: no encrypted value restated in the clear ------------------------
-key_file="${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}"
-if [ ! -f "$key_file" ]; then
-	printf 'secret-hygiene: no age key at %s — skipping the SOPS value scan.\n' "$key_file" >&2
+key_file=${SOPS_AGE_KEY_FILE:-$HOME/.config/sops/age/keys.txt}
+if [[ ! -f $key_file ]]; then
+	printf 'secret-hygiene: no age key at %s — skipping the SOPS value scan.\n' $key_file >&2
 else
-	export SOPS_AGE_KEY_FILE="$key_file"
+	export SOPS_AGE_KEY_FILE=$key_file
 	while IFS= read -r sf; do
-		case "$sf" in
-		*.yaml | *.yml) plain=$(sops -d "$sf" 2>/dev/null | yq -r '.. | select(tag == "!!str") | (path | join(".")) + "\t" + .' 2>/dev/null || true) ;;
-		*.json) plain=$(sops -d "$sf" 2>/dev/null | yq -p json -r '.. | select(tag == "!!str") | (path | join(".")) + "\t" + .' 2>/dev/null || true) ;;
-		*.toml) plain=$(sops -d "$sf" 2>/dev/null | yq -p toml -r '.. | select(tag == "!!str") | (path | join(".")) + "\t" + .' 2>/dev/null || true) ;;
+		case $sf in
+		*.yaml | *.yml) plain=$(sops -d $sf 2>/dev/null | yq -r '.. | select(tag == "!!str") | (path | join(".")) + "\t" + .' 2>/dev/null || true) ;;
+		*.json) plain=$(sops -d $sf 2>/dev/null | yq -p json -r '.. | select(tag == "!!str") | (path | join(".")) + "\t" + .' 2>/dev/null || true) ;;
+		*.toml) plain=$(sops -d $sf 2>/dev/null | yq -p toml -r '.. | select(tag == "!!str") | (path | join(".")) + "\t" + .' 2>/dev/null || true) ;;
 		*) continue ;;
 		esac
-		[ -n "$plain" ] || continue
+		[[ -n $plain ]] || continue
 
 		while IFS=$'\t' read -r keypath value; do
 			# SOPS files mix credentials with ordinary config — cache dirs,
@@ -80,32 +81,32 @@ else
 			# (hostname, api_url, admin_password) without inheriting it from a
 			# parent that merely happens to be called "hosts".
 			leafkey=${keypath##*.}
-			case "${leafkey,,}" in
+			case ${(L)leafkey} in
 			*url* | *host* | *endpoint* | *token* | *secret* | *password* | *passwd* | *api_key* | *apikey* | *_pat) ;;
 			*) continue ;;
 			esac
 
 			# Short or whitespace-bearing values produce noise, not signal.
-			[ ${#value} -ge 8 ] || continue
-			case "$value" in *[[:space:]]*) continue ;; esac
+			((${#value} >= 8)) || continue
+			case $value in *[[:space:]]*) continue ;; esac
 
 			# A stored URL leaks just as badly as its bare hostname — and the
 			# bare host is the form that actually shows up in prose. Scan the
 			# full value AND, for a URL, the host on its own. Without this the
 			# check misses exactly what it was written to catch.
-			needles=("$value")
-			case "$value" in
+			needles=($value)
+			case $value in
 			*://*)
 				host=${value#*://} # strip scheme
 				host=${host%%/*}   # strip path
 				host=${host##*@}   # strip userinfo
 				host=${host%%:*}   # strip port
-				[ ${#host} -ge 8 ] && needles+=("$host")
+				((${#host} >= 8)) && needles+=($host)
 				;;
 			esac
 
-			for needle in "${needles[@]}"; do
-				is_exempt_value "$needle" && continue
+			for needle in $needles; do
+				is_exempt_value $needle && continue
 
 				# --word-regexp, not a bare substring match. Without it a
 				# value that is a PREFIX of an unrelated one flags forever:
@@ -123,20 +124,20 @@ else
 					--glob '!result' \
 					--glob '!result-*' \
 					--glob '!scripts/check-secret-hygiene.sh' \
-					-- "$needle" . | cut -d: -f1,2 || true)
+					-- $needle . | cut -d: -f1,2 || true)
 
-				if [ -n "$hits" ]; then
+				if [[ -n $hits ]]; then
 					# Report the location and which secret leaked — never the value.
-					printf 'secret-hygiene: %s (%s) appears in the clear:\n' "$sf" "$keypath" >&2
-					printf '%s\n' "$hits" | sed 's/^/  /' >&2
+					printf 'secret-hygiene: %s (%s) appears in the clear:\n' $sf $keypath >&2
+					print -r -- $hits | sed 's/^/  /' >&2
 					fail=1
 				fi
 			done
-		done <<<"$plain"
+		done <<<$plain
 	done < <(find secrets hosts -type f \( -name '*.yaml' -o -name '*.yml' -o -name '*.json' -o -name '*.toml' \) -path '*secrets*' 2>/dev/null)
 fi
 
-if [ "$fail" -ne 0 ]; then
+if ((fail)); then
 	cat >&2 <<'MSG'
 
 This repo is public. Encrypt the value instead of inlining it:
@@ -150,4 +151,4 @@ MSG
 	exit 1
 fi
 
-echo 'secret-hygiene OK: work tree encrypted, no SOPS value restated in the clear'
+print -r -- 'secret-hygiene OK: work tree encrypted, no SOPS value restated in the clear'
