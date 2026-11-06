@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 # gh-run-logs — persist a GitHub Actions run's logs to the agent cache dir.
 #
 # Usage: gh-run-logs <run-id> [--repo <owner/name>] [--all] [--tail N]
@@ -12,17 +12,19 @@
 # into ad-hoc files (often under /tmp, where they don't survive for the next
 # session). Logs land at ~/.cache/<agent>/run-<id>-failed.log (or -full.log
 # with --all) so cache-scan and later sessions can find them. Deps: gh.
-set -euo pipefail
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+script=${0:A}
+usage() { sed -n '2,14p' $script | sed 's/^# \{0,1\}//'; }
 
 run_id=""
 repo_args=()
 mode="failed"
 tail_n=40
 
-while [[ $# -gt 0 ]]; do
-	case "$1" in
+while (($#)); do
+	case $1 in
 	--repo)
 		shift
 		repo_args=(--repo "${1:?--repo needs owner/name}")
@@ -31,8 +33,8 @@ while [[ $# -gt 0 ]]; do
 	--tail)
 		shift
 		tail_n="${1:?--tail needs a number}"
-		[[ "$tail_n" =~ ^[0-9]+$ ]] || {
-			echo "--tail must be a number" >&2
+		[[ $tail_n == <-> ]] || {
+			print -ru2 -- "--tail must be a number"
 			exit 1
 		}
 		;;
@@ -41,10 +43,10 @@ while [[ $# -gt 0 ]]; do
 		exit 0
 		;;
 	*)
-		if [[ -z "$run_id" && "$1" =~ ^[0-9]+$ ]]; then
-			run_id="$1"
+		if [[ -z $run_id && $1 == <-> ]]; then
+			run_id=$1
 		else
-			echo "Unknown argument: $1" >&2
+			print -ru2 -- "Unknown argument: $1"
 			usage >&2
 			exit 1
 		fi
@@ -53,35 +55,35 @@ while [[ $# -gt 0 ]]; do
 	shift
 done
 
-[[ -n "$run_id" ]] || {
+[[ -n $run_id ]] || {
 	usage >&2
 	exit 1
 }
 
-agent_raw="${AGENT_NAME:-claude}"
-agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
-[[ -n "$agent" ]] || agent="claude"
-out_dir="$HOME/.cache/$agent"
-mkdir -p "$out_dir"
-out="$out_dir/run-${run_id}-${mode}.log"
+agent=${(L)${AGENT_NAME:-claude}}
+agent=${agent//[^a-z0-9._-]/}
+[[ -n $agent ]] || agent="claude"
+out_dir=$HOME/.cache/$agent
+mkdir -p -- $out_dir
+out=$out_dir/run-$run_id-$mode.log
 
 log_flag="--log-failed"
-[[ "$mode" == "full" ]] && log_flag="--log"
+[[ $mode == full ]] && log_flag="--log"
 
-if ! GH_PAGER=cat NO_COLOR=1 gh run view "$run_id" "${repo_args[@]}" "$log_flag" >"$out" 2>&1; then
+if ! GH_PAGER=cat NO_COLOR=1 gh run view $run_id $repo_args $log_flag >$out 2>&1; then
 	# --log-failed yields nothing for a run with no failed jobs; say so instead
 	# of leaving a confusing gh error in the file.
-	if rg -qi 'no failed jobs|run .* has no' "$out" 2>/dev/null || [[ ! -s "$out" ]]; then
-		echo "run $run_id: no failed jobs (use --all for full logs)" >&2
-		rm -f "$out"
+	if rg -qi 'no failed jobs|run .* has no' $out 2>/dev/null || [[ ! -s $out ]]; then
+		print -ru2 -- "run $run_id: no failed jobs (use --all for full logs)"
+		rm -f -- $out
 		exit 1
 	fi
-	echo "gh run view failed; partial output kept at $out" >&2
+	print -ru2 -- "gh run view failed; partial output kept at $out"
 	exit 1
 fi
 
-printf 'saved: %s (%s lines)\n' "$out" "$(wc -l <"$out" | tr -d ' ')"
+printf 'saved: %s (%s lines)\n' $out "$(wc -l <$out | tr -d ' ')"
 if ((tail_n > 0)); then
-	printf -- '--- last %d lines ---\n' "$tail_n"
-	tail -n "$tail_n" "$out"
+	printf -- '--- last %d lines ---\n' $tail_n
+	tail -n $tail_n $out
 fi
