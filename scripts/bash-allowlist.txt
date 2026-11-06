@@ -17,7 +17,6 @@ ai-tools/skills/flow-subagent-driven-development/scripts/sdd-workspace
 ai-tools/skills/flow-subagent-driven-development/scripts/task-brief
 ai-tools/skills/flow-systematic-debugging/find-polluter.sh
 chezmoi/dot_config/keepassxc/modify_keepassxc.ini
-chezmoi/dot_local/bin/executable_aws-stack-triage
 chezmoi/dot_local/bin/executable_btrfs-safety-snapshot
 chezmoi/dot_local/bin/executable_cache-scan
 chezmoi/dot_local/bin/executable_cdemu-mount
@@ -47,7 +46,6 @@ scripts/render-agent-instructions.sh
 scripts/validate-codex-skill-target.sh
 scripts/wsl/bootstrap-windows.sh
 tests/helpers/testlib.sh
-tests/test_aws_stack_triage.sh
 tests/test_cache_scan_audit.sh
 tests/test_codex_skill_ownership.sh
 tests/test_gh_pr_threads.sh
