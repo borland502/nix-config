@@ -24,6 +24,7 @@ tasks:
       - zsh -f tests/test_codex_skill_ownership.zsh
       - zsh -f tests/test_secret_provisioning.zsh
       - zsh -f tests/test_small_helpers.zsh
+      - zsh -f tests/test_chezmoi_run_scripts.zsh
 
   check:
     desc: Check flake for errors

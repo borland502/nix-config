@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env -S zsh -f
 # rclone-mount — expose an rclone remote as a real directory, for file managers.
 #
 # Backend-neutral: the remote is named with --remote, so one script serves both

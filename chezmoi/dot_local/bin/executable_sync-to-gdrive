@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env -S zsh -f
 # sync-to-gdrive — back up ~/.config and ~/.local to Google Drive via rclone.
 #
 # Replaces the earlier unison + mounted-drive (Library/CloudStorage) approach

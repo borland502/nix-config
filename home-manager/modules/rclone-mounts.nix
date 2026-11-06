@@ -12,7 +12,7 @@
   mountScript = "${homeDirectory}/.local/bin/rclone-mount";
 
   # systemd user units do not inherit the login shell's environment, and the
-  # script's `#!/usr/bin/env zsh` needs a PATH to resolve zsh through. Nix
+  # script's `#!/usr/bin/env -S zsh -f` needs a PATH to resolve zsh through. Nix
   # profile first so rclone and zsh match an interactive run even on a host with
   # a distro rclone. The OS paths cover coreutils/grep and — importantly —
   # fusermount3, which comes from the distro's fuse3 package, not from nix.
