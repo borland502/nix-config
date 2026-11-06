@@ -35,4 +35,10 @@ assert_contains "$output" 'unmerged'
 # No --base: the audit defaults to HEAD (the empty-array path under bash 3.2).
 output=$(cd $tmp/repo && audit)
 assert_contains "$output" $tmp/active
+
+# A detached worktree has an empty branch; the row must keep every column in place.
+git -C $tmp/repo worktree add -q --detach $tmp/detached HEAD
+output=$(audit $tmp/repo --base main)
+# git reports physical paths (macOS: /private/var/...), so compare against ${tmp:A}.
+assert_contains "$output" "$(printf '%-9s %-5s %-5s %-28s %s' detached 0 0 '' ${tmp:A}/detached)"
 print -r -- 'git-worktree-audit: ok'
