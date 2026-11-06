@@ -22,7 +22,6 @@ chezmoi/dot_local/bin/executable_btrfs-safety-snapshot
 chezmoi/dot_local/bin/executable_cache-scan
 chezmoi/dot_local/bin/executable_cdemu-mount
 chezmoi/dot_local/bin/executable_ensure-nix-zsh-shell
-chezmoi/dot_local/bin/executable_gh-graphql
 chezmoi/dot_local/bin/executable_git-worktree-audit
 chezmoi/dot_local/bin/executable_kac
 chezmoi/dot_local/bin/executable_mdp-local
