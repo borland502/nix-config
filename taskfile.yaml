@@ -242,7 +242,7 @@ tasks:
       # With the http.lowSpeed* guards above a stalled external now aborts in
       # ~20s; chezmoi-apply-tolerant.sh's timeout is a last-resort backstop
       # against a total network stall.
-      bash scripts/chezmoi-apply-tolerant.sh "{{.CHEZMOI}}" "$_src"
+      zsh -f scripts/chezmoi-apply-tolerant.sh "{{.CHEZMOI}}" "$_src"
 
   chezmoi-diff:
     desc: Show pending chezmoi changes without applying them
@@ -303,9 +303,9 @@ tasks:
         # spam from the live stream and downgrades Homebrew cask DOWNLOAD
         # failures (common on a work VPN) to a warning, while propagating every
         # other failure with darwin-rebuild's real exit code.
-        bash scripts/darwin-switch-tolerant.sh .#{{.HOST}}
+        zsh -f scripts/darwin-switch-tolerant.sh .#{{.HOST}}
       {{else if eq .IS_NIXOS "true"}}
-        bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
+        zsh -f scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
       {{end}}
@@ -328,7 +328,7 @@ tasks:
     # See `switch`: skip an already-installed Discord cask in the darwin bundle.
     env: *brew-cask-skip-env
     # Tolerates VPN-blocked Homebrew cask downloads (see scripts/darwin-switch-tolerant.sh).
-    cmd: bash scripts/darwin-switch-tolerant.sh .#{{.HOST}}
+    cmd: zsh -f scripts/darwin-switch-tolerant.sh .#{{.HOST}}
 
   darwin-rollback:
     desc: Roll back nix-darwin, preparing Codex skills for the older recursive layout
@@ -351,7 +351,7 @@ tasks:
     desc: Build and switch to the NixOS configuration
     platforms: [linux]
     deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure]
-    cmd: 'bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"'
+    cmd: 'zsh -f scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"'
     preconditions:
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'This task is unavailable inside the devcontainer'
@@ -409,13 +409,13 @@ tasks:
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
-        bash scripts/darwin-switch-tolerant.sh .#{{.HOST}}
+        zsh -f scripts/darwin-switch-tolerant.sh .#{{.HOST}}
       {{else if eq .IS_NIXOS "true"}}
         # On NixOS (incl. NixOS-WSL) home is managed as a NixOS module, not a
         # standalone homeConfiguration — there is no `{{.HOME_ATTR}}` attr to
         # build. Apply via the system rebuild; the login shell is set by
         # users.defaultUserShell, so the chsh fixup below is unnecessary.
-        bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
+        zsh -f scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
         _helper="$HOME/.local/bin/ensure-nix-zsh-shell"
@@ -533,9 +533,9 @@ tasks:
       {{if eq .IN_DEVCONTAINER "true"}}
         nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
       {{else if eq .IS_DARWIN "true"}}
-        bash scripts/darwin-switch-tolerant.sh .#{{.HOST}}
+        zsh -f scripts/darwin-switch-tolerant.sh .#{{.HOST}}
       {{else if eq .IS_NIXOS "true"}}
-        bash scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
+        zsh -f scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
       {{else}}
         {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
         _helper="$HOME/.local/bin/ensure-nix-zsh-shell"

@@ -34,10 +34,7 @@ chezmoi/dot_local/bin/executable_vivaldi-extension-policy
 chezmoi/dot_local/bin/executable_wake
 chezmoi/dot_local/lib/kion-aws-cache
 install.sh
-scripts/chezmoi-apply-tolerant.sh
-scripts/darwin-switch-tolerant.sh
 scripts/encrypt-secrets.sh
-scripts/nixos-switch-tolerant.sh
 scripts/prepare-codex-skill-rollback.sh
 scripts/provision-secrets.sh
 scripts/validate-codex-skill-target.sh

@@ -38,6 +38,14 @@ class InstallBootstrapContract(unittest.TestCase):
         result = subprocess.run(['/bin/bash', '-n', str(INSTALL)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_every_nix_shell_provides_zsh(self):
+        # The tasks install.sh runs call zsh scripts (task switch, chezmoi apply),
+        # and a fresh Linux or NixOS-WSL host has no zsh until the first switch.
+        shells = re.findall(r'nix shell ([^\n]*?)--command', INSTALL.read_text())
+        self.assertTrue(shells, 'expected nix shell invocations in install.sh')
+        for packages in shells:
+            self.assertIn('nixpkgs#zsh', packages, f'nix shell without zsh: {packages}')
+
 
 if __name__ == '__main__':
     unittest.main()

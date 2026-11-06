@@ -106,7 +106,9 @@ fi
 
 # Provide git from nixpkgs for this bootstrap so chezmoi's git-repo externals
 # resolve with native git instead of relying on Windows git.exe interop.
-nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -euo pipefail -c '
+# Every nix shell here also provides zsh: the tasks it runs (chezmoi apply,
+# task switch) call zsh scripts, and a fresh host has no zsh until its first switch.
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git nixpkgs#zsh --command bash -euo pipefail -c '
   task chezmoi-init
   task chezmoi-apply
 '
@@ -114,7 +116,7 @@ nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -euo pipefa
 if [[ "$_is_nixos_user_swap" == true ]]; then
 	_bootstrap_user="$(id -un)"
 	echo "==> NixOS-WSL: applying system configuration (switches default user to $_target_user)..."
-	nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -c 'task home-switch' || {
+	nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git nixpkgs#zsh --command bash -c 'task home-switch' || {
 		rc=$?
 		echo "==> System switch returned $rc — expected on the first NixOS-WSL switch:"
 		echo "    the new system and ${_target_user}'s home activated, but reloading the"
@@ -166,7 +168,7 @@ fi
 # that branch $? is the status of the negation, not the command — the same trap
 # already documented in scripts/chezmoi-apply-tolerant.sh.
 set +e
-nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -c '
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git nixpkgs#zsh --command bash -c '
   task home-switch
 '
 _first_switch_rc=$?
@@ -256,7 +258,7 @@ fi
 # the flake inputs to current and re-switches so the freshly-installed shell is
 # already on the latest before the user's first interactive session.
 echo "==> Upgrading flake inputs and re-switching (task upgrade)..."
-nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -c '
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git nixpkgs#zsh --command bash -c '
   cd "'"$SCRIPT_DIR"'"
   task upgrade
 '

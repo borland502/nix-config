@@ -20,6 +20,7 @@ tasks:
       - zsh -f tests/test_gh_run_logs.zsh
       - zsh -f tests/test_gh_graphql.zsh
       - zsh -f tests/test_secret_hygiene.zsh
+      - zsh -f tests/test_switch_tolerant.zsh
 
   check:
     desc: Check flake for errors
