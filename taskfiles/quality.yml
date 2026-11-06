@@ -19,6 +19,7 @@ tasks:
       - zsh -f tests/test_aws_stack_triage.zsh
       - zsh -f tests/test_gh_run_logs.zsh
       - zsh -f tests/test_gh_graphql.zsh
+      - zsh -f tests/test_secret_hygiene.zsh
 
   check:
     desc: Check flake for errors
@@ -129,7 +130,7 @@ tasks:
   check:secret-hygiene:
     desc: Enforce that private detail stays encrypted — this repo is public
     platforms: [linux, darwin]
-    cmd: bash scripts/check-secret-hygiene.sh
+    cmd: zsh -f scripts/check-secret-hygiene.sh
 
   check:model-agnostic:
     desc: Enforce model-tier aliases in ai-tools — no versioned Claude model IDs

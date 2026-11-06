@@ -35,7 +35,6 @@ chezmoi/dot_local/bin/executable_wake
 chezmoi/dot_local/lib/kion-aws-cache
 install.sh
 scripts/check-copilot-instructions-sync.sh
-scripts/check-secret-hygiene.sh
 scripts/chezmoi-apply-tolerant.sh
 scripts/darwin-switch-tolerant.sh
 scripts/encrypt-secrets.sh
