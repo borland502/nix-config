@@ -12,7 +12,7 @@
   syncScript = "${homeDirectory}/.local/bin/sync-to-gdrive";
 
   # Neither systemd user units nor launchd agents inherit the login shell's
-  # environment, and the script's `#!/usr/bin/env zsh` needs a PATH to resolve
+  # environment, and the script's `#!/usr/bin/env -S zsh -f` needs a PATH to resolve
   # zsh through. Nix profile first: rclone and zsh both come from there
   # (common.nix), so the scheduled job uses the same versions as an interactive
   # run even on a host that also has a distro or Homebrew rclone. The OS paths

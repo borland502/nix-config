@@ -1,8 +1,10 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 # Passive by default. --job waits for one job; --cancel-duplicates opts into mutation.
-set -euo pipefail
-bin_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-waiter="$bin_dir/gh-wait-job"
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
+# The script's own directory, physically (its own symlink is not followed).
+bin_dir=$(cd -P -- ${0:a:h} && pwd)
+waiter=$bin_dir/gh-wait-job
 # Support direct execution from the chezmoi source tree, too.
-if [[ ! -x "$waiter" ]]; then waiter="$bin_dir/executable_gh-wait-job"; fi
-exec "$waiter" "$@"
+if [[ ! -x $waiter ]]; then waiter=$bin_dir/executable_gh-wait-job; fi
+exec $waiter "$@"

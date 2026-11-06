@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env -S zsh -f
 # List open Jira tickets assigned to the current user.
 # Delegates auth + base-URL composition to jira-get (Bearer PAT — the Jira
 # Data Center instance rejects cloud-style email:token Basic auth).
