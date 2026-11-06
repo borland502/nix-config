@@ -13,9 +13,9 @@ tasks:
     platforms: [linux, darwin]
     cmds:
       - python3 -m unittest discover -s tests -p 'test_*.py'
-      - bash tests/test_cache_scan_audit.sh
-      - bash tests/test_gh_pr_threads.sh
-      - bash tests/test_git_worktree_audit.sh
+      - zsh -f tests/test_cache_scan_audit.zsh
+      - zsh -f tests/test_gh_pr_threads.zsh
+      - zsh -f tests/test_git_worktree_audit.zsh
       - zsh -f tests/test_aws_stack_triage.zsh
       - zsh -f tests/test_gh_run_logs.zsh
       - zsh -f tests/test_gh_graphql.zsh

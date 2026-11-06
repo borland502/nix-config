@@ -34,8 +34,4 @@ chezmoi/dot_local/bin/executable_vivaldi-extension-policy
 chezmoi/dot_local/bin/executable_wake
 chezmoi/dot_local/lib/kion-aws-cache
 install.sh
-tests/helpers/testlib.sh
-tests/test_cache_scan_audit.sh
-tests/test_gh_pr_threads.sh
-tests/test_git_worktree_audit.sh
 tests/test_kion_aws_cache.sh
