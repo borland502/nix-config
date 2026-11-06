@@ -335,7 +335,7 @@ tasks:
     platforms: [darwin]
     deps: [_snapshot-pre]
     cmds:
-      - bash scripts/prepare-codex-skill-rollback.sh
+      - zsh -f scripts/prepare-codex-skill-rollback.sh
       - sudo darwin-rebuild switch --rollback
 
   # NixOS-specific tasks (kept for Linux systems)

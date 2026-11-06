@@ -35,13 +35,10 @@ chezmoi/dot_local/bin/executable_wake
 chezmoi/dot_local/lib/kion-aws-cache
 install.sh
 scripts/encrypt-secrets.sh
-scripts/prepare-codex-skill-rollback.sh
 scripts/provision-secrets.sh
-scripts/validate-codex-skill-target.sh
 scripts/wsl/bootstrap-windows.sh
 tests/helpers/testlib.sh
 tests/test_cache_scan_audit.sh
-tests/test_codex_skill_ownership.sh
 tests/test_gh_pr_threads.sh
 tests/test_git_worktree_audit.sh
 tests/test_kion_aws_cache.sh

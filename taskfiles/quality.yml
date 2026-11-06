@@ -21,6 +21,7 @@ tasks:
       - zsh -f tests/test_gh_graphql.zsh
       - zsh -f tests/test_secret_hygiene.zsh
       - zsh -f tests/test_switch_tolerant.zsh
+      - zsh -f tests/test_codex_skill_ownership.zsh
 
   check:
     desc: Check flake for errors

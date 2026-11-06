@@ -372,7 +372,7 @@ in {
               exit 1
             fi
             if ! PATH=${lib.makeBinPath [pkgs.coreutils pkgs.diffutils pkgs.gnugrep]} \
-              ${pkgs.bash}/bin/bash "$_validator" "$_skill_src" "$_backup" "$_name" "$_manifest"; then
+              ${pkgs.zsh}/bin/zsh -f "$_validator" "$_skill_src" "$_backup" "$_name" "$_manifest"; then
               echo "error: refusing mismatched Codex skill migration backup: $_name" >&2
               exit 1
             fi
@@ -384,7 +384,7 @@ in {
               continue
             fi
             if PATH=${lib.makeBinPath [pkgs.coreutils pkgs.diffutils pkgs.gnugrep]} \
-              ${pkgs.bash}/bin/bash "$_validator" "$_skill_src" "$_target" "$_name" "$_manifest"; then
+              ${pkgs.zsh}/bin/zsh -f "$_validator" "$_skill_src" "$_target" "$_name" "$_manifest"; then
               continue
             fi
             echo "error: preserving independently installed Codex skill link: $_name" >&2
@@ -393,7 +393,7 @@ in {
 
           [ -e "$_target" ] || continue
           if ! PATH=${lib.makeBinPath [pkgs.coreutils pkgs.diffutils pkgs.gnugrep]} \
-            ${pkgs.bash}/bin/bash "$_validator" "$_skill_src" "$_target" "$_name" "$_manifest"; then
+            ${pkgs.zsh}/bin/zsh -f "$_validator" "$_skill_src" "$_target" "$_name" "$_manifest"; then
             echo "error: preserving independently installed Codex skill: $_name" >&2
             exit 1
           fi
