@@ -24,6 +24,17 @@ fi
 export NIX_CONFIG="experimental-features = nix-command flakes${NIX_CONFIG:+
 $NIX_CONFIG}"
 
+# Run a repo script, which is zsh. zsh is on PATH on macOS and after the first
+# switch; before that (a fresh Linux host, or a first switch that failed on sops)
+# Nix provides it. Defined after NIX_CONFIG so the fallback can use flakes.
+_run_zsh() {
+	if command -v zsh >/dev/null 2>&1; then
+		zsh -f "$@"
+	else
+		nix shell nixpkgs#zsh --command zsh -f "$@"
+	fi
+}
+
 # ── 1. Nix ────────────────────────────────────────────────────────────────────
 if ! command -v nix >/dev/null 2>&1; then
 	echo "==> Installing Nix via Determinate Systems installer..."
@@ -238,7 +249,7 @@ if [[ "$IS_WSL" == true ]]; then
 	_bootstrap_win="$SCRIPT_DIR/scripts/wsl/bootstrap-windows.sh"
 	if [[ -f "$_bootstrap_win" ]]; then
 		echo "==> Running Windows bootstrap..."
-		bash "$_bootstrap_win"
+		_run_zsh "$_bootstrap_win"
 	else
 		echo "==> Windows bootstrap script not found at $_bootstrap_win; skipping."
 	fi
@@ -248,7 +259,7 @@ fi
 _provision_secrets="$SCRIPT_DIR/scripts/provision-secrets.sh"
 if [[ -f "$_provision_secrets" ]]; then
 	echo "==> Running secret provisioning..."
-	bash "$_provision_secrets"
+	_run_zsh "$_provision_secrets"
 else
 	echo "==> Secret provisioning script not found at $_provision_secrets; skipping."
 fi

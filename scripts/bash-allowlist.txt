@@ -34,9 +34,6 @@ chezmoi/dot_local/bin/executable_vivaldi-extension-policy
 chezmoi/dot_local/bin/executable_wake
 chezmoi/dot_local/lib/kion-aws-cache
 install.sh
-scripts/encrypt-secrets.sh
-scripts/provision-secrets.sh
-scripts/wsl/bootstrap-windows.sh
 tests/helpers/testlib.sh
 tests/test_cache_scan_audit.sh
 tests/test_gh_pr_threads.sh
