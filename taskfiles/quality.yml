@@ -19,6 +19,10 @@ tasks:
       - zsh -f tests/test_aws_stack_triage.zsh
       - zsh -f tests/test_gh_run_logs.zsh
       - zsh -f tests/test_gh_graphql.zsh
+      - zsh -f tests/test_secret_hygiene.zsh
+      - zsh -f tests/test_switch_tolerant.zsh
+      - zsh -f tests/test_codex_skill_ownership.zsh
+      - zsh -f tests/test_secret_provisioning.zsh
 
   check:
     desc: Check flake for errors
@@ -129,7 +133,7 @@ tasks:
   check:secret-hygiene:
     desc: Enforce that private detail stays encrypted — this repo is public
     platforms: [linux, darwin]
-    cmd: bash scripts/check-secret-hygiene.sh
+    cmd: zsh -f scripts/check-secret-hygiene.sh
 
   check:model-agnostic:
     desc: Enforce model-tier aliases in ai-tools — no versioned Claude model IDs
@@ -181,7 +185,7 @@ tasks:
 
   check:copilot-instructions:
     desc: Verify duplicated Copilot instruction files stay in sync
-    cmd: bash ./scripts/check-copilot-instructions-sync.sh
+    cmd: zsh -f scripts/check-copilot-instructions-sync.sh
 
   check:agent-context-budget:
     desc: Inventory agent entry sizes, local references, duplication and helper coverage
@@ -215,7 +219,7 @@ tasks:
   generate:agent-instructions:
     desc: Render agent-defaults.md into chezmoi-managed files for Windows deployment
     platforms: [linux, darwin]
-    cmd: bash scripts/render-agent-instructions.sh .
+    cmd: zsh -f scripts/render-agent-instructions.sh .
 
   check:agent-instructions:
     desc: Verify chezmoi agent instruction files match the rendered source
@@ -223,7 +227,7 @@ tasks:
     cmd: |
       tmp=$(mktemp -d)
       trap 'rm -rf "$tmp"' EXIT
-      bash scripts/render-agent-instructions.sh "$tmp"
+      zsh -f scripts/render-agent-instructions.sh "$tmp"
 
       fail=0
       diff -u "$tmp/chezmoi/dot_config/claude/CLAUDE.md" chezmoi/dot_config/claude/CLAUDE.md || fail=1
