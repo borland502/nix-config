@@ -63,7 +63,7 @@ jobs:
 
   darwin-build:
     name: Darwin Build
-    runs-on: macos-14
+    runs-on: macos-15
     needs: flake-check
     steps:
       - name: Check out repository
