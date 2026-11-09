@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 # Create (or reconnect) the rclone `gdrive:` remote that sync-to-gdrive needs.
 #
 # Fresh-machine bootstrap. sync-to-gdrive refuses to run without this remote,
@@ -13,68 +13,68 @@
 # only within this process — they never reach shell history or an agent log.
 #
 # Requires a real terminal: rclone opens a browser to authorize the account.
-set -euo pipefail
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
 
-repo="${NIX_CONFIG_DIR:-}"
-if [ -z "$repo" ]; then
-	state_file="${XDG_STATE_HOME:-$HOME/.local/state}/chezmoi/nix-config-dir"
-	if [ -f "$state_file" ]; then
-		repo=$(cat "$state_file")
+repo=${NIX_CONFIG_DIR-}
+if [[ -z $repo ]]; then
+	state_file=${XDG_STATE_HOME:-$HOME/.local/state}/chezmoi/nix-config-dir
+	if [[ -f $state_file ]]; then
+		repo=$(cat -- $state_file)
 	else
-		repo="$HOME/.config/nix"
+		repo=$HOME/.config/nix
 	fi
 fi
 
-secret="$repo/secrets/rclone-gdrive.json"
-remote_name="gdrive"
+secret=$repo/secrets/rclone-gdrive.json
+remote_name=gdrive
 
 for tool in rclone sops jq; do
-	if ! command -v "$tool" >/dev/null 2>&1; then
-		echo "setup-gdrive-remote: $tool is not installed." >&2
-		echo "  It ships in the shared package set (home-manager/common.nix):" >&2
-		echo "  run 'task switch' (or 'task home-switch') to install it." >&2
+	if ! (($+commands[$tool])); then
+		print -ru2 -- "setup-gdrive-remote: $tool is not installed."
+		print -ru2 -- '  It ships in the shared package set (home-manager/common.nix):'
+		print -ru2 -- "  run 'task switch' (or 'task home-switch') to install it."
 		exit 1
 	fi
 done
 
-if [ ! -f "$secret" ]; then
-	echo "setup-gdrive-remote: missing $secret" >&2
-	echo "  Set NIX_CONFIG_DIR to the repo checkout if it lives elsewhere." >&2
+if [[ ! -f $secret ]]; then
+	print -ru2 -- "setup-gdrive-remote: missing $secret"
+	print -ru2 -- '  Set NIX_CONFIG_DIR to the repo checkout if it lives elsewhere.'
 	exit 1
 fi
 
-age_key="${XDG_CONFIG_HOME:-$HOME/.config}/sops/age/keys.txt"
-if [ ! -f "$age_key" ]; then
-	echo "setup-gdrive-remote: no age key at $age_key — cannot decrypt $secret." >&2
+age_key=${XDG_CONFIG_HOME:-$HOME/.config}/sops/age/keys.txt
+if [[ ! -f $age_key ]]; then
+	print -ru2 -- "setup-gdrive-remote: no age key at $age_key — cannot decrypt $secret."
 	exit 1
 fi
-export SOPS_AGE_KEY_FILE="$age_key"
+export SOPS_AGE_KEY_FILE=$age_key
 
-if rclone listremotes 2>/dev/null | grep -qx "${remote_name}:"; then
-	echo "==> remote '${remote_name}:' exists; reconnecting its OAuth token"
-	rclone config reconnect "${remote_name}:"
+if rclone listremotes 2>/dev/null | grep -qx "$remote_name:"; then
+	print -r -- "==> remote '$remote_name:' exists; reconnecting its OAuth token"
+	rclone config reconnect "$remote_name:"
 else
-	client_id=$(sops -d "$secret" | jq -r '.installed.client_id')
-	client_secret=$(sops -d "$secret" | jq -r '.installed.client_secret')
+	client_id=$(sops -d $secret | jq -r '.installed.client_id')
+	client_secret=$(sops -d $secret | jq -r '.installed.client_secret')
 
-	if [ -z "$client_id" ] || [ "$client_id" = "null" ] ||
-		[ -z "$client_secret" ] || [ "$client_secret" = "null" ]; then
-		echo "setup-gdrive-remote: could not read client credentials from $secret" >&2
-		echo "  Expected shape: {\"installed\":{\"client_id\":…,\"client_secret\":…}}" >&2
+	if [[ -z $client_id || $client_id == null || -z $client_secret || $client_secret == null ]]; then
+		print -ru2 -- "setup-gdrive-remote: could not read client credentials from $secret"
+		print -ru2 -- '  Expected shape: {"installed":{"client_id":…,"client_secret":…}}'
 		exit 1
 	fi
 
-	echo "==> creating remote '${remote_name}:' (a browser will open to authorize)"
-	rclone config create "$remote_name" drive scope=drive \
-		client_id="$client_id" client_secret="$client_secret"
+	print -r -- "==> creating remote '$remote_name:' (a browser will open to authorize)"
+	rclone config create $remote_name drive scope=drive \
+		client_id=$client_id client_secret=$client_secret
 
 	unset client_id client_secret
 fi
 
-echo
-echo "==> remotes now configured:"
+print
+print -r -- '==> remotes now configured:'
 rclone listremotes
 
-echo
-echo "==> verifying with a dry run (nothing is transferred):"
-exec "$HOME/.local/bin/sync-to-gdrive" --dry-run
+print
+print -r -- '==> verifying with a dry run (nothing is transferred):'
+exec $HOME/.local/bin/sync-to-gdrive --dry-run
