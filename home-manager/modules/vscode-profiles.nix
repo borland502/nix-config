@@ -24,6 +24,40 @@
   # same set to the default profile.
   baseUserSettings = import ../lib/code-editor-user-settings.nix {inherit pkgs;};
 
+  # Team repos commit machine-local JDK paths to their .vscode/settings.json —
+  # mdp-application points java.jdt.ls.java.home and java.configuration.runtimes
+  # at the Homebrew corretto@11 bundle this Mac dropped 2026-09-08, and every
+  # worktree carries a copy. Upstream scopes both settings machine-overridable,
+  # so a workspace value beats the Java profile's pkgs.jdk pin and jdt.ls
+  # refuses to start ("points to a missing or inaccessible folder"); once it
+  # does start, a stale runtime path raises "Invalid runtime for JavaSE-11".
+  # Re-scope both to `machine` (user or remote settings only): VS Code then
+  # discards workspace values for them, and a project's bytecode level still
+  # comes from its own build files (`--release 11`).
+  redhatJava = pkgs.vscode-extensions.redhat.java.overrideAttrs (old: {
+    nativeBuildInputs = (old.nativeBuildInputs or []) ++ [pkgs.jq];
+    postInstall =
+      (old.postInstall or "")
+      + ''
+        manifest="$out/share/vscode/extensions/redhat.java/package.json"
+        keys='["java.jdt.ls.java.home", "java.configuration.runtimes"]'
+        jq --argjson keys "$keys" '
+          .contributes.configuration |= map(
+            if .properties then
+              .properties |= with_entries(
+                if (.key | IN($keys[])) then .value.scope = "machine" else . end)
+            else . end)
+        ' "$manifest" > "$manifest.tmp"
+        mv "$manifest.tmp" "$manifest"
+        # Fail the build if an upstream rename leaves either setting unpatched.
+        jq -e --argjson keys "$keys" '
+          [.contributes.configuration[].properties // {} | to_entries[]
+            | select(.key | IN($keys[])) | .value.scope]
+          == ["machine", "machine"]
+        ' "$manifest" > /dev/null
+      '';
+  });
+
   # Sublime keymap: not in nixpkgs' vscode-extensions set, so pinned from the
   # marketplace. Shared by every profile so the keybindings follow the user.
   sublimeKeymap = pkgs.vscode-utils.extensionsFromVscodeMarketplace [
@@ -157,7 +191,7 @@
       extensions =
         languageProfileBase
         ++ (with pkgs.vscode-extensions; [
-          redhat.java
+          redhatJava
           redhat.vscode-xml
           redhat.vscode-yaml
           vscjava.vscode-java-debug
@@ -190,8 +224,10 @@
           # home-darwin.nix now puts pkgs.jdk on PATH, but jdt.ls is still pinned to
           # the store path explicitly: VS Code launched from the Dock inherits
           # launchd's environment, not the shell's, so PATH is not a reliable
-          # way to hand the language server a JDK. Pinning also keeps the
-          # server on 21 (its minimum) no matter what a workspace puts first.
+          # way to hand the language server a JDK. These two keys are
+          # user-only via redhatJava above, so a workspace's committed
+          # java.jdt.ls.java.home / runtimes cannot move the server off 21
+          # (its minimum); the import.gradle key is still workspace-overridable.
           "java.jdt.ls.java.home" = pkgs.jdk.home;
           "java.import.gradle.java.home" = pkgs.jdk.home;
           "java.configuration.runtimes" = [
