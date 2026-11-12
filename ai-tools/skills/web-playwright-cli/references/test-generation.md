@@ -86,3 +86,11 @@ await page.getByRole('button', { name: 'Submit' }).click();
 // Manual assertion
 await expect(page.getByText('Success')).toBeVisible();
 ```
+
+### 4. Prune After the First Green Run
+
+A recorded session tends to yield one test per interaction. Once the suite
+passes, fold or delete tests that walk the same flow to the same outcome, and
+strip debugging-only page-object tweaks. Keep one test per distinct
+user-visible outcome. The criteria are in flow-test-driven-development's
+PRUNE step.

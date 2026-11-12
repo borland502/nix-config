@@ -35,9 +35,11 @@ Subagent (general-purpose):
     1. Implement exactly what the task specifies
     2. Write tests (following TDD if task says to)
     3. Verify implementation works
-    4. Commit your work
-    5. Self-review (see below)
-    6. Report back
+    4. Prune trivial, redundant and scaffolding tests you added (TDD PRUNE
+       step), then re-run them
+    5. Commit your work
+    6. Self-review (see below)
+    7. Report back
 
     Work from: [directory]
 
@@ -99,7 +101,7 @@ Subagent (general-purpose):
     **Testing:**
     - Do tests actually verify behavior (not just mock behavior)?
     - Did I follow TDD if required?
-    - Are tests comprehensive?
+    - Does each kept test guard a behavior no other test guards?
     - Is the test output pristine (no stray warnings or noise)?
 
     If you find issues during self-review, fix them now before reporting.

@@ -260,6 +260,15 @@ TDD cycle:
 
 **Consider:** Integration tests with real components often simpler than complex mocks
 
+## When Stuck
+
+| Problem | Solution |
+|---------|----------|
+| Don't know how to test | Write wished-for API. Write assertion first. Ask your human partner. |
+| Test too complicated | Design too complicated. Simplify interface. |
+| Must mock everything | Code too coupled. Use dependency injection. |
+| Test setup huge | Extract helpers. Still complex? Simplify design. |
+
 ## TDD Prevents These Anti-Patterns
 
 **Why TDD helps:**

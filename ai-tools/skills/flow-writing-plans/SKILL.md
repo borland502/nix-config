@@ -130,7 +130,9 @@ def function(input):
 Run: `pytest tests/path/test.py::test_name -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Prune spent tests (TDD)**
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add tests/path/test.py src/path/file.py
@@ -150,9 +152,8 @@ Every step must contain the actual content an engineer needs. These are **plan f
 
 ## Remember
 - Exact file paths always
-- Complete code in every step — if a step changes code, show the code
+- Complete code in every step
 - Exact commands with expected output
-- DRY, YAGNI, TDD, frequent commits
 
 ## Self-Review
 
