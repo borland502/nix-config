@@ -31,7 +31,7 @@ Write the test first. Watch it fail. Write minimal code to pass.
   adding/removing indexes/constraints/functions, or fixing migration SQL where
   the proof is migration application/rollback, schema inspection, or existing
   integration coverage.
-- Reviewer-requested mechanical cleanup with no intended behavior change:
+- Reviewer-requested or PRUNE-step cleanup with no intended behavior change:
   removing trivial/over-specific tests, deleting unused test files, restoring
   base-branch parity, or changing syntax/style because a reviewer explicitly
   asked for a simpler equivalent form.
@@ -71,6 +71,7 @@ digraph tdd_cycle {
     verify_green [label="Verify passes\nAll green", shape=diamond];
     refactor [label="REFACTOR\nClean up", shape=box, style=filled, fillcolor="#ccccff"];
     next [label="Next", shape=ellipse];
+    prune [label="PRUNE\nCut spent tests", shape=box];
 
     red -> verify_red;
     verify_red -> green [label="yes"];
@@ -81,6 +82,7 @@ digraph tdd_cycle {
     refactor -> verify_green [label="stay\ngreen"];
     verify_green -> next;
     next -> red;
+    verify_green -> prune [label="task\ndone"];
 }
 ```
 
@@ -122,8 +124,9 @@ Vague name, tests mock not code
 </Bad>
 
 **Requirements:**
-- One behavior
-- Clear name
+- One behavior ("and" in the name? Split it)
+- Clear name describing the behavior (not `'test1'`)
+- Shows intent: demonstrates the desired API
 - Real code (no mocks unless unavoidable)
 
 ### Verify RED - Watch It Fail
@@ -211,13 +214,13 @@ Keep tests green. Don't add behavior.
 
 Next failing test for next feature.
 
-## Good Tests
+### PRUNE - Cut Spent Tests
 
-| Quality | Good | Bad |
-|---------|------|-----|
-| **Minimal** | One thing. "and" in name? Split it. | `test('validates email and domain and whitespace')` |
-| **Clear** | Name describes behavior | `test('test1')` |
-| **Shows intent** | Demonstrates desired API | Obscures what code should do |
+Last cycle green, before committing: delete tests **this change added** that
+are trivial (existence, constants, framework behavior), redundant (same path
+and outcome as a kept test) or scaffolding (RED stepping stones, debug
+repros). Keep regression, boundary, error-path and unique-seam integration
+tests; leave pre-existing tests alone; re-run. See [pruning-tests.md](pruning-tests.md).
 
 ## Why Order Matters
 
@@ -344,7 +347,7 @@ Extract validation for multiple fields if needed.
 
 Before marking work complete:
 
-- [ ] Every new function/method has a test
+- [ ] Every new behavior is covered by a kept test
 - [ ] Watched each test fail before implementing
 - [ ] Each test failed for expected reason (feature missing, not typo)
 - [ ] Wrote minimal code to pass each test
@@ -352,17 +355,9 @@ Before marking work complete:
 - [ ] Output pristine (no errors, warnings)
 - [ ] Tests use real code (mocks only if unavoidable)
 - [ ] Edge cases and errors covered
+- [ ] Pruned spent tests this change added; re-ran green
 
 Can't check all boxes? You skipped TDD. Start over.
-
-## When Stuck
-
-| Problem | Solution |
-|---------|----------|
-| Don't know how to test | Write wished-for API. Write assertion first. Ask your human partner. |
-| Test too complicated | Design too complicated. Simplify interface. |
-| Must mock everything | Code too coupled. Use dependency injection. |
-| Test setup huge | Extract helpers. Still complex? Simplify design. |
 
 ## Debugging Integration
 
@@ -370,12 +365,12 @@ Bug found? Write failing test reproducing it. Follow TDD cycle. Test proves fix 
 
 Never fix bugs without a test.
 
-## Testing Anti-Patterns
+## Stuck, or Adding Mocks
 
-When adding mocks or test utilities, read [testing-anti-patterns.md](testing-anti-patterns.md) to avoid common pitfalls:
-- Testing mock behavior instead of real behavior
-- Adding test-only methods to production classes
-- Mocking without understanding dependencies
+Hard to test, huge setup, or must mock everything? Before adding mocks or
+test utilities, read [testing-anti-patterns.md](testing-anti-patterns.md):
+mock-behavior tests, test-only production methods, blind mocking, and a
+When Stuck table.
 
 ## Final Rule
 
