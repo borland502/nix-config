@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
 # Bootstrap a fresh Linux or WSL install: install Nix, then apply chezmoi and Home Manager.
+#
+# This is the one script that runs before zsh is guaranteed, so it stays bash and must
+# work under bash 3.2 (macOS /bin/bash): no mapfile, associative arrays, ${x,,}, or
+# expansions of arrays that can be empty. Everything it hands off to is zsh (floor 5.9);
+# see "Shell scripts" in README.md. tests/test_install_bootstrap.py enforces this.
 
 set -euo pipefail
 

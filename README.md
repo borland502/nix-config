@@ -233,6 +233,29 @@ task hooks:install
 The hooks enforce formatting, generated-instruction consistency, instruction
 size, model-agnostic skill metadata, and public-repository secret hygiene.
 
+## Shell scripts
+
+New scripts are zsh. The floor is zsh 5.9, the version macOS ships as `/bin/zsh`, so a
+script runs the same on a stock Mac, NixOS, WSL and any Home Manager host.
+
+```zsh
+#!/usr/bin/env -S zsh -f
+# <one-line purpose>
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
+```
+
+- bash is limited to `install.sh` and the legacy scripts in `scripts/bash-allowlist.txt`.
+  `install.sh` is the bootstrap: it runs before zsh is guaranteed, so it must work
+  under bash 3.2 (`tests/test_install_bootstrap.py`). Scripts built by Nix
+  (`writeShellApplication`) keep nixpkgs bash.
+- The `-f` in the shebang keeps your `~/.zshenv` from rewriting the PATH the script was given.
+- `task lint:sh` checks zsh with `zsh -n` and `shfmt` (zsh dialect). ShellCheck has no zsh
+  support. shfmt cannot parse a few zsh short forms (`for k v in`, `for x (…)`,
+  `repeat N { }`, `${~x}`/`${=x}`/`${^x}`), so use the long forms.
+- Inside a function, `$0` is the function's name: capture `script=${0:A}` at the top.
+  Split lines with the quoted form `${(f)"$(cmd)"}`.
+
 ## Maintenance
 
 ```bash
