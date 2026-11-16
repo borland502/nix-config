@@ -8,12 +8,12 @@
     "sha256": "cf3475edcc3f1252d869a3775da84dc9a79b3fc978eb13fbd736ee5509c8ea29"
   },
   "ai-tools/skills/flow-test-driven-development/SKILL.md": {
-    "bytes": 10854,
-    "sha256": "bcc71c75f712d9a034e4eb8ee9324bbd7515bc1f95f82c27171689c20fe97a6c"
+    "bytes": 10851,
+    "sha256": "8142045eb44d333cd2c6785ff2f06fab046154c62de0cd68949c874141a08ce5"
   },
   "ai-tools/skills/flow-writing-plans/SKILL.md": {
-    "bytes": 7894,
-    "sha256": "8f69128bef9a1c3f224f35ff20f2576c99b5d5acea6a94a76b9b655c85d9abf7"
+    "bytes": 7859,
+    "sha256": "87adad26a6e11ea84bee0920a062ca500b2b11c09ac77b86388b3e77623a7d76"
   },
   "ai-tools/skills/gh-graphql-jq-pipelines/SKILL.md": {
     "bytes": 5739,
