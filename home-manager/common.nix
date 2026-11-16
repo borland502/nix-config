@@ -576,7 +576,7 @@ in {
         fi
         # Replace only our capture handlers and obsolete broad sweep. Preserve
         # user hooks; keep shutdown work short and reconcile files on the timer.
-        ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
+        AGENT_TOOLS_LIB=${agentToolsLib} ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
           "$_settings" ${../ai-tools/hooks/claude-capture.json}
         # Claude reasoning capture via log-thinking.sh is DISABLED. Claude Code
         # 2.1.69+ stores thinking blocks signature-only (empty text + encrypted

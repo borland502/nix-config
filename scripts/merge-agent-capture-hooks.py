@@ -5,8 +5,14 @@ import os
 from pathlib import Path
 import shlex
 import sys
-import tempfile
 import tomllib
+
+_library = os.environ.get("AGENT_TOOLS_LIB")
+if _library:
+    sys.path.insert(0, _library)
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "chezmoi/dot_local/lib"))
+from agent_tools.artifacts import atomic_output  # noqa: E402
 
 
 def owned(hook):
@@ -74,18 +80,11 @@ def main():
         target.chmod(0o600)
         return
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=".capture-settings-", dir=target.parent)
-    try:
-        with os.fdopen(fd, "wb") as out:
-            out.write(encoded)
-            out.flush()
-            os.fsync(out.fileno())
+    with atomic_output(target, replace=True) as out:
+        out.write(encoded)
         # Do not clobber a concurrent settings edit made during generation.
         if target.exists() and target.read_bytes() != original:
             raise ValueError("settings changed during capture hook merge; retry")
-        os.replace(temporary, target)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

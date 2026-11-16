@@ -84,6 +84,20 @@ class HookTests(unittest.TestCase):
             self.assertFalse(any("sweep-agent-assets" in cmd for cmd in commands))
             self.assertEqual(settings.stat().st_mode & 0o777, 0o600)
 
+    def test_relocated_merger_uses_explicit_library(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "merge-agent-capture-hooks.py"
+            shutil.copyfile(MERGER, script)
+            target = root / "settings.json"
+            env = dict(os.environ, AGENT_TOOLS_LIB=str(ROOT / "chezmoi/dot_local/lib"))
+            result = subprocess.run(
+                ["python3", str(script), str(target), str(HOOKS / "claude-capture.json")],
+                env=env, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("hooks", json.loads(target.read_text()))
+
     def test_bad_settings_are_not_overwritten(self):
         with tempfile.TemporaryDirectory() as tmp:
             settings = Path(tmp) / "settings.json"
