@@ -145,6 +145,40 @@ class HTTP(unittest.TestCase):
             server.server_close()
             thread.join()
 
+    def test_shared_get_adapter_accepts_explicit_argv_and_prog(self):
+        from agent_tools.atlassian_cli import get_main
+        with patch("agent_tools.atlassian_cli.Client.configured") as configured:
+            configured.return_value.request.return_value = b'{"ok":true}'
+            output = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+            with contextlib.redirect_stdout(output):
+                rc = get_main("jira", argv=["fixture"], prog="custom-get")
+            output.flush()
+            self.assertEqual(output.buffer.getvalue(), b'{"ok":true}')
+            self.assertEqual(rc, 0)
+            configured.assert_called_once_with("jira")
+            configured.return_value.request.assert_called_once_with("GET", "fixture", return_raw=True)
+        help_output = io.StringIO()
+        with contextlib.redirect_stdout(help_output), self.assertRaises(SystemExit) as exc:
+            get_main("jira", argv=["--help"], prog="custom-get")
+        self.assertEqual(exc.exception.code, 0)
+        self.assertIn("usage: custom-get", help_output.getvalue())
+
+    def test_get_help_and_argument_errors_need_no_configuration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for service in ("jira", "confluence"):
+                script = ROOT / f"chezmoi/dot_local/bin/executable_{service}-get"
+                env = dict(os.environ, HOME=tmp, AGENT_TOOLS_LIB=str(LIB))
+                for args, expected in ((["--help"], 0), ([], 2)):
+                    with self.subTest(service=service, args=args):
+                        result = subprocess.run([sys.executable, str(script), *args], env=env, capture_output=True)
+                        self.assertEqual(result.returncode, expected)
+                        output = result.stdout if expected == 0 else result.stderr
+                        self.assertIn(f"usage: executable_{service}-get".encode(), output)
+                        if expected == 0:
+                            self.assertIn(b"GET a configured Atlassian API path and validate the JSON response.", output)
+                        else:
+                            self.assertIn(b"the following arguments are required: path", output)
+
     def test_real_get_parsers(self):
         # Run the actual commands with isolated configuration and a loopback fixture.
         import http.server
@@ -171,13 +205,13 @@ class HTTP(unittest.TestCase):
                         with self.subTest(service=service, case=case):
                             script = ROOT / f'chezmoi/dot_local/bin/executable_{service}-get'
                             interpreter = script.read_text().splitlines()[0].removeprefix('#!').split()
-                            p = subprocess.run([*interpreter, str(script), case], env=dict(os.environ, HOME=tmp, PYTHONPATH=str(LIB)), capture_output=True, text=True)
-                            self.assertEqual(p.returncode == 0, case == 'good', p.stderr)
+                            p = subprocess.run([*interpreter, str(script), case], env=dict(os.environ, HOME=tmp, PYTHONPATH=str(LIB)), capture_output=True)
+                            self.assertEqual(p.returncode, 0 if case == 'good' else 1, p.stderr)
                             if case == 'good':
-                                self.assertEqual(json.loads(p.stdout), {'ok': True})
+                                self.assertEqual(p.stdout, b' \n{"ok":true}')
                             else:
-                                self.assertEqual(p.stdout, '')
-                                self.assertTrue(p.stderr)
+                                self.assertEqual(p.stdout, b'')
+                                self.assertTrue(p.stderr.startswith(f'{service}-get: '.encode()))
         finally:
             server.shutdown()
             server.server_close()
