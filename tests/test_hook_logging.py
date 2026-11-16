@@ -218,6 +218,56 @@ after=$(set +o; trap -p; pwd; umask)
         self.assertNotIn("STDERR:", text)
         self.assertNotIn("[truncated", text)
 
+    def test_bash_and_thinking_no_applicable_event(self):
+        for name, payload in [
+            ("log-bash.sh", {"tool_name": "Read", "session_id": "s"}),
+            ("log-bash.sh", {"toolName": "read", "sessionId": "s"}),
+            ("log-thinking.sh", {"session_id": "s"}),
+            (
+                "log-thinking.sh",
+                {
+                    "transcript_path": str(Path(self.home.name, "missing")),
+                    "session_id": "s",
+                },
+            ),
+        ]:
+            with self.subTest(name=name, payload=payload):
+                result = self.run_hook(name, payload)
+                self.assertEqual(result.stdout, "")
+                self.assertFalse(self.log().exists())
+
+    def test_skill_and_thinking_exact_limits(self):
+        self.run_hook(
+            "log-skill.sh",
+            {
+                "tool_name": "Skill",
+                "tool_input": {},
+                "tool_response": "x" * 8000,
+                "session_id": "s",
+            },
+        )
+        skill_log = self.log().read_text()
+        self.assertIn("STDOUT:\n" + "x" * 8000 + "\n---\n", skill_log)
+        self.assertNotIn("[truncated", skill_log)
+        transcript = Path(self.home.name, "exact.jsonl")
+        transcript.write_text(
+            json.dumps(
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "thinking", "thinking": "y" * 20000}],
+                    }
+                }
+            )
+            + "\n"
+        )
+        self.run_hook(
+            "log-thinking.sh", {"transcript_path": str(transcript), "session_id": "s"}
+        )
+        thinking_log = self.log().read_text()[len(skill_log) :]
+        self.assertIn("STDOUT:\n" + "y" * 20000 + "\n---\n", thinking_log)
+        self.assertNotIn("[thinking truncated", thinking_log)
+
     def test_thinking_truncation_and_cache_alias(self):
         shared = Path(self.home.name, ".cache/shared")
         shared.mkdir(parents=True)
