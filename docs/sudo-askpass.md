@@ -1,9 +1,11 @@
 # Graphical sudo authentication on Linux
 
 Home Manager supplies a default `SUDO_ASKPASS` for Linux sessions. The dispatcher
-chooses an installed desktop password dialog and passes its output directly to
-sudo. A pre-existing `SUDO_ASKPASS` takes precedence. NixOS desktop profiles
-install ksshaskpass; generic Linux provisioning installs the host package.
+chooses a desktop password dialog from trusted absolute paths and passes its
+output directly to sudo. It prefers the host ksshaskpass, then a pinned Nix
+package and known system alternatives; it does not search `PATH`. A pre-existing
+`SUDO_ASKPASS` takes precedence. Generic Linux provisioning installs the host
+package.
 
 For commands issued by an agent, use `sudo -A <command>` to request the dialog
 explicitly, including when the agent has a pseudo-terminal. For a direct shell

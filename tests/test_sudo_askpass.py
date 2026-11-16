@@ -1,6 +1,7 @@
 """Behavioral tests for sudo's desktop askpass dispatcher."""
 
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -15,42 +16,52 @@ class DispatcherTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.bin = Path(self.temp.name)
-        # Mask all absolute helper lookups so tests never launch host GUI programs.
-        bash_env = self.bin / "bash-env"
-        bash_env.write_text(
-            "command() {\n"
-            '  if [ "$1" = "-v" ] && [[ "$2" = /* ]]; then return 1; fi\n'
-            '  builtin command "$@"\n'
-            "}\n"
-        )
-        self.env = {
-            "PATH": str(self.bin),
-            "DISPLAY": ":fixture",
-            "BASH_ENV": str(bash_env),
-        }
+        self.helpers = self.bin / "trusted helpers"
+        self.helpers.mkdir()
+        self.env = {"PATH": str(self.bin), "DISPLAY": ":fixture"}
 
     def helper(self, name, body):
-        helper = self.bin / name
+        helper = self.helpers / name
         helper.write_text("#!/bin/sh\n" + body + "\n")
         helper.chmod(0o755)
 
     def run_dispatcher(self, *args):
+        candidates = [
+            self.helpers / name
+            for name in (
+                "ksshaskpass",
+                "ssh-askpass",
+                "gnome-ssh-askpass",
+                "lxqt-openssh-askpass",
+            )
+        ]
+        rendered = self.bin / "dispatcher"
+        rendered.write_text(
+            DISPATCHER.read_text().replace(
+                "@ASKPASS_HELPERS@", " ".join(shlex.quote(str(p)) for p in candidates)
+            )
+        )
         return subprocess.run(
-            ["/bin/bash", str(DISPATCHER), *args],
+            ["/bin/sh", str(rendered), *args],
             env=self.env,
             text=True,
             capture_output=True,
             check=False,
         )
 
-    def test_fixture_masks_existing_absolute_executable(self):
-        result = subprocess.run(
-            ["/bin/bash", "-c", "command -v /bin/sh"],
-            env=self.env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+    def test_path_shadow_cannot_intercept_prompt(self):
+        shadow = self.bin / "ksshaskpass"
+        shadow.write_text('#!/bin/sh\nprintf "shadow"\n')
+        shadow.chmod(0o755)
+        self.helper("ksshaskpass", 'printf "trusted"')
+        result = self.run_dispatcher("prompt")
+        self.assertEqual((result.returncode, result.stdout), (0, "trusted"))
+
+    def test_path_shadow_is_ignored_when_trusted_helpers_missing(self):
+        shadow = self.bin / "ksshaskpass"
+        shadow.write_text('#!/bin/sh\nprintf "shadow"\n')
+        shadow.chmod(0o755)
+        result = self.run_dispatcher("prompt")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
 
@@ -95,8 +106,11 @@ class ModuleTests(unittest.TestCase):
         expr = """let
           module = import (builtins.toPath %s) {
             config.home.homeDirectory = "/home/test user";
-            pkgs = { stdenv.isLinux = %s; writeShellScript = name: source: "/fixture/script"; };
-            lib.mkIf = condition: value: if condition then value else {};
+            pkgs = { stdenv.isLinux = %s; kdePackages.ksshaskpass = "/fixture/ksshaskpass"; writeShellScript = name: source: "/fixture/script"; };
+            lib = {
+              mkIf = condition: value: if condition then value else {};
+              escapeShellArgs = xs: builtins.concatStringsSep " " xs;
+            };
           };
         in builtins.toJSON module""" % (
             repr(str(MODULE)).replace("'", '"'),
