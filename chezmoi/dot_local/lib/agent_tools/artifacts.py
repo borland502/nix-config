@@ -14,7 +14,7 @@ def private_directory(target):
 
 
 @contextmanager
-def atomic_output(target, *, replace):
+def atomic_output(target, *, replace, before_publish=None):
     """Yield a seekable binary stream and publish only after successful validation."""
     target = Path(target).expanduser().absolute()
     temporary = None
@@ -26,6 +26,8 @@ def atomic_output(target, *, replace):
             yield output
             output.flush()
             os.fsync(output.fileno())
+        if before_publish is not None:
+            before_publish()
         if replace:
             os.replace(temporary, target)
         else:

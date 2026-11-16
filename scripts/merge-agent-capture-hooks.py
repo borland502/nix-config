@@ -80,11 +80,13 @@ def main():
         target.chmod(0o600)
         return
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with atomic_output(target, replace=True) as out:
-        out.write(encoded)
+    def check_concurrent_edit():
         # Do not clobber a concurrent settings edit made during generation.
         if target.exists() and target.read_bytes() != original:
             raise ValueError("settings changed during capture hook merge; retry")
+
+    with atomic_output(target, replace=True, before_publish=check_concurrent_edit) as out:
+        out.write(encoded)
 
 
 if __name__ == "__main__":

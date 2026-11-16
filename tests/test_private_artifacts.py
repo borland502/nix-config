@@ -36,6 +36,27 @@ class PrivateArtifactsTests(unittest.TestCase):
             self.assertEqual(target.read_bytes(), b"original")
             self.assertEqual(list(Path(tmp).iterdir()), [target])
 
+    def test_merger_preserves_edit_during_final_fsync(self):
+        spec = importlib.util.spec_from_file_location("capture_merger_fsync", ROOT / "scripts/merge-agent-capture-hooks.py")
+        merger = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(merger)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "settings.json"
+            source = Path(tmp) / "hooks.json"
+            target.write_bytes(b"{}")
+            source.write_text('{"hooks": {}}')
+            original_fsync = artifacts.os.fsync
+
+            def concurrent_fsync(fd):
+                original_fsync(fd)
+                target.write_bytes(b"concurrent edit")
+
+            with mock.patch.object(artifacts.os, "fsync", concurrent_fsync), mock.patch.object(sys, "argv", ["merger", str(target), str(source)]):
+                with self.assertRaisesRegex(ValueError, "settings changed"):
+                    merger.main()
+            self.assertEqual(target.read_bytes(), b"concurrent edit")
+            self.assertEqual(set(Path(tmp).iterdir()), {target, source})
+
     def test_merger_detects_concurrent_edit_before_publication(self):
         spec = importlib.util.spec_from_file_location("capture_merger", ROOT / "scripts/merge-agent-capture-hooks.py")
         merger = importlib.util.module_from_spec(spec)
@@ -47,8 +68,8 @@ class PrivateArtifactsTests(unittest.TestCase):
             source.write_text('{"hooks": {}}')
 
             @contextmanager
-            def concurrent_edit(path, *, replace):
-                with artifacts.atomic_output(path, replace=replace) as output:
+            def concurrent_edit(path, *, replace, before_publish):
+                with artifacts.atomic_output(path, replace=replace, before_publish=before_publish) as output:
                     target.write_bytes(b"concurrent edit")
                     yield output
 
