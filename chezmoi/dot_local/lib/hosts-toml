@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # hosts-toml — shared inventory access and reporting helpers.
 #
 # Source this file; do not execute it:

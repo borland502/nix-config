@@ -22,18 +22,21 @@ class DiscoveryTests(unittest.TestCase):
                 'node_modules/skip': '#!/bin/bash\n',
                 'template.sh.tmpl': '#!/bin/bash\n{{ value }}\n',
                 'python': '#!/usr/bin/env python3\n',
+                'lib with space': '# shellcheck shell=bash\necho ok\n',
+                'vendor/skip': '# shellcheck shell=bash\n',
             }
             for name, content in fixtures.items():
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content)
+            (root / 'link').symlink_to(root / 'lib with space')
             result = subprocess.run(['python3', str(SCRIPT), '--root', tmp, '--list'],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), {
                 'ai-tools/scripts/hook': 'sh',
                 'chezmoi/dot_local/bin/executable_with space': 'bash',
-                'env-s': 'bash', 'zsh-helper': 'zsh',
+                'env-s': 'bash', 'lib with space': 'bash', 'zsh-helper': 'zsh',
             })
 
 

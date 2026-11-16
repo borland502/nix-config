@@ -3,37 +3,15 @@
 import argparse
 import json
 from pathlib import Path
-import shlex
 import subprocess
 import sys
 
-EXCLUDED = {'.git', '.worktrees', 'node_modules', 'vendor', '.venv', 'venv', 'secrets'}
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'chezmoi/dot_local/lib'))
+from agent_tools.sources import shell_sources  # noqa: E402
 
 
 def discover(root):
-    result = subprocess.run(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
-                            cwd=root, check=True, capture_output=True)
-    scripts = {}
-    for name in sorted(set(result.stdout.decode().split('\0')) - {''}):
-        path = root / name
-        if EXCLUDED.intersection(path.relative_to(root).parts) or path.suffix == '.tmpl':
-            continue
-        if path.is_symlink() or not path.is_file():
-            continue
-        with path.open('rb') as stream:
-            first = stream.readline(512).decode('utf-8', errors='replace').strip()
-        if not first.startswith('#!'):
-            continue
-        words = shlex.split(first[2:])
-        if not words:
-            continue
-        interpreter = Path(words[0]).name
-        if interpreter == 'env':
-            words = [word for word in words[1:] if not word.startswith('-') and '=' not in word]
-            interpreter = words[0] if words else ''
-        if interpreter in {'bash', 'sh', 'dash', 'ksh', 'zsh'}:
-            scripts[name] = interpreter
-    return scripts
+    return shell_sources(root)
 
 
 def main():

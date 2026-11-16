@@ -4,37 +4,15 @@
 import argparse
 import json
 from pathlib import Path
-import re
 import subprocess
+import sys
 
-EXCLUDED = {".git", ".worktrees", "node_modules", "vendor", ".venv", "venv", "secrets"}
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "chezmoi/dot_local/lib"))
+from agent_tools.sources import python_sources  # noqa: E402
 
 
 def discover(root):
-    result = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
-    files = []
-    for name in sorted(set(result.stdout.decode().split("\0")) - {""}):
-        path = root / name
-        if (
-            EXCLUDED.intersection(Path(name).parts)
-            or path.is_symlink()
-            or not path.is_file()
-            or path.suffix == ".tmpl"
-        ):
-            continue
-        with path.open("rb") as stream:
-            first = stream.readline(512).decode("utf-8", errors="replace")
-        if path.suffix == ".py" or (
-            first.startswith("#!")
-            and re.search(r"(?:^|[/\s])python(?:3(?:\.\d+)?)?(?:\s|$)", first)
-        ):
-            files.append(name)
-    return files
+    return python_sources(root)
 
 
 def main():
