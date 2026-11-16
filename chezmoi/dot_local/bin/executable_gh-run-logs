@@ -26,32 +26,32 @@ tail_n=40
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--repo)
-			shift
-			repo_args=(--repo "${1:?--repo needs owner/name}")
-			;;
-		--all) mode="full" ;;
-		--tail)
-			shift
-			tail_n="${1:?--tail needs a number}"
-			[[ "$tail_n" =~ ^[0-9]+$ ]] || {
-				echo "--tail must be a number" >&2
-				exit 1
-			}
-			;;
-		-h | --help)
-			usage
-			exit 0
-			;;
-		*)
-			if [[ -z "$run_id" && "$1" =~ ^[0-9]+$ ]]; then
-				run_id="$1"
-			else
-				echo "Unknown argument: $1" >&2
-				usage >&2
-				exit 1
-			fi
-			;;
+	--repo)
+		shift
+		repo_args=(--repo "${1:?--repo needs owner/name}")
+		;;
+	--all) mode="full" ;;
+	--tail)
+		shift
+		tail_n="${1:?--tail needs a number}"
+		[[ "$tail_n" =~ ^[0-9]+$ ]] || {
+			echo "--tail must be a number" >&2
+			exit 1
+		}
+		;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*)
+		if [[ -z "$run_id" && "$1" =~ ^[0-9]+$ ]]; then
+			run_id="$1"
+		else
+			echo "Unknown argument: $1" >&2
+			usage >&2
+			exit 1
+		fi
+		;;
 	esac
 	shift
 done

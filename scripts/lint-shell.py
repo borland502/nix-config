@@ -30,7 +30,7 @@ def main():
             commands = [['zsh', '-f', '-n', name]]
         else:
             dialect = 'sh' if shell == 'dash' else shell
-            commands = [['shellcheck', '--shell', dialect, name]]
+            commands = [['shellcheck', '-x', '--shell', dialect, name]]
             # Preserve the established formatting exemption for imported skills;
             # syntax and ShellCheck still cover their shell sources.
             if args.format and shell != 'ksh' and not name.startswith('ai-tools/'):

@@ -10,6 +10,18 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/lint-shell.py'
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_lints_caller_and_declared_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(['git', 'init', '-q', tmp], check=True)
+            (root / 'lib.bash').write_text('# shellcheck shell=bash\ngreet() { echo hello; }\n')
+            (root / 'caller').write_text(
+                '#!/bin/bash\n# shellcheck source=lib.bash\nsource "$LIBRARY"\ngreet\n'
+            )
+            result = subprocess.run(['python3', str(SCRIPT), '--root', tmp],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_shebangs_and_safe_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
