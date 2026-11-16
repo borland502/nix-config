@@ -56,3 +56,18 @@ assert_not_contains "$audit" 'graphql      2'
 
 retained="$(HOME="$tmp/home" "$helper" --session retained-session)"
 assert_contains "$retained" 'retained-marker'
+
+# An agent shell whose PATH lacks the nix profiles resolves python3 to macOS's
+# /usr/bin/python3 (3.9), which cannot import the scanner's 3.10+ annotations.
+# Shadow python3 with one that fails the version probe and every real call:
+# the helper must skip it rather than run with it.
+mkdir -p "$tmp/old-python"
+cat >"$tmp/old-python/python3" <<'SH'
+#!/bin/sh
+echo "fake pre-3.10 python3 invoked: $*" >&2
+exit 1
+SH
+chmod +x "$tmp/old-python/python3"
+old_first="$(HOME="$tmp/home" PATH="$tmp/old-python:$PATH" "$helper" --session retained-session 2>&1)"
+assert_contains "$old_first" 'retained-marker'
+assert_not_contains "$old_first" 'fake pre-3.10 python3 invoked'

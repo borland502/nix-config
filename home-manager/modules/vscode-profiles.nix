@@ -24,6 +24,20 @@
   # same set to the default profile.
   baseUserSettings = import ../lib/code-editor-user-settings.nix {inherit pkgs;};
 
+  # The Java debugger writes endpoint files during activation. Its install
+  # directory is immutable under Nix, so use VS Code's writable global storage
+  # for those files while keeping bundled script lookup in the extension path.
+  javaDebug = pkgs.vscode-extensions.vscjava.vscode-java-debug.overrideAttrs (old: {
+    postInstall =
+      (old.postInstall or "")
+      + ''
+        substituteInPlace "$out/share/vscode/extensions/vscjava.vscode-java-debug/dist/extension.js" \
+          --replace-fail 'registerNoConfigDebug)(e.environmentVariableCollection,e.extensionPath)' 'registerNoConfigDebug)(e.environmentVariableCollection,e.extensionPath,e.globalStorageUri.fsPath)' \
+          --replace-fail 'registerNoConfigDebug=function(e,t)' 'registerNoConfigDebug=function(e,t,storagePath)' \
+          --replace-fail 'o.join(t,".noConfigDebugAdapterEndpoints")' 'o.join(storagePath,".noConfigDebugAdapterEndpoints")'
+      '';
+  });
+
   # Sublime keymap: not in nixpkgs' vscode-extensions set, so pinned from the
   # marketplace. Shared by every profile so the keybindings follow the user.
   sublimeKeymap = pkgs.vscode-utils.extensionsFromVscodeMarketplace [
@@ -118,6 +132,20 @@
           # toolchain at the Nix store copies, so never let the extension try
           # to `go install` its own.
           "go.toolsManagement.autoUpdate" = false;
+          "launch" = {
+            version = "0.2.0";
+            configurations = [
+              {
+                name = "Go: main package";
+                type = "go";
+                request = "launch";
+                mode = "debug";
+                program = "\${workspaceFolder}";
+                cwd = "\${workspaceFolder}";
+                console = "integratedTerminal";
+              }
+            ];
+          };
           "[go]" = {
             "editor.defaultFormatter" = "golang.go";
             "editor.codeActionsOnSave" = {
@@ -143,6 +171,19 @@
         // {
           "python.defaultInterpreterPath" = "${pkgs.python3}/bin/python3";
           "python.analysis.typeCheckingMode" = "basic";
+          "launch" = {
+            version = "0.2.0";
+            configurations = [
+              {
+                name = "Python: main.py";
+                type = "debugpy";
+                request = "launch";
+                program = "\${workspaceFolder}/main.py";
+                cwd = "\${workspaceFolder}";
+                console = "integratedTerminal";
+              }
+            ];
+          };
           "[python]" = {
             "editor.defaultFormatter" = "charliermarsh.ruff";
             "editor.codeActionsOnSave" = {
@@ -160,7 +201,8 @@
           redhat.java
           redhat.vscode-xml
           redhat.vscode-yaml
-          vscjava.vscode-java-debug
+          vscjava.vscode-java-pack
+          javaDebug
           vscjava.vscode-java-test
           vscjava.vscode-java-dependency
           vscjava.vscode-maven
@@ -194,6 +236,20 @@
           # server on 21 (its minimum) no matter what a workspace puts first.
           "java.jdt.ls.java.home" = pkgs.jdk.home;
           "java.import.gradle.java.home" = pkgs.jdk.home;
+          "launch" = {
+            version = "0.2.0";
+            configurations = [
+              {
+                name = "Java: main class";
+                type = "java";
+                request = "launch";
+                # Let the Java debugger discover the main class (and offer
+                # a picker when there is more than one).
+                cwd = "\${workspaceFolder}";
+                console = "integratedTerminal";
+              }
+            ];
+          };
           "java.configuration.runtimes" = [
             {
               name = "JavaSE-21";
@@ -291,6 +347,23 @@
         baseUserSettings
         // {
           "eslint.useFlatConfig" = true;
+          # Profile-level defaults work without a per-project launch.json.
+          # Select main.js or main.ts in Run and Debug, then use F5.
+          "launch" = {
+            version = "0.2.0";
+            configurations = map (entryPoint: {
+              name = "Node.js: ${entryPoint}";
+              type = "node";
+              request = "launch";
+              program = "\${workspaceFolder}/${entryPoint}";
+              cwd = "\${workspaceFolder}";
+              console = "integratedTerminal";
+              # Node 24 runs erasable TypeScript directly. Projects needing
+              # tsconfig transforms or loaders can use a workspace config.
+              runtimeExecutable = "${pkgs.nodejs}/bin/node";
+              skipFiles = ["<node_internals>/**"];
+            }) ["main.js" "main.ts"];
+          };
           "javascript.updateImportsOnFileMove.enabled" = "always";
           "typescript.updateImportsOnFileMove.enabled" = "always";
           # Renames the matching open/close tag in HTML, Angular templates and
