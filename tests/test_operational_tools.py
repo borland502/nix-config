@@ -89,6 +89,21 @@ class Shared(unittest.TestCase):
                 run(argv, timeout=timeout)
             self.assertLess(len(str(exc.exception)), 5000)
 
+    def test_json_process_errors_and_timeout_type(self):
+        from agent_tools.process import ProcessError, ProcessTimeout, run_json
+        self.assertTrue(issubclass(ProcessTimeout, ProcessError))
+        self.assertEqual(run_json([sys.executable, "-c", "print('[1, 2]')"]), [1, 2])
+        for output in ("", "secret malformed response"):
+            with self.subTest(output=output), self.assertRaises(ProcessError) as exc:
+                run_json([sys.executable, "-c", f"print({output!r})"])
+            self.assertEqual(str(exc.exception), "command returned malformed JSON")
+        with self.assertRaises(ProcessTimeout) as exc:
+            run_json([sys.executable, "-c", "import time; time.sleep(1)"], timeout=.01)
+        self.assertEqual(str(exc.exception), "command timed out")
+        for argv in (["/nonexistent/fixture"], [sys.executable, "-c", "import sys; sys.exit(7)"]):
+            with self.subTest(argv=argv), self.assertRaises(ProcessError):
+                run_json(argv)
+
     def test_private_atomic_publication(self):
         from agent_tools.artifacts import atomic_write
         with tempfile.TemporaryDirectory() as tmp:
