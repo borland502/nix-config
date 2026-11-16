@@ -18,6 +18,11 @@
 # no equivalent event. Side-effect-only hook — Claude ignores the exit code.
 set -euo pipefail
 
+# shellcheck source=chezmoi/dot_local/lib/shell/agent-cache.bash
+source "$AGENT_TOOLS_SHELL_LIB/agent-cache.bash"
+# shellcheck source=chezmoi/dot_local/lib/shell/hook-log.bash
+source "$AGENT_TOOLS_SHELL_LIB/hook-log.bash"
+
 input=$(cat)
 
 event=$(printf '%s' "$input" | jq -r '.hook_event_name // ""')
@@ -28,18 +33,9 @@ reason=$(printf '%s' "$input" | jq -r '.reason // "?"')
 sid=$(printf '%s' "$input" | jq -r '.session_id // "nosid"')
 cwd=$(printf '%s' "$input" | jq -r '.cwd // ""')
 
-agent_raw="${AGENT_NAME:-claude}"
-agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
-[[ -n "$agent" ]] || agent="claude"
+agent=$(agent_cache_normalize "${AGENT_NAME:-claude}")
 
-log_dir="$HOME/.cache/$agent"
+log_dir=$(agent_cache_path "$HOME" "$agent")
 logfile="$log_dir/session_${sid}.log"
 mkdir -p "$log_dir"
-umask 077
-
-{
-	printf '\n## [%s] status=ok event=instructions cwd=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${cwd:-?}"
-	printf 'CMD: InstructionsLoaded reason=%s file=%s\n' "$reason" "$file_path"
-	printf -- '---\n'
-} >>"$logfile"
-chmod 600 "$logfile" 2>/dev/null || true
+agent_hook_record instructions ok "$cwd" "InstructionsLoaded reason=$reason file=$file_path" "" "" | agent_hook_append "$logfile"

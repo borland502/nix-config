@@ -14,6 +14,9 @@
 # with --all) so cache-scan and later sessions can find them. Deps: gh.
 set -euo pipefail
 
+# shellcheck source=chezmoi/dot_local/lib/shell/agent-cache.bash
+source "${AGENT_TOOLS_SHELL_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib/shell" && pwd)}/agent-cache.bash"
+
 usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 
 run_id=""
@@ -23,32 +26,32 @@ tail_n=40
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-	--repo)
-		shift
-		repo_args=(--repo "${1:?--repo needs owner/name}")
-		;;
-	--all) mode="full" ;;
-	--tail)
-		shift
-		tail_n="${1:?--tail needs a number}"
-		[[ "$tail_n" =~ ^[0-9]+$ ]] || {
-			echo "--tail must be a number" >&2
-			exit 1
-		}
-		;;
-	-h | --help)
-		usage
-		exit 0
-		;;
-	*)
-		if [[ -z "$run_id" && "$1" =~ ^[0-9]+$ ]]; then
-			run_id="$1"
-		else
-			echo "Unknown argument: $1" >&2
-			usage >&2
-			exit 1
-		fi
-		;;
+		--repo)
+			shift
+			repo_args=(--repo "${1:?--repo needs owner/name}")
+			;;
+		--all) mode="full" ;;
+		--tail)
+			shift
+			tail_n="${1:?--tail needs a number}"
+			[[ "$tail_n" =~ ^[0-9]+$ ]] || {
+				echo "--tail must be a number" >&2
+				exit 1
+			}
+			;;
+		-h | --help)
+			usage
+			exit 0
+			;;
+		*)
+			if [[ -z "$run_id" && "$1" =~ ^[0-9]+$ ]]; then
+				run_id="$1"
+			else
+				echo "Unknown argument: $1" >&2
+				usage >&2
+				exit 1
+			fi
+			;;
 	esac
 	shift
 done
@@ -58,10 +61,8 @@ done
 	exit 1
 }
 
-agent_raw="${AGENT_NAME:-claude}"
-agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
-[[ -n "$agent" ]] || agent="claude"
-out_dir="$HOME/.cache/$agent"
+agent=$(agent_cache_normalize "${AGENT_NAME:-claude}")
+out_dir=$(agent_cache_path "$HOME" "$agent")
 mkdir -p "$out_dir"
 out="$out_dir/run-${run_id}-${mode}.log"
 

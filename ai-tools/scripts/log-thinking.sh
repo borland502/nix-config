@@ -21,12 +21,15 @@
 # These reduce but do not eliminate leakage risk; treat the logs as sensitive.
 set -euo pipefail
 
+# shellcheck source=chezmoi/dot_local/lib/shell/agent-cache.bash
+source "$AGENT_TOOLS_SHELL_LIB/agent-cache.bash"
+# shellcheck source=chezmoi/dot_local/lib/shell/hook-log.bash
+source "$AGENT_TOOLS_SHELL_LIB/hook-log.bash"
+
 input=$(cat)
 command -v jq >/dev/null 2>&1 || exit 0
 
-agent_raw="${AGENT_NAME:-claude}"
-agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
-[[ -n "$agent" ]] || agent="claude"
+agent=$(agent_cache_normalize "${AGENT_NAME:-claude}")
 
 # Resolve source event log + session id + flavor from the payload shape.
 if printf '%s' "$input" | jq -e '.transcript_path' >/dev/null 2>&1; then
@@ -44,7 +47,7 @@ fi
 [[ -n "$src" && -f "$src" ]] || exit 0
 [[ -n "$sid" ]] || sid=$(basename "$src" .jsonl)
 
-log_dir="$HOME/.cache/$agent"
+log_dir=$(agent_cache_path "$HOME" "$agent")
 state_dir="$log_dir/.thinking-cursor"
 mkdir -p "$log_dir" "$state_dir"
 logfile="$log_dir/session_${sid}.log"
@@ -109,15 +112,5 @@ redact() {
 
 out=$(redact "$blocks")
 max_chars=20000
-if ((${#out} > max_chars)); then
-	out="${out:0:max_chars}"$'\n''... [thinking truncated; see transcript for full text]'
-fi
-
-umask 077
-{
-	printf '\n## [%s] status=ok event=thinking cwd=?\n' "$(date '+%Y-%m-%d %H:%M:%S')"
-	printf 'CMD: Thinking agent=%s session=%s\n' "$agent" "$sid"
-	printf 'STDOUT:\n%s\n' "$out"
-	printf -- '---\n'
-} >>"$logfile"
-chmod 600 "$logfile" 2>/dev/null || true
+out=$(agent_hook_truncate "$out" "$max_chars" '... [thinking truncated; see transcript for full text]')
+agent_hook_record thinking ok '?' "Thinking agent=$agent session=$sid" "$out" "" | agent_hook_append "$logfile"
