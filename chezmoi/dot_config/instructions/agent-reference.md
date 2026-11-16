@@ -644,3 +644,10 @@ characters with truncation and original-size metadata. `--full-output` lifts
 selected-record text caps only; record caps remain. The private event index
 preserves full source text and reuses unchanged native sources; source files
 are never rewritten by the scanner.
+
+## Linux sudo askpass
+
+For graphical sudo authentication in agent commands, use `sudo -A <command>`;
+for direct actions use `! sudo -A <command>`. The session must inherit a
+Linux graphical display and the Home Manager `SUDO_ASKPASS` default. See
+`docs/sudo-askpass.md` in the nix-config repository for setup and validation.

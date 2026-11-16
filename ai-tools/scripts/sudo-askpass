@@ -1,0 +1,17 @@
+#!/bin/sh
+# Hand the prompt and output directly to a desktop password helper.
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+	printf '%s\n' 'sudo-askpass: no graphical display available' >&2
+	exit 1
+fi
+
+unset SSH_ASKPASS_PROMPT
+for helper in ksshaskpass /usr/bin/ksshaskpass ssh-askpass /usr/bin/ssh-askpass \
+	gnome-ssh-askpass /usr/libexec/openssh/gnome-ssh-askpass \
+	lxqt-openssh-askpass /usr/bin/lxqt-openssh-askpass /usr/lib/ssh/x11-ssh-askpass; do
+	if command -v "$helper" >/dev/null 2>&1; then
+		exec "$helper" "$@"
+	fi
+done
+printf '%s\n' 'sudo-askpass: no desktop askpass helper found' >&2
+exit 1

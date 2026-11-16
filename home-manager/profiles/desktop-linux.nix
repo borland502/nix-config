@@ -142,6 +142,7 @@
   # kitty keeps its chezmoi config (chezmoi/dot_config/kitty) and stylix
   # theming via stylix.targets.kitty either way — this guards only the package.
   nixosOnlyPackages = with pkgs; [
+    kdePackages.ksshaskpass
     kitty
     vivaldi
     google-chrome

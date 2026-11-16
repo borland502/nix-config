@@ -347,6 +347,7 @@ in {
     ./zsh.nix
     ./starship.nix
     ./modules/sops.nix
+    ./modules/sudo-askpass.nix
   ];
 
   xdg = {
