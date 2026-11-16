@@ -24,6 +24,17 @@ fi
 export NIX_CONFIG="experimental-features = nix-command flakes${NIX_CONFIG:+
 $NIX_CONFIG}"
 
+# Run a repo script, which is zsh. zsh is on PATH on macOS and after the first
+# switch; before that (a fresh Linux host, or a first switch that failed on sops)
+# Nix provides it. Defined after NIX_CONFIG so the fallback can use flakes.
+_run_zsh() {
+	if command -v zsh >/dev/null 2>&1; then
+		zsh -f "$@"
+	else
+		nix shell nixpkgs#zsh --command zsh -f "$@"
+	fi
+}
+
 # ── 1. Nix ────────────────────────────────────────────────────────────────────
 if ! command -v nix >/dev/null 2>&1; then
 	echo "==> Installing Nix via Determinate Systems installer..."
@@ -106,7 +117,9 @@ fi
 
 # Provide git from nixpkgs for this bootstrap so chezmoi's git-repo externals
 # resolve with native git instead of relying on Windows git.exe interop.
-nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -euo pipefail -c '
+# Every nix shell here also provides zsh: the tasks it runs (chezmoi apply,
+# task switch) call zsh scripts, and a fresh host has no zsh until its first switch.
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git nixpkgs#zsh --command bash -euo pipefail -c '
   task chezmoi-init
   task chezmoi-apply
 '
@@ -114,7 +127,7 @@ nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -euo pipefa
 if [[ "$_is_nixos_user_swap" == true ]]; then
 	_bootstrap_user="$(id -un)"
 	echo "==> NixOS-WSL: applying system configuration (switches default user to $_target_user)..."
-	nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -c 'task home-switch' || {
+	nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git nixpkgs#zsh --command bash -c 'task home-switch' || {
 		rc=$?
 		echo "==> System switch returned $rc — expected on the first NixOS-WSL switch:"
 		echo "    the new system and ${_target_user}'s home activated, but reloading the"
@@ -166,7 +179,7 @@ fi
 # that branch $? is the status of the negation, not the command — the same trap
 # already documented in scripts/chezmoi-apply-tolerant.sh.
 set +e
-nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -c '
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git nixpkgs#zsh --command bash -c '
   task home-switch
 '
 _first_switch_rc=$?
@@ -236,7 +249,7 @@ if [[ "$IS_WSL" == true ]]; then
 	_bootstrap_win="$SCRIPT_DIR/scripts/wsl/bootstrap-windows.sh"
 	if [[ -f "$_bootstrap_win" ]]; then
 		echo "==> Running Windows bootstrap..."
-		bash "$_bootstrap_win"
+		_run_zsh "$_bootstrap_win"
 	else
 		echo "==> Windows bootstrap script not found at $_bootstrap_win; skipping."
 	fi
@@ -246,7 +259,7 @@ fi
 _provision_secrets="$SCRIPT_DIR/scripts/provision-secrets.sh"
 if [[ -f "$_provision_secrets" ]]; then
 	echo "==> Running secret provisioning..."
-	bash "$_provision_secrets"
+	_run_zsh "$_provision_secrets"
 else
 	echo "==> Secret provisioning script not found at $_provision_secrets; skipping."
 fi
@@ -256,7 +269,7 @@ fi
 # the flake inputs to current and re-switches so the freshly-installed shell is
 # already on the latest before the user's first interactive session.
 echo "==> Upgrading flake inputs and re-switching (task upgrade)..."
-nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git --command bash -c '
+nix shell nixpkgs#go-task nixpkgs#chezmoi nixpkgs#git nixpkgs#zsh --command bash -c '
   cd "'"$SCRIPT_DIR"'"
   task upgrade
 '

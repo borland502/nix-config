@@ -29,7 +29,9 @@ jobs:
         run: nix shell nixpkgs#go-task nixpkgs#alejandra nixpkgs#fd -c task fmt:check
 
       - name: Run Nix linters
-        run: nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix -c task lint:nix
+        # zsh is required: lint:nix runs the repo's zsh check scripts, and
+        # ubuntu-latest does not ship zsh.
+        run: nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix nixpkgs#zsh -c task lint:nix
 
   linux-and-wsl-builds:
     name: ${{ matrix.name }}
