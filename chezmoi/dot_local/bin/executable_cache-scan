@@ -169,9 +169,39 @@ if ((audit)) && ((days_set == 0)); then days=30; fi
 # query. A century-wide mtime window effectively removes the normal 2-day cap.
 if [[ -n "$session" ]] && ((days_set == 0)); then days=36500; fi
 
+# The scanner needs python 3.10+: agent_tools evaluates PEP 604 unions
+# (`str | None`) when its dataclasses are defined. As with bash above, the
+# first python3 on PATH is not guaranteed to qualify. An agent shell whose PATH
+# lacks the nix profiles resolves it to macOS's /usr/bin/python3 (3.9), which
+# dies on import. That leaves `roots` empty and misreports a missing log dir.
+# Take the first python3 on PATH that is new enough, so a host that
+# deliberately owns the bare name (preferSystemPython) keeps it. Failing that,
+# fall back to the nix profiles.
+find_python() {
+	local cand
+	local -a on_path=()
+	mapfile -t on_path < <(type -ap python3 || true)
+	for cand in "${on_path[@]}" \
+		/etc/profiles/per-user/"${USER:-$(id -un)}"/bin/python3 \
+		/run/current-system/sw/bin/python3 \
+		"$HOME/.nix-profile/bin/python3" \
+		/opt/homebrew/bin/python3 /usr/local/bin/python3; do
+		if [[ -x "$cand" ]] &&
+			"$cand" -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+			printf '%s\n' "$cand"
+			return 0
+		fi
+	done
+	return 1
+}
+py="$(find_python)" || {
+	echo "cache-scan: needs python3 >= 3.10; none found on PATH or in the nix profiles" >&2
+	exit 1
+}
+
 # Use the same configured roots as native, classify and audit scanning.
 scan_lib="$(cd -- "$(dirname -- "$0")/../lib" && pwd)/cache_scan.py"
-mapfile -t roots < <(python3 "$scan_lib" roots "$days" "$limit" "$date_filter" "$session")
+mapfile -t roots < <("$py" "$scan_lib" roots "$days" "$limit" "$date_filter" "$session")
 if ((full_output)) && ((json == 0)); then
 	echo "--full-output requires --json or --evidence" >&2
 	exit 1
@@ -179,19 +209,19 @@ fi
 if ((json)); then
 	evidence_mode=json
 	if ((full_output)); then evidence_mode="json-full"; fi
-	exec python3 "$scan_lib" "$evidence_mode" "$days" "$limit" "$date_filter" "$session"
+	exec "$py" "$scan_lib" "$evidence_mode" "$days" "$limit" "$date_filter" "$session"
 fi
 if ((classify)); then
 	if ((days_set == 0)) && [[ -z "$session" ]]; then days=21; fi
-	exec python3 "$scan_lib" classify "$days" "$limit" "$date_filter" "$session"
+	exec "$py" "$scan_lib" classify "$days" "$limit" "$date_filter" "$session"
 fi
 if ((audit)); then
-	exec python3 "$scan_lib" audit "$days" "$limit" "$date_filter" "$session"
+	exec "$py" "$scan_lib" audit "$days" "$limit" "$date_filter" "$session"
 fi
 native_found=0
 native_mode=summary
 if ((transcript)) || [[ -n "$session" ]]; then native_mode=transcript; fi
-if python3 "$scan_lib" "$native_mode" "$days" "$limit" "$date_filter" "$session"; then
+if "$py" "$scan_lib" "$native_mode" "$days" "$limit" "$date_filter" "$session"; then
 	native_found=1
 fi
 if [[ ${#roots[@]} -eq 0 ]]; then
