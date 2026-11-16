@@ -124,11 +124,9 @@ in {
       # factor next to the vault on Drive. It is carried here instead, and the
       # Drive copy is retired once this has materialized on both hosts — see
       # ~/.cache/claude/2026-09-08-keepass-vault-unification-plan.md.
-      "keepassxc/key_file" = {
-        sopsFile = ../../secrets/keepassxc.yaml;
-        path = "${config.home.homeDirectory}/.local/state/keepass/secrets.keyx";
-        mode = "0600";
-      };
+      #
+      # It is NOT a sops-nix `secrets` entry, though: see decryptKeepassKeyFile
+      # under home.activation below for why it is written as a real file.
 
       "remoting/ssh_private_key" = {
         sopsFile = ../../secrets/remoting-ssh.yaml;
@@ -282,6 +280,62 @@ in {
           # decryption or parse error.
           ${pkgs.coreutils}/bin/rm -f "$_dir/hosts.tmp"
           echo "renderSshHostConfig: could not parse $_hosts; kept previous ~/.ssh/config.d/hosts" >&2
+        fi
+      fi
+    '';
+
+    # The KeePassXC key file, written as a real file rather than as a sops-nix
+    # secret. A sops-nix `path` is only a symlink into its secrets mount, and
+    # on darwin that mount is a RAM disk (hdiutil ram://) that sops-install-
+    # secrets attaches from a login LaunchAgent. Whenever the RAM disk is gone
+    # -- a reboot before the agent runs, or the agent failing -- the symlink
+    # dangles and the key file has effectively been deleted. Every other
+    # secret is re-derivable or re-issuable; this one is a vault factor, and
+    # its loss locks the vault.
+    #
+    # So this step makes the file durable and hard to delete by accident:
+    #   * decrypt to a temp file, and install it only if it is non-empty and
+    #     looks like a KeePassXC key file -- a failed or garbled decrypt
+    #     leaves the previous copy untouched (same rule as the steps above);
+    #   * replace it only when the content actually changed;
+    #   * on darwin, set the user-immutable flag (chflags uchg), so a stray
+    #     `rm`, `rm -rf ~/.local/state` or editor save fails with "Operation
+    #     not permitted" instead of deleting it. Clear it deliberately with
+    #     `chflags nouchg ~/.local/state/keepass/secrets.keyx`. Linux has no
+    #     unprivileged equivalent (chattr +i needs root); there the next
+    #     activation simply restores it.
+    # A leftover symlink from the old sops-nix entry is replaced in place.
+    decryptKeepassKeyFile = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      _age_key="${config.home.homeDirectory}/.config/sops/age/keys.txt"
+      if [ -f "$_age_key" ]; then
+        _dir="${config.home.homeDirectory}/.local/state/keepass"
+        _dest="$_dir/secrets.keyx"
+        _tmp="$_dest.tmp"
+        ${pkgs.coreutils}/bin/mkdir -p "$_dir"
+        ${pkgs.coreutils}/bin/chmod 700 "$_dir"
+        if SOPS_AGE_KEY_FILE="$_age_key" \
+          ${pkgs.sops}/bin/sops --decrypt \
+          --extract '["keepassxc"]["key_file"]' \
+          ${../../secrets/keepassxc.yaml} \
+          > "$_tmp" \
+          && [ -s "$_tmp" ] \
+          && ${pkgs.gnugrep}/bin/grep -q '<KeyFile>' "$_tmp"; then
+          ${pkgs.coreutils}/bin/chmod 600 "$_tmp"
+          if [ ! -L "$_dest" ] && [ -f "$_dest" ] \
+            && ${pkgs.diffutils}/bin/cmp -s "$_tmp" "$_dest"; then
+            ${pkgs.coreutils}/bin/rm -f "$_tmp"
+          else
+            ${lib.optionalString pkgs.stdenv.isDarwin ''
+        [ -e "$_dest" ] && [ ! -L "$_dest" ] && /usr/bin/chflags nouchg "$_dest"
+      ''}
+            ${pkgs.coreutils}/bin/mv -f "$_tmp" "$_dest"
+          fi
+          ${lib.optionalString pkgs.stdenv.isDarwin ''
+        /usr/bin/chflags uchg "$_dest"
+      ''}
+        else
+          ${pkgs.coreutils}/bin/rm -f "$_tmp"
+          echo "decryptKeepassKeyFile: could not decrypt a valid key file from secrets/keepassxc.yaml; kept the previous $_dest" >&2
         fi
       fi
     '';
