@@ -1,0 +1,17 @@
+#!/bin/sh
+# Hand the prompt and output directly to a trusted desktop password helper.
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+	printf '%s\n' 'sudo-askpass: no graphical display available' >&2
+	exit 1
+fi
+
+unset SSH_ASKPASS_PROMPT
+# Home Manager replaces the token with a list of quoted absolute paths.
+# shellcheck disable=SC2043
+for helper in @ASKPASS_HELPERS@; do
+	if [ -x "$helper" ]; then
+		exec "$helper" "$@"
+	fi
+done
+printf '%s\n' 'sudo-askpass: no desktop askpass helper found' >&2
+exit 1
