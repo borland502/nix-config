@@ -1,0 +1,47 @@
+# Codex execpolicy rules managed by nix-config. home-manager/home-darwin.nix
+# links this file into $CODEX_HOME/rules/; Codex keeps writing the approvals
+# you grant interactively to default.rules beside it.
+#
+# An allow rule runs the matching command outside the sandbox without a
+# prompt. Each one below covers a read-only helper that needs the network,
+# which the sandbox blocks: without the rule, every session pays a sandboxed
+# call that fails in 0s with an opaque error, then an escalation prompt.
+# Keep this list to commands that cannot write remote state. Jira and ECS
+# mutations (jira_comment, jira_transition, ecs_force_deploy, aws_cli) and
+# ops-agent's prompt mode must keep prompting.
+#
+# Prefix rules match the command's own leading words, so a wrapped form such
+# as `direnv exec <root> gh-run-logs ...` does not match and still prompts.
+# Codex checks the match/not_match examples when it loads the file.
+
+prefix_rule(
+    pattern = ["jira-get"],
+    decision = "allow",
+    justification = "GET-only Jira reader; needs the network",
+    match = [["jira-get", "issue/KEY-1?fields=summary,status"]],
+)
+
+prefix_rule(
+    pattern = ["ops-agent", "--tool", ["jira_get_issue", "jira_get_transitions", "ecs_get_status"]],
+    decision = "allow",
+    justification = "read-only ops-agent tools; need the network",
+    match = [
+        ["ops-agent", "--tool", "jira_get_issue", "{\"ticket_id\":\"KEY-1\"}"],
+        ["ops-agent", "--tool", "jira_get_transitions", "{\"ticket_id\":\"KEY-1\"}"],
+        ["ops-agent", "--tool", "ecs_get_status", "{\"ticket_id\":\"KEY-1\",\"service\":\"web\"}"],
+    ],
+    not_match = [
+        ["ops-agent", "--tool", "jira_comment", "{}"],
+        ["ops-agent", "--tool", "jira_transition", "{}"],
+        ["ops-agent", "--tool", "ecs_force_deploy", "{}"],
+        ["ops-agent", "--tool", "aws_cli", "{}"],
+        ["ops-agent", "summarize KEY-1"],
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh-run-logs"],
+    decision = "allow",
+    justification = "read-only GitHub Actions log fetcher; needs the network",
+    match = [["gh-run-logs", "123", "--tail", "40"]],
+)

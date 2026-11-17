@@ -48,7 +48,8 @@ only if the subagent reports it is stuck for want of reasoning (not context).
 | Routine debugging, pattern matching, test writing | **mid** | flow-test-driven-development, flow-systematic-debugging |
 | Trivial review (typo, style, single-file diff) | **low** | quick sanity pass; no high-tier pass needed |
 | Mechanical, fully-specified edits | **low** | single-file transcription against a complete spec |
-| Tool/CLI bridging, log scans, doc lookups | **low** | ops-agent (Jira/ECS), ops-cache-scan, plain Jira reads |
+| Operational bridges that can mutate shared state | **mid** | ops-agent (Jira transitions/comments, ECS force deploys) |
+| Log scans, doc lookups, read-only CLI bridging | **low** | ops-cache-scan, plain Jira reads |
 
 ### Review escalation ladder
 
@@ -80,7 +81,7 @@ Escalation is otherwise one-directional and evidence-driven: if a mid/low
 subagent reports it is stuck for lack of *reasoning* (not lack of context),
 re-dispatch one tier up — never force the same tier to retry unchanged (see
 flow-subagent-driven-development). The plugin agents already bake this in:
-`sonnet` for the coding/CI specialists, `haiku` for the ops-agent bridge. For
+`sonnet` for the coding/CI specialists and the ops-agent bridge. For
 inline reasoning-heavy work in a mid-default session (planning, brainstorming),
 switch up with `/model` or hand the work to a high-tier subagent.
 
@@ -410,8 +411,15 @@ the nix-config repo.
   long-lived daemon picks it up. `home-darwin.nix` also gives Codex the shared
   ai-tools content under `CODEX_HOME`: `AGENTS.md` (rendered from
   agent-defaults.md), `skills/`, `agents/*.toml` (converted from
-  `ai-tools/agents/*.agent.md`), and a `hooks.json` Bash logger into
-  `~/.cache/codex` — trust it once via `/hooks`. These live off
+  `ai-tools/agents/*.agent.md`), a `hooks.json` Bash logger into
+  `~/.cache/codex` — trust it once via `/hooks` — and
+  `rules/nix-config.rules`, whose allow rules run the read-only network
+  helpers (`jira-get`, `ops-agent --tool jira_get_issue|jira_get_transitions|ecs_get_status`,
+  `gh-run-logs`; not their `direnv exec` wrapped forms) outside the sandbox
+  without a prompt. Activation also seeds `config.toml` with the "Approve for
+  me" permissions preset (`approvals_reviewer = "auto_review"`,
+  `approval_policy = "on-request"`, `sandbox_mode = "workspace-write"`) unless
+  one of those keys or `default_permissions` is already set. These live off
   nixpkgs on purpose: nixos-unstable lags the Copilot CLI by weeks, and a
   read-only nix-store copy cannot self-update, freezing it on a build whose
   hardcoded subagent model allowlist (`OD` in the vendored bundle) rejects
@@ -429,8 +437,9 @@ the nix-config repo.
   `ops-agent --tool jira_get_issue '{"ticket_id":"MDPMDD-828"}'`);
   `ops-agent "<prompt>"` runs the agentic loop **through the `claude` CLI**
   (subscription OAuth — no `ANTHROPIC_API_KEY` exists on these hosts), with
-  permissions scoped to `Bash(ops-agent --tool:*)`. `OPS_AGENT_MODEL` passes
-  `--model`; otherwise the CLI default applies. `ops-agent --test` probes the
+  permissions scoped to `Bash(ops-agent --tool:*)`. It always passes
+  `--model`: the mid-tier `sonnet` alias, or `OPS_AGENT_MODEL` when set, so the
+  loop never inherits the interactive session's model. `ops-agent --test` probes the
   Jira/Confluence credentials. Agents should prefer `--tool` (deterministic,
   cheaper); the prompt mode is mainly for humans.
 
@@ -572,7 +581,9 @@ Known gaps and traps (verified on managed darwin hosts):
 
 - **node/npm are nvm-managed, not nix** (`~/.nvm`, active v26.x): `node`
   resolves outside the nix profiles by design. Don't add nixpkgs nodejs to fix
-  a "wrong node version" — switch with `nvm use`. The Claude Code and GitHub
+  a "wrong node version" — switch with `nvm use`. `NVM_SYMLINK_CURRENT` is
+  deliberately unset, so there is no maintained `~/.nvm/current` link; point
+  tools at `nvm which default` instead. The Claude Code and GitHub
   Copilot CLIs do NOT use this node: both are vendor native builds in `~/.local`
   (see `update-agent-clis` below) that bundle their own runtime.
 

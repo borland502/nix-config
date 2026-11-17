@@ -11,7 +11,12 @@
 # Replaces the recurring hand-rolled pattern of piping `gh run view --log-failed`
 # into ad-hoc files (often under /tmp, where they don't survive for the next
 # session). Logs land at ~/.cache/<agent>/run-<id>-failed.log (or -full.log
-# with --all) so cache-scan and later sessions can find them. Deps: gh.
+# with --all) so cache-scan and later sessions can find them. Deps: gh, rg, sed.
+#
+# Falls back to per-job logs from the jobs API, ANSI-stripped, when
+# `gh run view` cannot help: a run still in progress (its completed jobs only)
+# or failed-mode output that is empty because the run failed through a
+# cancelled or timed-out job, which has no failed step.
 emulate -R zsh
 setopt err_exit no_unset pipe_fail
 
@@ -19,9 +24,10 @@ script=${0:A}
 # Shared with the bash hooks; installed as the sibling ~/.local/lib/shell.
 source ${AGENT_TOOLS_SHELL_LIB:-${script:h:h}/lib/shell}/agent-cache.bash
 
-usage() { sed -n '2,14p' $script | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,19p' $script | sed 's/^# \{0,1\}//'; }
 
 run_id=""
+repo=""
 repo_args=()
 mode="failed"
 tail_n=40
@@ -30,7 +36,8 @@ while (($#)); do
 	case $1 in
 	--repo)
 		shift
-		repo_args=(--repo "${1:?--repo needs owner/name}")
+		repo=${1:?--repo needs owner/name}
+		repo_args=(--repo $repo)
 		;;
 	--all) mode="full" ;;
 	--tail)
@@ -71,16 +78,97 @@ out=$out_dir/run-$run_id-$mode.log
 log_flag="--log-failed"
 [[ $mode == full ]] && log_flag="--log"
 
+# Completed jobs worth fetching: in failed mode every non-passing conclusion
+# (failure, cancelled, timed_out, ...), in full mode all of them.
+if [[ $mode == full ]]; then
+	jobs_jq='.jobs[] | select(.status == "completed") | [.databaseId, .conclusion, .name] | @tsv'
+else
+	jobs_jq='.jobs[] | select(.status == "completed" and ((.conclusion // "") as $c | ["success", "skipped", "neutral"] | index($c) | not)) | [.databaseId, .conclusion, .name] | @tsv'
+fi
+
+# Write each matching job's check-run annotations and log (jobs API) to $out;
+# print "<saved> <found>". Unlike `gh run view --log*`, this works for completed
+# jobs of a run still in progress. The annotations carry the reason a job was
+# cancelled (e.g. no runner acquired), often the only record when GitHub kept
+# no log. gh refuses to print a log's ANSI color codes without
+# --allow-escape-sequences; strip them so the saved file stays greppable.
+save_job_logs() {
+	local rows row id conclusion name notes got saved=0 found=0
+	local -a repo_env=()
+	[[ -n $repo ]] && repo_env=(GH_REPO=$repo)
+	rows=$(GH_PAGER=cat NO_COLOR=1 gh run view $run_id $repo_args --json jobs --jq $jobs_jq) || return 1
+	: >$out
+	for row in ${(f)rows}; do
+		IFS=$'\t' read -r id conclusion name <<<$row
+		((++found))
+		got=0
+		print -r -- "=== job: $name ($conclusion, id $id) ===" >>$out
+		notes=$(env GH_PAGER=cat NO_COLOR=1 $repo_env gh api "repos/{owner}/{repo}/check-runs/$id/annotations" \
+			--jq '.[] | "\(.annotation_level): \(.message)"' 2>/dev/null) || notes=""
+		if [[ -n $notes ]]; then
+			print -rl -- '--- annotations ---' $notes >>$out
+			got=1
+		fi
+		if env GH_PAGER=cat NO_COLOR=1 $repo_env gh api "repos/{owner}/{repo}/actions/jobs/$id/logs" \
+			--allow-escape-sequences 2>/dev/null | sed $'s/\e\\[[0-9;]*[A-Za-z]//g' >$out.part && [[ -s $out.part ]]; then
+			print -r -- '--- log ---' >>$out
+			cat -- $out.part >>$out
+			got=1
+		else
+			print -r -- "(no log retained by GitHub for job $id)" >>$out
+		fi
+		rm -f -- $out.part
+		if ((got)); then ((++saved)); fi
+	done
+	print -r -- $saved $found
+}
+
+list_jobs_failed() {
+	rm -f -- $out
+	print -ru2 -- "run $run_id: could not list its jobs (gh run view --json jobs failed)"
+	exit 1
+}
+
 if ! GH_PAGER=cat NO_COLOR=1 gh run view $run_id $repo_args $log_flag >$out 2>&1; then
-	# --log-failed yields nothing for a run with no failed jobs; say so instead
-	# of leaving a confusing gh error in the file.
-	if rg -qi 'no failed jobs|run .* has no' $out 2>/dev/null || [[ ! -s $out ]]; then
+	if rg -qi 'still in progress' $out 2>/dev/null; then
+		result=$(save_job_logs) || list_jobs_failed
+		read -r saved found <<<$result
+		if ((saved == 0)); then
+			rm -f -- $out
+			if ((found == 0)); then
+				print -ru2 -- "run $run_id is still in progress and no matching job has finished yet; wait with: monitor-gh-run $run_id${repo:+ --repo $repo}"
+			else
+				print -ru2 -- "run $run_id is still in progress; $found finished job(s) have no log or annotations yet"
+			fi
+			exit 1
+		fi
+		print -ru2 -- "run $run_id is still in progress: saved $saved of $found finished job(s) only"
+	elif rg -qi 'no failed jobs|run .* has no' $out 2>/dev/null || [[ ! -s $out ]]; then
+		# --log-failed yields nothing for a run with no failed jobs; say so
+		# instead of leaving a confusing gh error in the file.
 		print -ru2 -- "run $run_id: no failed jobs (use --all for full logs)"
 		rm -f -- $out
 		exit 1
+	else
+		print -ru2 -- "gh run view failed: $(head -n 1 $out)"
+		print -ru2 -- "partial output kept at $out"
+		exit 1
 	fi
-	print -ru2 -- "gh run view failed; partial output kept at $out"
-	exit 1
+elif [[ $mode == failed && ! -s $out ]]; then
+	# A run that failed only through a cancelled or timed-out job has no failed
+	# step, so --log-failed succeeds with nothing; fetch those jobs' logs instead.
+	result=$(save_job_logs) || list_jobs_failed
+	read -r saved found <<<$result
+	if ((saved == 0)); then
+		rm -f -- $out
+		if ((found == 0)); then
+			print -ru2 -- "run $run_id: no failed jobs (use --all for full logs)"
+		else
+			print -ru2 -- "run $run_id: $found non-passing job(s), but GitHub kept no log or annotations for them"
+		fi
+		exit 1
+	fi
+	print -ru2 -- "run $run_id: no failed steps; saved $saved non-passing job(s) (e.g. cancelled or timed out)"
 fi
 
 printf 'saved: %s (%s lines)\n' $out "$(wc -l <$out | tr -d ' ')"

@@ -31,7 +31,7 @@ tokens to save tokens.
 | Lean Copilot MCP set | managed `copilot/mcp-config.json` (empty by default); servers added deliberately in `common.nix`, not accumulated via `/mcp add` | active |
 | Jira read routing | plain ticket reads go through `jira-get` / `ops-agent --tool jira_get_issue` with no skill load; the ops-jira-integration description routes reads there (measured 2026-07: 4/5 skill loads were simple lookups) | active |
 | Progressive-disclosure skill bodies | heavy skills keep a small router SKILL.md and move recipes/templates to `references/*.md` read on demand (first applied to ops-jira-integration: 15KB → ~4KB router) | active |
-| Subagent model pinning | plugin agents pin `model:` explicitly (`sonnet` for the coding/CI specialists, `haiku` for the ops-agent bridge); flow-subagent-driven-development names concrete aliases per task tier — an omitted model inherits the session's (possibly premium) model | active |
+| Subagent model pinning | plugin agents pin `model:` explicitly (`sonnet` for the coding/CI specialists and the ops-agent bridge, whose prompt-mode CLI loop also defaults to `sonnet`); flow-subagent-driven-development names concrete aliases per task tier — an omitted model inherits the session's (possibly premium) model | active |
 
 ## Levers that are not codifiable here
 

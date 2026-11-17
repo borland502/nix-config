@@ -127,6 +127,32 @@ class HookTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(target.read_text(), 'invalid = [')
 
+    def test_codex_approve_for_me_default_preserves_toml_and_explicit_choice(self):
+        preset = {"approvals_reviewer": "auto_review", "approval_policy": "on-request", "sandbox_mode": "workspace-write"}
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "config.toml"
+            command = ["python3", str(MERGER), "--codex-approve-for-me", str(target)]
+            original = 'log_dir = "/logs"\n# user comment\n[projects."/some/project"]\ntrust_level = "trusted"\n'
+            target.write_text(original)
+            subprocess.run(command, check=True, capture_output=True)
+            first = target.read_text()
+            self.assertIn(original, first)
+            config = tomllib.loads(first)
+            self.assertEqual({key: config[key] for key in preset}, preset)
+            self.assertEqual(config["projects"]["/some/project"]["trust_level"], "trusted")
+            subprocess.run(command, check=True, capture_output=True)
+            self.assertEqual(target.read_text(), first)
+            # Any explicit permission choice suppresses the whole preset.
+            for choice in ('approval_policy = "never"\n', 'sandbox_mode = "read-only"\n',
+                           'approvals_reviewer = "user"\n', 'default_permissions = "custom"\n'):
+                with self.subTest(choice=choice):
+                    target.write_text(choice + original)
+                    subprocess.run(command, check=True, capture_output=True)
+                    self.assertEqual(target.read_text(), choice + original)
+            target.unlink()
+            subprocess.run(command, check=True, capture_output=True)
+            self.assertEqual(tomllib.loads(target.read_text()), preset)
+
 
 if __name__ == "__main__":
     unittest.main()

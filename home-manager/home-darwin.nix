@@ -307,6 +307,18 @@ in {
         fi
       '';
 
+      # Default Codex permissions to "Approve for me" (auto-review: on-request
+      # approvals answered by Codex's reviewer, workspace-write sandbox). Seeded
+      # only while config.toml names none of approvals_reviewer,
+      # approval_policy, sandbox_mode or default_permissions, so a choice made
+      # later in /permissions survives every switch.
+      ensureCodexApproveForMe = lib.hm.dag.entryAfter ["ensureCodexCaptureLogs"] ''
+        if [ ! -d "$HOME/.codex" ] || [ -L "$HOME/.codex" ]; then
+          AGENT_TOOLS_LIB=${agentToolsLib} ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
+            --codex-approve-for-me ${lib.escapeShellArg "${codexHome}/config.toml"}
+        fi
+      '';
+
       # CODEX_HOME (zsh.nix) is $XDG_CONFIG_HOME/codex, but the ChatGPT desktop
       # app bundles its own codex app-server that reads ~/.codex and never sees
       # shell env — so ~/.codex stays as a symlink to the XDG dir and the CLI
@@ -485,10 +497,8 @@ in {
         if [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
           set +u
           . "/opt/homebrew/opt/nvm/nvm.sh"
-          export NVM_SYMLINK_CURRENT=true
           nvm install node >/dev/null
           nvm alias default node >/dev/null
-          nvm use default >/dev/null
           set -u
         else
           echo "Homebrew nvm is not installed; skipping Node.js installation"
@@ -638,17 +648,12 @@ in {
       if [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ]; then
         source "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
       fi
-      export NVM_SYMLINK_CURRENT=true
+      # No NVM_SYMLINK_CURRENT: exported here it is inherited by every agent
+      # and direnv, so any project .envrc's `nvm use` re-points the global
+      # ~/.nvm/current link (and fails with EPERM inside agent sandboxes).
+      # Nothing reads that link; `nvm use` puts the version's bin on PATH.
       if command -v nvm >/dev/null 2>&1; then
         nvm use --install default >/dev/null 2>&1 || true
-      fi
-      current_node_modules="$NVM_DIR/versions/node/current/lib/node_modules"
-      if [ -d "$current_node_modules" ]; then
-        export NODE_PATH="$current_node_modules''${NODE_PATH:+:$NODE_PATH}"
-      fi
-      current_node_bin="$NVM_DIR/versions/node/current/bin"
-      if [ -d "$current_node_bin" ]; then
-        export PATH="$current_node_bin:$PATH"
       fi
     '';
   };
@@ -685,6 +690,11 @@ in {
     codexSkillConfigFiles
     // {
       "codex/AGENTS.md".source = agentInstructions.codex;
+      # Allow rules for read-only network helpers (jira-get, ops-agent's read
+      # tools, gh-run-logs) so they skip the sandbox's network block and the
+      # escalation prompt. Codex still writes interactive approvals to its own
+      # mutable rules/default.rules beside this link.
+      "codex/rules/nix-config.rules".source = ../ai-tools/codex/nix-config.rules;
       "codex/agents" = {
         source = agentInstructions.codexAgentDir;
         recursive = true;
