@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 #
 # Install / update the fast-moving agent CLIs off nixpkgs so they track latest.
 # Both use their vendor's native self-updating installer into ~/.local (no npm,
@@ -26,43 +26,45 @@
 # Every branch is update-or-bootstrap (idempotent), so this one script serves
 # creation and upgrade. Invoked by chezmoi's run_onchange_install-agent-clis
 # script and by `task agents:update` / the tail of `task upgrade`.
+#
+# The vendor installers are bash scripts, so they are still piped to bash.
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
 
-set -euo pipefail
-
-case "$(uname -s)" in
+os=$(uname -s)
+case $os in
 Darwin | Linux) ;;
 *)
-	printf 'update-agent-clis: unsupported OS %s — skipping\n' "$(uname -s)" >&2
+	printf 'update-agent-clis: unsupported OS %s — skipping\n' $os >&2
 	exit 0
 	;;
 esac
 
-if ! command -v curl >/dev/null 2>&1; then
+if ! (($+commands[curl])); then
 	printf 'update-agent-clis: curl not found — skipping\n' >&2
 	exit 0
 fi
 
-prefix="$HOME/.local"
-mkdir -p "$prefix/bin"
+prefix=$HOME/.local
+mkdir -p -- $prefix/bin
 
 # The vendor `update` commands stream their own progress, so this run is not the
 # silent one — but keep a clear banner so it is obvious what is happening.
-os="$(uname -s)"
-if [ "$os" = Darwin ]; then
+if [[ $os == Darwin ]]; then
 	clis='Claude Code, GitHub Copilot, OpenAI Codex'
 else
 	clis='Claude Code, GitHub Copilot'
 fi
-printf '==> updating agent CLIs (%s) — contacts GitHub; may pause a few seconds. Do not cancel.\n' "$clis"
+printf '==> updating agent CLIs (%s) — contacts GitHub; may pause a few seconds. Do not cancel.\n' $clis
 
 # Update the writable ~/.local copy in place if present, else bootstrap it.
 # We target $prefix/bin explicitly rather than `command -v`, because a
 # read-only nix-store copy may still shadow PATH until the switch removes it.
 
 # --- Claude Code -----------------------------------------------------------
-if [ -x "$prefix/bin/claude" ]; then
+if [[ -x $prefix/bin/claude ]]; then
 	printf '==> updating Claude Code (claude update)\n'
-	"$prefix/bin/claude" update || printf 'update-agent-clis: claude update failed (continuing)\n' >&2
+	$prefix/bin/claude update || printf 'update-agent-clis: claude update failed (continuing)\n' >&2
 else
 	printf '==> installing Claude Code native build\n'
 	curl -fsSL https://claude.ai/install.sh | bash ||
@@ -70,22 +72,22 @@ else
 fi
 
 # --- GitHub Copilot CLI ----------------------------------------------------
-if [ -x "$prefix/bin/copilot" ]; then
+if [[ -x $prefix/bin/copilot ]]; then
 	printf '==> updating GitHub Copilot CLI (copilot update)\n'
-	"$prefix/bin/copilot" update || printf 'update-agent-clis: copilot update failed (continuing)\n' >&2
+	$prefix/bin/copilot update || printf 'update-agent-clis: copilot update failed (continuing)\n' >&2
 else
-	printf '==> installing GitHub Copilot CLI native build into %s\n' "$prefix"
+	printf '==> installing GitHub Copilot CLI native build into %s\n' $prefix
 	# Installer defaults PREFIX to $HOME/.local for non-root (binary → ~/.local/bin).
-	curl -fsSL https://gh.io/copilot-install | PREFIX="$prefix" bash ||
+	curl -fsSL https://gh.io/copilot-install | PREFIX=$prefix bash ||
 		printf 'update-agent-clis: Copilot CLI install failed (continuing)\n' >&2
 fi
 
 # --- OpenAI Codex CLI (macOS only) -----------------------------------------
-if [ "$os" = Darwin ]; then
-	if [ -x "$prefix/bin/codex" ]; then
+if [[ $os == Darwin ]]; then
+	if [[ -x $prefix/bin/codex ]]; then
 		printf '==> updating OpenAI Codex CLI (reinstall latest)\n'
 	else
-		printf '==> installing OpenAI Codex CLI native build into %s\n' "$prefix"
+		printf '==> installing OpenAI Codex CLI native build into %s\n' $prefix
 	fi
 	# The installer is idempotent and resolves "latest" on every run, so one call
 	# serves bootstrap and upgrade. NON_INTERACTIVE skips its "uninstall other
@@ -97,18 +99,18 @@ if [ "$os" = Darwin ]; then
 	# env for its lifetime. Hand it the keychain CA bundle (home-darwin.nix)
 	# even when run outside a login shell (chezmoi apply inside a switch), or
 	# the daemon cannot reach chatgpt.com through the TLS-inspecting proxy.
-	ca_bundle="${XDG_DATA_HOME:-$HOME/.local/share}/ca-certificates/keychain-bundle.pem"
-	if [ -z "${CODEX_CA_CERTIFICATE:-}" ] && [ -f "$ca_bundle" ]; then
-		export CODEX_CA_CERTIFICATE="$ca_bundle"
+	ca_bundle=${XDG_DATA_HOME:-$HOME/.local/share}/ca-certificates/keychain-bundle.pem
+	if [[ -z ${CODEX_CA_CERTIFICATE-} && -f $ca_bundle ]]; then
+		export CODEX_CA_CERTIFICATE=$ca_bundle
 	fi
 	/usr/bin/curl -fsSL https://chatgpt.com/codex/install.sh |
-		CODEX_INSTALL_DIR="$prefix/bin" CODEX_NON_INTERACTIVE=1 sh ||
+		CODEX_INSTALL_DIR=$prefix/bin CODEX_NON_INTERACTIVE=1 sh ||
 		printf 'update-agent-clis: Codex CLI install failed (continuing)\n' >&2
 fi
 
 # --- Report ----------------------------------------------------------------
-printf '==> claude   %s\n' "$("$prefix/bin/claude" --version 2>/dev/null || echo '(not runnable)')"
-printf '==> copilot  %s\n' "$("$prefix/bin/copilot" --version 2>/dev/null | head -n 1 || echo '(not runnable)')"
-if [ "$os" = Darwin ]; then
-	printf '==> codex    %s\n' "$("$prefix/bin/codex" --version 2>/dev/null || echo '(not runnable)')"
+printf '==> claude   %s\n' "$($prefix/bin/claude --version 2>/dev/null || print -r -- '(not runnable)')"
+printf '==> copilot  %s\n' "$($prefix/bin/copilot --version 2>/dev/null | head -n 1 || print -r -- '(not runnable)')"
+if [[ $os == Darwin ]]; then
+	printf '==> codex    %s\n' "$($prefix/bin/codex --version 2>/dev/null || print -r -- '(not runnable)')"
 fi

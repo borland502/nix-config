@@ -15,7 +15,7 @@ Managed helpers share Python code in [agent_tools](../chezmoi/dot_local/lib/agen
 
 Python consumers retain small entry-point bootstraps for source-tree and installed execution. `AGENT_TOOLS_LIB` selects an explicit library directory where supported; a global `PYTHONPATH` is unnecessary. Repository lint commands always import the checkout's library.
 
-Managed shell hooks receive `AGENT_TOOLS_SHELL_LIB` from Home Manager wrappers. Source-tree fixtures pass the same override. The standalone `gh-run-logs` command can load its sibling `lib/shell` directory.
+Managed shell hooks receive `AGENT_TOOLS_SHELL_LIB` from Home Manager wrappers. Source-tree fixtures pass the same override. The standalone zsh `gh-run-logs` command loads its sibling `lib/shell` directory (resolved from `${0:A}`), so `agent-cache.bash` must stay valid under both bash and `emulate -R zsh` with `no_unset`.
 
 [agent-tools-libraries.nix](../home-manager/lib/agent-tools-libraries.nix) defines the shared Python and shell store sources. The Python source excludes bytecode and non-Python files. Wrappers use store paths rather than assuming a script symlink has a neighboring library.
 
@@ -31,7 +31,7 @@ Managed shell hooks receive `AGENT_TOOLS_SHELL_LIB` from Home Manager wrappers. 
 
 ## Validation
 
-Declare source-only Bash libraries with `# shellcheck shell=bash` so shell discovery includes them. Keep fixtures offline, using temporary homes and fake commands; do not run installed automation hooks by hand.
+Declare source-only Bash libraries with `# shellcheck shell=bash` so shell discovery includes them, and list them in [bash-allowlist.txt](../scripts/bash-allowlist.txt) until their bash callers convert to zsh. Keep fixtures offline, using temporary homes and fake commands; do not run installed automation hooks by hand.
 
 Run the repository's allowed direnv environment, then:
 

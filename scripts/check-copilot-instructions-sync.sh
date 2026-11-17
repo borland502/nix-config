@@ -1,14 +1,16 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
+# Check that .github/copilot-instructions.md matches the Copilot variant of
+# agent-defaults.md once frontmatter, the title and backticks are normalized away.
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
 
-set -euo pipefail
-
-repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-source_file="$repo_root/chezmoi/dot_config/instructions/agent-defaults.md"
-mirror_file="$repo_root/.github/copilot-instructions.md"
+repo_root=${0:A:h:h}
+source_file=$repo_root/chezmoi/dot_config/instructions/agent-defaults.md
+mirror_file=$repo_root/.github/copilot-instructions.md
 tmp_dir=$(mktemp -d)
 
 cleanup() {
-	rm -rf "$tmp_dir"
+	rm -rf -- $tmp_dir
 }
 
 trap cleanup EXIT
@@ -63,22 +65,22 @@ normalize() {
       print line
       emitted_content = 1
     }
-  ' "$1"
+  ' $1
 }
 
-substituted_source="$tmp_dir/agent-defaults.copilot.md"
-sed 's|@@AGENT@@|copilot|g' "$source_file" >"$substituted_source"
+substituted_source=$tmp_dir/agent-defaults.copilot.md
+sed 's|@@AGENT@@|copilot|g' $source_file >$substituted_source
 
-normalized_source="$tmp_dir/copilot-defaults.normalized.md"
-normalized_mirror="$tmp_dir/copilot-instructions.normalized.md"
+normalized_source=$tmp_dir/copilot-defaults.normalized.md
+normalized_mirror=$tmp_dir/copilot-instructions.normalized.md
 
-normalize "$substituted_source" >"$normalized_source"
-normalize "$mirror_file" >"$normalized_mirror"
+normalize $substituted_source >$normalized_source
+normalize $mirror_file >$normalized_mirror
 
-if ! cmp -s "$normalized_source" "$normalized_mirror"; then
-	printf '%s\n' 'Normalized Copilot instruction content diverged:'
+if ! cmp -s $normalized_source $normalized_mirror; then
+	print -r -- 'Normalized Copilot instruction content diverged:'
 	diff -u \
-		-L 'chezmoi/dot_config/instructions/agent-defaults.md (normalized, copilot variant)' "$normalized_source" \
-		-L '.github/copilot-instructions.md (normalized)' "$normalized_mirror" || true
+		-L 'chezmoi/dot_config/instructions/agent-defaults.md (normalized, copilot variant)' $normalized_source \
+		-L '.github/copilot-instructions.md (normalized)' $normalized_mirror || true
 	exit 1
 fi

@@ -1,19 +1,20 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 # Read-only inventory of git worktrees and their merge/dirty state.
-set -euo pipefail
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
 
 usage() {
-	printf '%s\n' 'Usage: git-worktree-audit [REPO] [--base REF ...]'
+	print -r -- 'Usage: git-worktree-audit [REPO] [--base REF ...]'
 }
 
-repo="."
+repo=.
 bases=()
-if [[ $# -gt 0 && "$1" != --* ]]; then
-	repo="$1"
+if (($# > 0)) && [[ $1 != --* ]]; then
+	repo=$1
 	shift
 fi
-while [[ $# -gt 0 ]]; do
-	case "$1" in
+while (($#)); do
+	case $1 in
 	--base)
 		shift
 		bases+=("${1:?--base needs a ref}")
@@ -23,49 +24,49 @@ while [[ $# -gt 0 ]]; do
 		exit 0
 		;;
 	*)
-		printf 'git-worktree-audit: unknown argument: %s\n' "$1" >&2
+		printf 'git-worktree-audit: unknown argument: %s\n' $1 >&2
 		exit 64
 		;;
 	esac
 	shift
 done
-git -C "$repo" rev-parse --git-dir >/dev/null
-if [[ ${#bases[@]} -eq 0 ]]; then bases=(HEAD); fi
+git -C $repo rev-parse --git-dir >/dev/null
+((${#bases})) || bases=(HEAD)
 
 printf '%-9s %-5s %-5s %-28s %s\n' STATUS DIRTY AHEAD BRANCH PATH
 flush_record() {
-	[[ -n "${wt_path:-}" ]] || return 0
+	[[ -n $wt_path ]] || return 0
 	local state=unmerged dirty=0 ahead=0 base
-	if [[ -n "${wt_prunable:-}" ]]; then
+	if [[ -n $wt_prunable ]]; then
 		state=stale
-	elif [[ -n "${wt_detached:-}" ]]; then
+	elif [[ -n $wt_detached ]]; then
 		state=detached
 	else
-		for base in "${bases[@]}"; do
-			if git -C "$repo" merge-base --is-ancestor "$wt_head" "$base" 2>/dev/null; then
+		for base in $bases; do
+			if git -C $repo merge-base --is-ancestor $wt_head $base 2>/dev/null; then
 				state=merged
 				break
 			fi
 		done
 	fi
-	if [[ -d "$wt_path" ]]; then
-		dirty="$(git -C "$wt_path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+	if [[ -d $wt_path ]]; then
+		dirty=$(git -C $wt_path status --porcelain 2>/dev/null | wc -l | tr -d ' ')
 	fi
-	ahead="$(git -C "$repo" rev-list --count "$wt_head" --not "${bases[@]}" 2>/dev/null || printf '?')"
+	ahead=$(git -C $repo rev-list --count $wt_head --not $bases 2>/dev/null || printf '?')
 	printf '%-9s %-5s %-5s %-28s %s\n' "$state" "$dirty" "$ahead" "${wt_branch#refs/heads/}" "$wt_path"
 }
 
-wt_path="" wt_head="" wt_branch="" wt_detached="" wt_prunable=""
-while IFS= read -r line || [[ -n "$line" ]]; do
-	case "$line" in
-	worktree\ *)
+wt_path='' wt_head='' wt_branch='' wt_detached='' wt_prunable=''
+while IFS= read -r line || [[ -n $line ]]; do
+	case $line in
+	'worktree '*)
 		flush_record
-		wt_path="${line#worktree }" wt_head="" wt_branch="" wt_detached="" wt_prunable=""
+		wt_path=${line#worktree } wt_head='' wt_branch='' wt_detached='' wt_prunable=''
 		;;
-	HEAD\ *) wt_head="${line#HEAD }" ;;
-	branch\ *) wt_branch="${line#branch }" ;;
+	'HEAD '*) wt_head=${line#HEAD } ;;
+	'branch '*) wt_branch=${line#branch } ;;
 	detached) wt_detached=1 ;;
 	prunable*) wt_prunable=1 ;;
 	esac
-done < <(git -C "$repo" worktree list --porcelain)
+done < <(git -C $repo worktree list --porcelain)
 flush_record

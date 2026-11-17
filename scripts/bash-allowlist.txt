@@ -1,0 +1,34 @@
+# bash scripts still allowed. Everything else is zsh (floor 5.9).
+# install.sh is permanent: the bootstrap runs before zsh is guaranteed and must work under bash 3.2.
+# Every other entry is legacy, pending conversion. Remove it when the script converts.
+
+ai-tools/git-hooks/commit-msg
+ai-tools/scripts/aws-mcp-server
+ai-tools/scripts/compress-old-cache
+ai-tools/scripts/log-bash.sh
+ai-tools/scripts/log-instructions.sh
+ai-tools/scripts/log-skill.sh
+ai-tools/scripts/log-thinking.sh
+ai-tools/scripts/sweep-agent-assets
+ai-tools/skills/flow-brainstorming/scripts/start-server.sh
+ai-tools/skills/flow-brainstorming/scripts/stop-server.sh
+ai-tools/skills/flow-subagent-driven-development/scripts/review-package
+ai-tools/skills/flow-subagent-driven-development/scripts/sdd-workspace
+ai-tools/skills/flow-subagent-driven-development/scripts/task-brief
+ai-tools/skills/flow-systematic-debugging/find-polluter.sh
+chezmoi/dot_config/keepassxc/modify_keepassxc.ini
+chezmoi/dot_local/bin/executable_btrfs-safety-snapshot
+chezmoi/dot_local/bin/executable_cache-scan
+chezmoi/dot_local/bin/executable_cdemu-mount
+chezmoi/dot_local/bin/executable_kac
+chezmoi/dot_local/bin/executable_mdp-local
+chezmoi/dot_local/bin/executable_remote-desktop
+chezmoi/dot_local/bin/executable_vivaldi-extension-policy
+chezmoi/dot_local/bin/executable_wake
+chezmoi/dot_local/lib/hosts-toml
+chezmoi/dot_local/lib/kion-aws-cache
+# Sourced by the bash hooks above; agent-cache.bash is also sourced by zsh gh-run-logs, so keep it bash/zsh-neutral.
+chezmoi/dot_local/lib/shell/agent-cache.bash
+chezmoi/dot_local/lib/shell/hook-log.bash
+install.sh
+tests/test_kion_aws_cache.sh

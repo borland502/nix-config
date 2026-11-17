@@ -190,7 +190,7 @@ after=$(set +o; trap -p; pwd; umask)
         env = dict(self.env, PATH=str(local / "bin") + os.pathsep + self.env["PATH"])
         env.pop("AGENT_TOOLS_SHELL_LIB")
         result = subprocess.run(
-            ["bash", str(exe), "123", "--tail", "0"],
+            ["zsh", "-f", str(exe), "123", "--tail", "0"],
             env=env,
             text=True,
             capture_output=True,

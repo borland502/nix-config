@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env -S zsh -f
 # keepass — keepassxc-cli with this host's composite key already assembled.
 #
 # The database is protected by all three factors KeePassXC supports, and

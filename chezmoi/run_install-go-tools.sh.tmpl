@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 #
 # Build borland502 Go CLI tools from the source checkouts that
 # .chezmoiexternal.toml.tmpl maintains under ~/.local/src and install
@@ -9,29 +9,30 @@
 exit 0
 {{ end -}}
 
-set -euo pipefail
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
 
 # Augment PATH with common go/nix locations in case the profile isn't sourced yet.
 for _gobin in \
-  "$HOME/.nix-profile/bin" \
-  "/nix/var/nix/profiles/default/bin" \
-  "/usr/local/go/bin" \
-  "$HOME/go/bin"; do
-  if [[ -x "$_gobin/go" ]]; then
-    export PATH="$_gobin:$PATH"
+  $HOME/.nix-profile/bin \
+  /nix/var/nix/profiles/default/bin \
+  /usr/local/go/bin \
+  $HOME/go/bin; do
+  if [[ -x $_gobin/go ]]; then
+    export PATH=$_gobin:$PATH
     break
   fi
 done
 
-if ! command -v go >/dev/null 2>&1; then
+if ! (($+commands[go])); then
   printf 'install-go-tools: go not on PATH — skipping (run chezmoi apply again after home-manager activates)\n' >&2
   exit 0
 fi
 
-src_root="${HOME}/.local/src"
-bin_dir="${HOME}/.local/bin"
-state_dir="${HOME}/.local/state/go-tools"
-mkdir -p "$bin_dir" "$state_dir"
+src_root=$HOME/.local/src
+bin_dir=$HOME/.local/bin
+state_dir=$HOME/.local/state/go-tools
+mkdir -p -- $bin_dir $state_dir
 
 # wordgen and gopwgen build from the flake (pkgs/) now. Leaving them here
 # re-created ~/.local/bin/<name> on every apply, immediately undoing the
@@ -39,24 +40,24 @@ mkdir -p "$bin_dir" "$state_dir"
 # binaries — the two mechanisms fought, and the stale copy always won.
 names=(go-sea)
 
-for name in "${names[@]}"; do
-  dir="${src_root}/${name}"
-  if [ ! -d "$dir" ]; then
-    printf 'install-go-tools: %s is missing — expected from .chezmoiexternal.toml\n' "$dir" >&2
+for name in $names; do
+  dir=$src_root/$name
+  if [[ ! -d $dir ]]; then
+    printf 'install-go-tools: %s is missing — expected from .chezmoiexternal.toml\n' $dir >&2
     exit 1
   fi
 
-  binary="${bin_dir}/${name}"
-  sha_file="${state_dir}/${name}.sha"
-  current_sha=$(git -C "$dir" rev-parse HEAD 2>/dev/null || printf 'unknown')
-  stored_sha=$(cat "$sha_file" 2>/dev/null || true)
+  binary=$bin_dir/$name
+  sha_file=$state_dir/$name.sha
+  current_sha=$(git -C $dir rev-parse HEAD 2>/dev/null || printf 'unknown')
+  stored_sha=$(cat -- $sha_file 2>/dev/null || true)
 
-  if [ -x "$binary" ] && [ "$current_sha" = "$stored_sha" ] && [ "$current_sha" != "unknown" ]; then
-    printf '==> %s up to date (%.8s)\n' "$name" "$current_sha"
+  if [[ -x $binary && $current_sha == "$stored_sha" && $current_sha != unknown ]]; then
+    printf '==> %s up to date (%.8s)\n' $name $current_sha
     continue
   fi
 
-  printf '==> installing %s -> %s (%.8s)\n' "$name" "$binary" "$current_sha"
-  (cd "$dir" && GOBIN="$bin_dir" go install .)
-  printf '%s' "$current_sha" > "$sha_file"
+  printf '==> installing %s -> %s (%.8s)\n' $name $binary $current_sha
+  (cd -- $dir && GOBIN=$bin_dir go install .)
+  printf '%s' $current_sha >$sha_file
 done

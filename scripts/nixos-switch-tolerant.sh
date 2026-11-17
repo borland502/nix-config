@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 # Run `nixos-rebuild switch` for the given flake, tolerating the benign
 # post-activation failure to reload a user's systemd session over D-Bus.
 #
@@ -9,32 +9,40 @@
 # tarball's `nixos`), which trips the same reload failure for the departing
 # user. We detect that signature and downgrade it to a warning; every other
 # failure is propagated unchanged.
-set -uo pipefail
+#
+# SWITCH_SUDO overrides the sudo binary; tests/test_switch_tolerant.zsh uses it
+# so a NixOS test host never runs the real /run/wrappers sudo.
+emulate -R zsh
+# No err_exit: a failing rebuild is classified below rather than ending the script.
+setopt no_unset pipe_fail
 
-flake="${1:?usage: nixos-switch-tolerant.sh <flake-ref>}"
+flake=${1:?usage: nixos-switch-tolerant.sh <flake-ref>}
 
 # nix-command/flakes are disabled by default on a fresh NixOS-WSL.
 export NIX_CONFIG="experimental-features = nix-command flakes${NIX_CONFIG:+
 $NIX_CONFIG}"
 
-if [[ -x /run/wrappers/bin/sudo ]]; then
+if [[ -n ${SWITCH_SUDO-} ]]; then
+	sudo_bin=$SWITCH_SUDO
+elif [[ -x /run/wrappers/bin/sudo ]]; then
 	sudo_bin=/run/wrappers/bin/sudo
 else
 	sudo_bin=sudo
 fi
 
-log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
+log=$(mktemp)
+trap 'rm -f -- $log' EXIT
 
 # Stream live while capturing combined output so a failure can be classified.
-"$sudo_bin" nixos-rebuild switch --flake "$flake" 2>&1 | tee "$log"
-rc="${PIPESTATUS[0]}"
+# $pipestatus[1] is nixos-rebuild's own exit code (zsh arrays are 1-indexed).
+$sudo_bin nixos-rebuild switch --flake $flake 2>&1 | tee $log
+rc=$pipestatus[1]
 
-if [[ "$rc" -eq 0 ]]; then
+if ((rc == 0)); then
 	exit 0
 fi
 
-if grep -qiE 'user activation for .* failed|autolaunch a dbus-daemon|Failed to open dbus connection' "$log"; then
+if grep -qiE 'user activation for .* failed|autolaunch a dbus-daemon|Failed to open dbus connection' $log; then
 	cat >&2 <<EOF
 
 WARNING: nixos-rebuild returned $rc, but the only activation failure was reloading
@@ -47,5 +55,5 @@ EOF
 	exit 0
 fi
 
-echo "nixos-rebuild failed (exit $rc) for reasons other than the D-Bus user reload — see output above." >&2
-exit "$rc"
+print -ru2 -- "nixos-rebuild failed (exit $rc) for reasons other than the D-Bus user reload — see output above."
+exit $rc

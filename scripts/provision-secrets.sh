@@ -1,8 +1,9 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 # provision-secrets.sh — interactive secret provisioning using gum
 # Prompts for sensitive values and persists them to their expected locations.
-
-set -euo pipefail
+# Run by install.sh; covered by tests/test_secret_provisioning.zsh.
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
 
 # ---------------------------------------------------------------------------
 # Colour palette (Monokai Spectrumish)
@@ -20,48 +21,48 @@ C_MUTED="#8b888f"
 # Helpers
 # ---------------------------------------------------------------------------
 header() {
-	echo
+	print
 	gum style \
-		--foreground "$C_PURPLE" --bold \
-		--border rounded --border-foreground "$C_PURPLE" \
+		--foreground $C_PURPLE --bold \
+		--border rounded --border-foreground $C_PURPLE \
 		--padding "0 2" \
-		"$1"
-	echo
+		$1
+	print
 }
 
-info() { gum style --foreground "$C_CYAN" "  $1"; }
-success() { gum style --foreground "$C_GREEN" "  $1"; }
-warn() { gum style --foreground "$C_YELLOW" "  $1"; }
-error() { gum style --foreground "$C_RED" "  $1"; }
-label() { gum style --foreground "$C_ORANGE" --bold "$1"; }
-muted() { gum style --foreground "$C_MUTED" "$1"; }
+info() { gum style --foreground $C_CYAN "  $1"; }
+success() { gum style --foreground $C_GREEN "  $1"; }
+warn() { gum style --foreground $C_YELLOW "  $1"; }
+error() { gum style --foreground $C_RED "  $1"; }
+label() { gum style --foreground $C_ORANGE --bold $1; }
+muted() { gum style --foreground $C_MUTED $1; }
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 header "Secret Provisioning"
 muted "  Stores sensitive values in their expected locations on this machine."
-echo
+print
 
 # ---------------------------------------------------------------------------
 # Age private key → ~/.config/sops/age/keys.txt
 # ---------------------------------------------------------------------------
-AGE_KEY_FILE="${HOME}/.config/sops/age/keys.txt"
-export SOPS_AGE_KEY_FILE="$AGE_KEY_FILE"
+AGE_KEY_FILE=$HOME/.config/sops/age/keys.txt
+export SOPS_AGE_KEY_FILE=$AGE_KEY_FILE
 
 label "Age private key"
-info "Target: ${AGE_KEY_FILE}"
-echo
+info "Target: $AGE_KEY_FILE"
+print
 
-if [[ -f "$AGE_KEY_FILE" ]]; then
-	success "Age key already present at ${AGE_KEY_FILE} — nothing to do."
-	echo
+if [[ -f $AGE_KEY_FILE ]]; then
+	success "Age key already present at $AGE_KEY_FILE — nothing to do."
+	print
 	exit 0
 fi
 
 info "Paste your age private key below (input is hidden)."
 muted "  It should start with AGE-SECRET-KEY-1..."
-echo
+print
 
 while true; do
 	AGE_KEY=$(
@@ -69,26 +70,26 @@ while true; do
 			--password \
 			--placeholder "AGE-SECRET-KEY-1..." \
 			--prompt "> " \
-			--prompt.foreground "$C_PURPLE" \
-			--cursor.foreground "$C_PURPLE" \
+			--prompt.foreground $C_PURPLE \
+			--cursor.foreground $C_PURPLE \
 			--width 72 \
 			--char-limit 256
 	)
 
-	if [[ -z "$AGE_KEY" ]]; then
+	if [[ -z $AGE_KEY ]]; then
 		error "No input received. Try again, or press Ctrl-C to abort."
 		continue
 	fi
 
 	# Normalise — strip surrounding whitespace and any trailing carriage returns
-	AGE_KEY=$(printf '%s' "$AGE_KEY" | tr -d '\r' | xargs)
+	AGE_KEY=$(printf '%s' $AGE_KEY | tr -d '\r' | xargs)
 
-	if [[ "$AGE_KEY" != AGE-SECRET-KEY-1* ]]; then
+	if [[ $AGE_KEY != AGE-SECRET-KEY-1* ]]; then
 		error "That doesn't look like an age private key (expected AGE-SECRET-KEY-1...)."
 		if ! gum confirm \
-			--prompt.foreground "$C_YELLOW" \
-			--selected.background "$C_PURPLE" --selected.foreground "$C_TEXT" \
-			--unselected.foreground "$C_MUTED" \
+			--prompt.foreground $C_YELLOW \
+			--selected.background $C_PURPLE --selected.foreground $C_TEXT \
+			--unselected.foreground $C_MUTED \
 			"Try again?"; then
 			error "Aborted."
 			exit 1
@@ -99,12 +100,12 @@ while true; do
 	break
 done
 
-mkdir -p "$(dirname "$AGE_KEY_FILE")"
-printf '%s\n' "$AGE_KEY" >"$AGE_KEY_FILE"
-chmod 600 "$AGE_KEY_FILE"
+mkdir -p -- $AGE_KEY_FILE:h
+printf '%s\n' $AGE_KEY >$AGE_KEY_FILE
+chmod 600 $AGE_KEY_FILE
 
-success "Age key written to ${AGE_KEY_FILE} (mode 600)."
-echo
+success "Age key written to $AGE_KEY_FILE (mode 600)."
+print
 muted "  Run \`home-manager switch\` (or \`nixos-rebuild switch\`) to pick up the"
 muted "  new key — chezmoi and sops-nix will use it automatically on next apply."
-echo
+print

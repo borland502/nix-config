@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 #
 # Bootstrap the off-nixpkgs agent CLIs (Claude Code, GitHub Copilot CLI, and
 # the OpenAI Codex CLI on macOS) on
@@ -14,12 +14,13 @@
 exit 0
 {{ end -}}
 
-set -euo pipefail
+emulate -R zsh
+setopt err_exit no_unset pipe_fail
 
-helper="$HOME/.local/bin/update-agent-clis"
-if [ ! -x "$helper" ]; then
-  printf 'install-agent-clis: %s not deployed yet — skipping (rerun chezmoi apply)\n' "$helper" >&2
+helper=$HOME/.local/bin/update-agent-clis
+if [[ ! -x $helper ]]; then
+  printf 'install-agent-clis: %s not deployed yet — skipping (rerun chezmoi apply)\n' $helper >&2
   exit 0
 fi
 
-exec "$helper"
+exec $helper

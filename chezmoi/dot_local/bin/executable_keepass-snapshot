@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env -S zsh -f
 # keepass-snapshot — dated snapshots of the KeePass vault, kept on Drive.
 #
 # The vault at gdrive:keepass/secrets.kdbx is a LIVE document: every host and

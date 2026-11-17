@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env -S zsh -f
 # Run `darwin-rebuild switch` for the given flake, tolerating two benign
 # conditions that otherwise fail `task switch` / `task upgrade`:
 #
@@ -12,63 +12,66 @@
 #      every reachable cask activated. We downgrade *that specific* failure to a
 #      warning. Any other failure — a nix build/eval error, or a non-download
 #      Homebrew error — is propagated unchanged.
-set -uo pipefail
+#
+# tests/test_switch_tolerant.zsh covers both conditions and exit-code propagation.
+emulate -R zsh
+# No err_exit: a failing rebuild is classified below rather than ending the script.
+setopt no_unset pipe_fail
 
 orphan='does not link into a Home Manager generation\. Skipping delete\.'
 
 # classify_log <logfile> -> exit 0 when the only failure was blocked Homebrew
 # cask downloads (tolerable); non-zero when a real failure is present.
 classify_log() {
-	local log="$1"
+	local log=$1
 	# Require a positive cask-download signal before tolerating anything.
-	grep -qE 'Download failed on Cask' "$log" || return 1
+	grep -qE 'Download failed on Cask' $log || return 1
 	# nix build/eval failures use a lowercase `error:` (case-sensitive, so the
 	# Homebrew `Error: Download failed` lines below do not trip this).
-	if grep -qE '^error:|builder for .* failed|build of .* failed|hash mismatch|infinite recursion|cannot coerce' "$log"; then
+	if grep -qE '^error:|builder for .* failed|build of .* failed|hash mismatch|infinite recursion|cannot coerce' $log; then
 		return 1
 	fi
 	# A Homebrew `Error:` that is not a download failure (checksum, conflicting
 	# install, ...) is a real failure too.
-	if grep -E '^Error:' "$log" | grep -qvE 'Download failed'; then
+	if grep -E '^Error:' $log | grep -qvE 'Download failed'; then
 		return 1
 	fi
 	return 0
 }
 
 # Diagnostic/test hook: classify an existing log without running a rebuild.
-if [[ "${1:-}" == "--classify" ]]; then
-	classify_log "${2:?usage: darwin-switch-tolerant.sh --classify <logfile>}"
+if [[ ${1-} == --classify ]]; then
+	classify_log ${2:?usage: darwin-switch-tolerant.sh --classify <logfile>}
 	rc=$?
-	[[ "$rc" -eq 0 ]] && echo "tolerate" || echo "propagate"
-	exit "$rc"
+	((rc == 0)) && print tolerate || print propagate
+	exit $rc
 fi
 
-flake="${1:?usage: darwin-switch-tolerant.sh <flake-ref>}"
+flake=${1:?usage: darwin-switch-tolerant.sh <flake-ref>}
 
 # Persist the log instead of a mktemp deleted on exit. The temp file made the
 # classifier work but destroyed the evidence: when activation failed partway
 # (silently, exit 0) the only record was scrollback, and diagnosing it meant
 # re-running activation by hand. cache-scan indexes this directory, and
 # compress-old-cache zstd-compresses it after a day.
-log_dir="${XDG_CACHE_HOME:-$HOME/.cache}/claude"
-mkdir -p "$log_dir"
-log="$log_dir/darwin-switch-$(date +%Y%m%d-%H%M%S).log"
-echo "==> darwin-rebuild switch — log: $log"
+log_dir=${XDG_CACHE_HOME:-$HOME/.cache}/claude
+mkdir -p -- $log_dir
+log=$log_dir/darwin-switch-$(date +%Y%m%d-%H%M%S).log
+print -r -- "==> darwin-rebuild switch — log: $log"
 
 # Stream live (minus the orphan spam) while capturing the full combined output
-# so a non-zero exit can be classified. PIPESTATUS[0] keeps darwin-rebuild's own
-# exit code rather than tee's or grep's.
-set -o pipefail
-sudo darwin-rebuild switch --flake "$flake" 2>&1 |
-	tee "$log" |
-	grep --line-buffered -v "$orphan"
-rc="${PIPESTATUS[0]}"
+# so a non-zero exit can be classified. $pipestatus[1] keeps darwin-rebuild's
+# own exit code rather than tee's or grep's (zsh arrays are 1-indexed).
+sudo darwin-rebuild switch --flake $flake 2>&1 |
+	tee $log |
+	grep --line-buffered -v $orphan
+rc=$pipestatus[1]
 
-if [[ "$rc" -eq 0 ]]; then
+if ((rc == 0)); then
 	exit 0
 fi
 
-if classify_log "$log"; then
+if classify_log $log; then
 	cat >&2 <<'EOF'
 
 WARNING: darwin-rebuild returned non-zero, but the only failure was Homebrew
@@ -77,12 +80,12 @@ WARNING: darwin-rebuild returned non-zero, but the only failure was Homebrew
          activated successfully. Re-run `task switch` off-VPN to fetch the
          blocked casks.
 EOF
-	echo "         Full output: $log" >&2
+	print -ru2 -- "         Full output: $log"
 	exit 0
 fi
 
-echo "darwin-rebuild failed (exit $rc) for reasons beyond blocked Homebrew cask downloads." >&2
-echo "  full output: $log" >&2
-grep -niE '^error:|builder for .* failed|build of .* failed|hash mismatch|^Error:|cannot|permission denied' "$log" |
+print -ru2 -- "darwin-rebuild failed (exit $rc) for reasons beyond blocked Homebrew cask downloads."
+print -ru2 -- "  full output: $log"
+grep -niE '^error:|builder for .* failed|build of .* failed|hash mismatch|^Error:|cannot|permission denied' $log |
 	tail -8 | sed 's/^/    /' >&2 || true
-exit "$rc"
+exit $rc

@@ -103,6 +103,8 @@ Subagent (general-purpose):
     **Tests:**
     - Do the new and changed tests verify real behavior, not mocks?
     - Are the task's edge cases covered?
+    - Did the task leave trivial, redundant or scaffolding tests that the
+      TDD PRUNE step should have cut? (Minor unless the test asserts nothing.)
 
     **Structure:**
     - Does each file have one clear responsibility with a well-defined interface?
