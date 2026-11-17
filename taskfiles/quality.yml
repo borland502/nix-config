@@ -22,6 +22,7 @@ tasks:
       - zsh -f tests/test_secret_hygiene.zsh
       - zsh -f tests/test_switch_tolerant.zsh
       - zsh -f tests/test_codex_skill_ownership.zsh
+      - zsh -f tests/test_codex_rules.zsh
       - zsh -f tests/test_secret_provisioning.zsh
       - zsh -f tests/test_small_helpers.zsh
       - zsh -f tests/test_chezmoi_run_scripts.zsh
@@ -66,7 +67,7 @@ tasks:
   fmt:md:
     desc: Auto-fix markdown files (skips ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 --fix "**/*.md" "#**/node_modules" "#**/.venv" "#result" "#result-*" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
+    cmd: markdownlint-cli2 --fix "**/*.md" "#**/node_modules" "#**/.venv" "#result" "#result-*" "#.worktrees" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
 
   fmt:sh:
     desc: Format shell scripts in place (shfmt -w -i 0, skips ai-tools/ and secrets/)
@@ -153,9 +154,9 @@ tasks:
       echo 'model-agnostic OK: no versioned model IDs in ai-tools/'
 
   lint:md:
-    desc: Lint markdown files (skips vendored deps, ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
+    desc: Lint markdown files (skips vendored deps, .worktrees/, ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 "**/*.md" "#**/node_modules" "#**/.venv" "#result" "#result-*" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
+    cmd: markdownlint-cli2 "**/*.md" "#**/node_modules" "#**/.venv" "#result" "#result-*" "#.worktrees" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
 
   lint:sh:
     desc: Check shell sources by shebang, including extensionless helpers and agent hooks

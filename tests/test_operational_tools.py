@@ -42,6 +42,20 @@ class Operations(unittest.TestCase):
         self.assertEqual(out, "")
         self.assertIn("unknown tool", err)
 
+    def test_prompt_mode_pins_mid_tier_model_unless_overridden(self):
+        for override, expected in ((None, "sonnet"), ("", "sonnet"), ("opus", "opus")):
+            with self.subTest(override=override):
+                env = {k: v for k, v in os.environ.items() if k != "OPS_AGENT_MODEL"}
+                if override is not None:
+                    env["OPS_AGENT_MODEL"] = override
+                with patch.dict(os.environ, env, clear=True), \
+                        patch.object(self.ops.shutil, "which", return_value="/fixture/claude"), \
+                        patch.object(self.ops.os, "execv") as execv:
+                    self.ops.run("fixture request")
+                argv = execv.call_args.args[1]
+                self.assertEqual(argv[argv.index("--model") + 1], expected)
+                self.assertEqual(argv.count("--model"), 1)
+
     def test_invalid_input_is_diagnostic(self):
         for value in ('{"args": 1}', '{}', '[]', '{bad', '{"args":[1]}'):
             with self.subTest(value=value), patch.object(self.ops, "_require_secrets"):

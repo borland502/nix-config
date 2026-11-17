@@ -19,6 +19,11 @@ for _lib in (Path(os.environ["AGENT_TOOLS_LIB"]) if os.environ.get("AGENT_TOOLS_
 from agent_tools.process import run as checked_run, ProcessError, kac_env
 from agent_tools.atlassian import Client, AtlassianError
 
+# Claude tier alias for the prompt-mode loop (mid tier); the alias resolves to
+# the latest model of its tier via ANTHROPIC_DEFAULT_SONNET_MODEL, so no
+# versioned ID belongs here. OPS_AGENT_MODEL overrides it per invocation.
+OPS_AGENT_DEFAULT_MODEL = "sonnet"
+
 # ---------------------------------------------------------------------------
 # Credentials
 # ---------------------------------------------------------------------------
@@ -372,9 +377,11 @@ def run(prompt: str) -> None:
         "--allowedTools",
         "Bash(ops-agent --tool:*)",
     ]
-    model = os.environ.get("OPS_AGENT_MODEL")
-    if model:
-        cmd += ["--model", model]
+    # Pin the mid tier (agent-reference.md § Model Tiers) instead of inheriting
+    # whatever the interactive session last selected: the loop can transition
+    # Jira tickets and force ECS deploys, so it should neither drop to the low
+    # tier nor silently run on the premium one.
+    cmd += ["--model", os.environ.get("OPS_AGENT_MODEL") or OPS_AGENT_DEFAULT_MODEL]
     os.execv(claude, cmd)
 
 

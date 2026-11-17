@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Configure passive capture while preserving unrelated agent settings."""
+"""Configure passive capture and seed Codex defaults, preserving other settings."""
 import json
 import os
 from pathlib import Path
@@ -59,20 +59,49 @@ def merge(settings, additions):
     return settings
 
 
+# Codex's "Approve for me" permissions preset (auto-review): the reviewer, not
+# the user, answers escalation requests and only asks about actions it flags
+# as potentially unsafe.
+CODEX_APPROVE_FOR_ME = {
+    "approvals_reviewer": "auto_review",
+    "approval_policy": "on-request",
+    "sandbox_mode": "workspace-write",
+}
+# Any of these means permissions were already chosen; seed none of the preset
+# rather than mix it with an explicit choice.
+CODEX_PERMISSION_KEYS = (*CODEX_APPROVE_FOR_ME, "default_permissions")
+
+
+def seed_toml(original, values, guard_keys):
+    """Prefix top-level keys unless a guard key is set; None means leave as is.
+
+    Prefixing validated top-level keys preserves comments, table scopes,
+    multiline strings and every existing setting without a TOML rewrite.
+    """
+    config = tomllib.loads(original.decode())
+    if any(key in config for key in guard_keys):
+        return None
+    encoded = "".join(f"{key} = {json.dumps(value)}\n" for key, value in values.items()).encode() + original
+    tomllib.loads(encoded.decode())
+    return encoded
+
+
 def main():
-    log_dir_mode = sys.argv[1:2] == ["--codex-log-dir"]
-    target, source = map(Path, sys.argv[2:] if log_dir_mode else sys.argv[1:])
+    mode = sys.argv[1] if sys.argv[1:2] in (["--codex-log-dir"], ["--codex-approve-for-me"]) else None
+    if mode == "--codex-approve-for-me":
+        (target,) = map(Path, sys.argv[2:])
+    else:
+        target, source = map(Path, sys.argv[2:] if mode else sys.argv[1:])
     if target.is_symlink():
         raise ValueError("refusing to replace symlinked settings")
-    original = target.read_bytes() if target.exists() else (b"" if log_dir_mode else b"{}")
-    if log_dir_mode:
-        # Prefixing a validated top-level key preserves comments, table scopes,
-        # multiline strings and every existing setting without a TOML rewrite.
-        config = tomllib.loads(original.decode())
-        if "log_dir" in config:
+    original = target.read_bytes() if target.exists() else (b"" if mode else b"{}")
+    if mode:
+        if mode == "--codex-log-dir":
+            encoded = seed_toml(original, {"log_dir": str(source)}, ("log_dir",))
+        else:
+            encoded = seed_toml(original, CODEX_APPROVE_FOR_ME, CODEX_PERMISSION_KEYS)
+        if encoded is None:
             return
-        encoded = ("log_dir = " + json.dumps(str(source)) + "\n").encode() + original
-        tomllib.loads(encoded.decode())
     else:
         result = merge(json.loads(original), json.loads(source.read_text()))
         encoded = (json.dumps(result, indent=2) + "\n").encode()
