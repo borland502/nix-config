@@ -5,6 +5,7 @@
   ...
 }: let
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
+  agentToolsLib = (import ./lib/agent-tools-libraries.nix {inherit lib;}).python;
   # Flameshot (Qt6 QSettings) rewrites this INI at runtime, so it cannot be a
   # read-only nix-store symlink; it is seeded as a mutable copy in
   # home.activation.seedFlameshotConfig below.
@@ -300,7 +301,7 @@ in {
         # Do not seed a competing config while legacy-home migration is
         # deferred: it would shadow the user's original config during merging.
         if [ ! -d "$HOME/.codex" ] || [ -L "$HOME/.codex" ]; then
-          ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
+          AGENT_TOOLS_LIB=${agentToolsLib} ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
             --codex-log-dir ${lib.escapeShellArg "${codexHome}/config.toml"} \
             ${lib.escapeShellArg "${config.xdg.cacheHome}/codex/runtime/codex-logs"}
         fi

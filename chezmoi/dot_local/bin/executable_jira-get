@@ -12,20 +12,10 @@ for _lib in (Path(os.environ["AGENT_TOOLS_LIB"]) if os.environ.get("AGENT_TOOLS_
         sys.path.insert(0, str(_lib))
         break
 
-import argparse
-from agent_tools.atlassian import Client, AtlassianError
+from agent_tools.atlassian_cli import get_main
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path")
-    args = parser.parse_args()
-    try:
-        payload = Client.configured("jira").request("GET", args.path, return_raw=True)
-        sys.stdout.buffer.write(payload)
-        return 0
-    except (AtlassianError, OSError) as exc:
-        print(f"jira-get: {exc}", file=sys.stderr)
-        return 1
+    return get_main("jira", prog=None)
 
 if __name__ == "__main__":
     sys.exit(main())

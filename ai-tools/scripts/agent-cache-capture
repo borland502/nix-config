@@ -28,7 +28,7 @@ else:
             _source_library if _source_library.is_dir() else Path.home() / ".local/lib"
         ),
     )
-from agent_tools.artifacts import atomic_output, atomic_write
+from agent_tools.artifacts import atomic_output, atomic_write, private_directory
 from agent_tools.events import normalize_hook
 from agent_tools.paths import agent_homes, capture_root
 
@@ -58,13 +58,6 @@ class Source(NamedTuple):
 
 def cache_root() -> Path:
     return capture_root()
-
-
-def private_dir(path: Path) -> None:
-    if path.is_symlink():
-        raise OSError(f"refusing symlinked capture directory: {path}")
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path.chmod(0o700)
 
 
 def ensure_cache_path(root: Path, candidate: Path, area_name: str) -> None:
@@ -125,10 +118,10 @@ def event_references(normalized: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def write_overflow(root: Path, agent: str, initial: bytes, stream: Any) -> Path:
-    private_dir(root)
+    private_directory(root)
     directory = root / "overflow" / agent
     ensure_cache_path(root, directory, "overflow")
-    private_dir(directory)
+    private_directory(directory)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     path = directory / f"{stamp}-{os.getpid()}.json"
     fd, partial_name = tempfile.mkstemp(
@@ -203,10 +196,10 @@ def capture_event(agent: str, event: str) -> int:
     encoded = (
         json.dumps(envelope, separators=(",", ":"), ensure_ascii=False) + "\n"
     ).encode()
-    private_dir(root)
+    private_directory(root)
     directory = root / "events" / agent / safe_session_key(session_id)
     ensure_cache_path(root, directory, "events")
-    private_dir(directory)
+    private_directory(directory)
     destination = directory / "events.jsonl"
     lock_fd = os.open(directory / ".append.lock", os.O_RDWR | os.O_CREAT, 0o600)
     with os.fdopen(lock_fd, "r+b") as lock:
@@ -566,7 +559,7 @@ def read_manifest(path: Path) -> dict[str, Any]:
 
 
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
-    private_dir(path.parent)
+    private_directory(path.parent)
     atomic_write(
         path,
         (json.dumps(value, sort_keys=True, indent=2) + "\n").encode(),
@@ -575,7 +568,7 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def atomic_copy(source: Path, destination: Path, source_stat: os.stat_result) -> str:
-    private_dir(destination.parent)
+    private_directory(destination.parent)
     digest = hashlib.sha256()
     with (
         atomic_output(destination, replace=True) as output,
@@ -893,7 +886,7 @@ def reconcile(dry_run: bool, backfill: bool) -> int:
             expire_overflow_files(root, cutoff, True)
             expire_orphan_manifests(root, cutoff, True)
         return 0
-    private_dir(root)
+    private_directory(root)
     lock_fd = os.open(root / ".reconcile.lock", os.O_RDWR | os.O_CREAT, 0o600)
     copied = unchanged = failures = 0
     try:

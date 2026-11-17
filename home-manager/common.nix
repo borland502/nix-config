@@ -298,13 +298,15 @@
   keepassPython = pkgs.writeShellScriptBin "keepass-python" ''
     exec ${pkgs.python3.withPackages (ps: [ps.pykeepass])}/bin/python3 "$@"
   '';
-  agentToolsLib = builtins.path {
-    path = ../chezmoi/dot_local/lib;
-    name = "agent-tools-lib";
-    filter = source: type:
-      (type == "directory" && builtins.baseNameOf source != "__pycache__")
-      || (type == "regular" && lib.hasSuffix ".py" source);
-  };
+  agentToolsLibraries = import ./lib/agent-tools-libraries.nix {inherit lib;};
+  agentToolsLib = agentToolsLibraries.python;
+  shellToolsLib = agentToolsLibraries.shell;
+  shellToolsNames = ["compress-old-cache" "log-bash.sh" "log-instructions.sh" "log-skill.sh" "log-thinking.sh"];
+  shellToolsWrapper = n:
+    pkgs.writeShellScript n ''
+      export AGENT_TOOLS_SHELL_LIB="''${AGENT_TOOLS_SHELL_LIB:-${shellToolsLib}}"
+      exec ${pkgs.bash}/bin/bash ${../ai-tools/scripts + "/${n}"} "$@"
+    '';
   opsAgent = pkgs.writeShellScriptBin "ops-agent" ''
     export AGENT_TOOLS_LIB="''${AGENT_TOOLS_LIB:-${agentToolsLib}}"
     exec ${pkgs.python3}/bin/python ${../ai-tools/scripts/ops-agent.py} "$@"
@@ -575,7 +577,7 @@ in {
         fi
         # Replace only our capture handlers and obsolete broad sweep. Preserve
         # user hooks; keep shutdown work short and reconcile files on the timer.
-        ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
+        AGENT_TOOLS_LIB=${agentToolsLib} ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
           "$_settings" ${../ai-tools/hooks/claude-capture.json}
         # Claude reasoning capture via log-thinking.sh is DISABLED. Claude Code
         # 2.1.69+ stores thinking blocks signature-only (empty text + encrypted
@@ -909,6 +911,8 @@ in {
               source =
                 if n == "agent-cache-capture"
                 then agentCacheCapture
+                else if builtins.elem n shellToolsNames
+                then shellToolsWrapper n
                 else ../ai-tools/scripts + "/${n}";
               executable = true;
             };

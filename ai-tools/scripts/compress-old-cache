@@ -14,12 +14,13 @@
 #      retention candidates instead of deleting them.
 set -euo pipefail
 
+# shellcheck source=chezmoi/dot_local/lib/shell/agent-cache.bash
+source "$AGENT_TOOLS_SHELL_LIB/agent-cache.bash"
+
 # Resolve agent/cache target.
 # Priority: explicit CACHE_DIR > AGENT_NAME cache > claude default.
-agent_raw="${AGENT_NAME:-claude}"
-agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
-[[ -n "$agent" ]] || agent="claude"
-cache_dir="${CACHE_DIR:-${HOME}/.cache/${agent}}"
+agent=$(agent_cache_normalize "${AGENT_NAME:-claude}")
+cache_dir="${CACHE_DIR:-$(agent_cache_path "$HOME" "$agent")}"
 
 [ -d "$cache_dir" ] || exit 0
 command -v zstd >/dev/null 2>&1 || exit 0

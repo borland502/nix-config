@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
+import sys
 import tempfile
 import unittest
 
@@ -47,12 +49,21 @@ print(json.dumps({'data': payload}))
 ''')
         fake.chmod(0o755)
         self.env = dict(os.environ, PATH=f'{self.base}:{os.environ["PATH"]}',
+                        HOME=str(self.base), AGENT_TOOLS_LIB=str(ROOT / "chezmoi/dot_local/lib"),
                         TRACE=str(self.base / 'trace'),
                         GH_PR_THREADS_DATA_DIR=str(ROOT / 'chezmoi/dot_local/share/gh-pr-threads'))
 
     def run_helper(self, *args):
         return subprocess.run([str(HELPER), '42', '--repo', 'example/project', *args],
                               env=self.env, capture_output=True, text=True, timeout=10)
+
+    def test_relocated_script_uses_explicit_library(self):
+        relocated = self.base / 'pr-threads'
+        shutil.copyfile(HELPER, relocated)
+        result = subprocess.run([sys.executable, str(relocated), '42', '--repo', 'example/project', '--json'],
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(json.loads(result.stdout)), 1)
 
     def test_paginated_context(self):
         result = self.run_helper('--all', '--context', '--json')

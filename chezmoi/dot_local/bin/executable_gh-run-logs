@@ -16,6 +16,9 @@ emulate -R zsh
 setopt err_exit no_unset pipe_fail
 
 script=${0:A}
+# Shared with the bash hooks; installed as the sibling ~/.local/lib/shell.
+source ${AGENT_TOOLS_SHELL_LIB:-${script:h:h}/lib/shell}/agent-cache.bash
+
 usage() { sed -n '2,14p' $script | sed 's/^# \{0,1\}//'; }
 
 run_id=""
@@ -60,10 +63,8 @@ done
 	exit 1
 }
 
-agent=${(L)${AGENT_NAME:-claude}}
-agent=${agent//[^a-z0-9._-]/}
-[[ -n $agent ]] || agent="claude"
-out_dir=$HOME/.cache/$agent
+agent=$(agent_cache_normalize ${AGENT_NAME:-claude})
+out_dir=$(agent_cache_path $HOME $agent)
 mkdir -p -- $out_dir
 out=$out_dir/run-$run_id-$mode.log
 

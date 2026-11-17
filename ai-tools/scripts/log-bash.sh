@@ -20,6 +20,11 @@
 # non-empty, else `ok`. cache-scan relies on the `## [...] status=` header line.
 set -euo pipefail
 
+# shellcheck source=chezmoi/dot_local/lib/shell/agent-cache.bash
+source "$AGENT_TOOLS_SHELL_LIB/agent-cache.bash"
+# shellcheck source=chezmoi/dot_local/lib/shell/hook-log.bash
+source "$AGENT_TOOLS_SHELL_LIB/hook-log.bash"
+
 input=$(cat)
 
 # Detect format by Copilot's camelCase "toolName" vs Claude Code's "tool_input".
@@ -58,9 +63,7 @@ else
 		if (.tool_response | type) == "object" then (.tool_response.interrupted // false) else false end')
 fi
 
-agent_raw="${AGENT_NAME:-claude}"
-agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
-[[ -n "$agent" ]] || agent="claude"
+agent=$(agent_cache_normalize "${AGENT_NAME:-claude}")
 
 # Strip benign noise from stderr before deciding status. The hook gets no exit
 # code, so any non-empty stderr would otherwise read as a failure — but two
@@ -93,28 +96,10 @@ fi
 max_chars=30000
 truncate_field() {
 	local data="$1"
-	if ((${#data} > max_chars)); then
-		printf '%s\n... [truncated %s of %s chars -- rerun with tee to a ~/.cache file for the full output]' \
-			"${data:0:max_chars}" "$((${#data} - max_chars))" "${#data}"
-	else
-		printf '%s' "$data"
-	fi
+	agent_hook_truncate "$data" "$max_chars" "... [truncated $((${#data} - max_chars)) of ${#data} chars -- rerun with tee to a ~/.cache file for the full output]"
 }
 
-log_dir="$HOME/.cache/$agent"
+log_dir=$(agent_cache_path "$HOME" "$agent")
 logfile="$log_dir/session_${sid}.log"
 mkdir -p "$log_dir"
-umask 077
-
-{
-	printf '\n## [%s] status=%s event=bash cwd=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$status" "${cwd:-?}"
-	printf 'CMD: %s\n' "$cmd"
-	if [[ -n "$stdout" ]]; then
-		printf 'STDOUT:\n%s\n' "$(truncate_field "$stdout")"
-	fi
-	if [[ -n "$stderr" ]]; then
-		printf 'STDERR:\n%s\n' "$(truncate_field "$stderr")"
-	fi
-	printf -- '---\n'
-} >>"$logfile"
-chmod 600 "$logfile" 2>/dev/null || true
+agent_hook_record bash "$status" "$cwd" "$cmd" "$(truncate_field "$stdout")" "$(truncate_field "$stderr")" | agent_hook_append "$logfile"

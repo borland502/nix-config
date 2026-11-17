@@ -12,6 +12,20 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/lint-shell.py'
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_lints_caller_and_declared_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(['git', 'init', '-q', tmp], check=True)
+            (root / 'lib.bash').write_text('# shellcheck shell=bash\ngreet() { echo hello; }\n')
+            (root / 'caller').write_text(
+                '#!/bin/bash\n# shellcheck source=lib.bash\nsource "$LIBRARY"\ngreet\n'
+            )
+            (root / 'scripts').mkdir()
+            (root / 'scripts/bash-allowlist.txt').write_text('caller\nlib.bash\n')
+            result = subprocess.run(['python3', str(SCRIPT), '--root', tmp],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_shebangs_and_safe_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -24,18 +38,21 @@ class DiscoveryTests(unittest.TestCase):
                 'node_modules/skip': '#!/bin/bash\n',
                 'template.sh.tmpl': '#!/bin/bash\n{{ value }}\n',
                 'python': '#!/usr/bin/env python3\n',
+                'lib with space': '# shellcheck shell=bash\necho ok\n',
+                'vendor/skip': '# shellcheck shell=bash\n',
             }
             for name, content in fixtures.items():
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content)
+            (root / 'link').symlink_to(root / 'lib with space')
             result = subprocess.run(['python3', str(SCRIPT), '--root', tmp, '--list'],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), {
                 'ai-tools/scripts/hook': 'sh',
                 'chezmoi/dot_local/bin/executable_with space': 'bash',
-                'env-s': 'bash', 'zsh-helper': 'zsh',
+                'env-s': 'bash', 'lib with space': 'bash', 'zsh-helper': 'zsh',
             })
 
 

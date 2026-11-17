@@ -7,8 +7,10 @@ repo_root=${0:A:h:h}
 source $repo_root/tests/helpers/testlib.zsh
 tmp=$(mktemp -d)
 trap 'rm -rf -- $tmp' EXIT
-mkdir -p $tmp/bin $tmp/home
+mkdir -p $tmp/bin $tmp/home $tmp/lib
 install -m 0755 $repo_root/chezmoi/dot_local/bin/executable_gh-run-logs $tmp/bin/gh-run-logs
+# Mirror the installed layout: gh-run-logs loads its sibling ../lib/shell.
+cp -R $repo_root/chezmoi/dot_local/lib/shell $tmp/lib/shell
 cat >$tmp/bin/gh <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >>"$TRACE_FILE"

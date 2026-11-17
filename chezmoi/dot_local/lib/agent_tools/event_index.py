@@ -7,7 +7,7 @@ import math
 import os
 from pathlib import Path
 import sys
-from .artifacts import atomic_write
+from .artifacts import atomic_write, private_directory
 from .events import Event
 
 # Identity normalization changed; replay schema-1 observations before reuse.
@@ -104,10 +104,9 @@ class EventIndex:
     def save(self):
         try:
             parent = self.path.parent
-            if parent.is_symlink() or self.path.is_symlink():
+            if self.path.is_symlink():
                 raise OSError("symlinked index")
-            parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            parent.chmod(0o700)
+            private_directory(parent)
             atomic_write(
                 self.path,
                 json.dumps(

@@ -4,8 +4,17 @@ import os
 from pathlib import Path
 import tempfile
 
+def private_directory(target):
+    """Create a private directory without following a final symlink."""
+    target = Path(target)
+    if target.is_symlink():
+        raise OSError(f"refusing symlinked capture directory: {target}")
+    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+    target.chmod(0o700)
+
+
 @contextmanager
-def atomic_output(target, *, replace):
+def atomic_output(target, *, replace, before_publish=None):
     """Yield a seekable binary stream and publish only after successful validation."""
     target = Path(target).expanduser().absolute()
     temporary = None
@@ -17,6 +26,8 @@ def atomic_output(target, *, replace):
             yield output
             output.flush()
             os.fsync(output.fileno())
+        if before_publish is not None:
+            before_publish()
         if replace:
             os.replace(temporary, target)
         else:

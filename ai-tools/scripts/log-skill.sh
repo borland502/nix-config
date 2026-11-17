@@ -19,6 +19,11 @@
 # and are intentionally not logged here. Mirrors log-bash.sh.
 set -euo pipefail
 
+# shellcheck source=chezmoi/dot_local/lib/shell/agent-cache.bash
+source "$AGENT_TOOLS_SHELL_LIB/agent-cache.bash"
+# shellcheck source=chezmoi/dot_local/lib/shell/hook-log.bash
+source "$AGENT_TOOLS_SHELL_LIB/hook-log.bash"
+
 input=$(cat)
 
 # Detect format by Copilot's camelCase "toolName" vs Claude Code's "tool_name".
@@ -53,34 +58,17 @@ else
 		else "" end')
 fi
 
-agent_raw="${AGENT_NAME:-claude}"
-agent=$(printf '%s' "$agent_raw" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
-[[ -n "$agent" ]] || agent="claude"
+agent=$(agent_cache_normalize "${AGENT_NAME:-claude}")
 
 # Cap very large fields so individual records stay scannable. Character-based
 # slicing (no pipe) avoids SIGPIPE under `set -o pipefail`.
 max_chars=8000
 truncate_field() {
 	local data="$1"
-	if ((${#data} > max_chars)); then
-		printf '%s\n... [truncated %s of %s chars — see agent transcript for full output]' \
-			"${data:0:max_chars}" "$((${#data} - max_chars))" "${#data}"
-	else
-		printf '%s' "$data"
-	fi
+	agent_hook_truncate "$data" "$max_chars" "... [truncated $((${#data} - max_chars)) of ${#data} chars — see agent transcript for full output]"
 }
 
-log_dir="$HOME/.cache/$agent"
+log_dir=$(agent_cache_path "$HOME" "$agent")
 logfile="$log_dir/session_${sid}.log"
 mkdir -p "$log_dir"
-umask 077
-
-{
-	printf '\n## [%s] status=ok event=skill cwd=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${cwd:-?}"
-	printf 'CMD: Skill %s%s\n' "${skill:-?}" "${args:+ $args}"
-	if [[ -n "$result" ]]; then
-		printf 'STDOUT:\n%s\n' "$(truncate_field "$result")"
-	fi
-	printf -- '---\n'
-} >>"$logfile"
-chmod 600 "$logfile" 2>/dev/null || true
+agent_hook_record skill ok "$cwd" "Skill ${skill:-?}${args:+ $args}" "$(truncate_field "$result")" "" | agent_hook_append "$logfile"

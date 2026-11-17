@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
+import sys
 import tempfile
 import unittest
 
@@ -22,6 +24,9 @@ import json, os, sys
 from pathlib import Path
 with open(os.environ['TRACE'], 'a') as f: f.write(' '.join(sys.argv[1:]) + '\\n')
 if os.environ.get('API_FAIL'): sys.exit(2)
+if os.environ.get('SLOW'):
+    import time
+    time.sleep(2)
 if sys.argv[1:3] == ['run', 'list']:
     print('[{"databaseId": 123, "status": "in_progress"}, {"databaseId": 124, "status": "queued"}]')
 elif sys.argv[1:3] == ['run', 'cancel']:
@@ -33,6 +38,7 @@ else:
 ''')
         gh.chmod(0o755)
         self.env = dict(os.environ, PATH=f"{self.base}:{os.environ['PATH']}",
+                        HOME=str(self.base), AGENT_TOOLS_LIB=str(ROOT / "chezmoi/dot_local/lib"),
                         TRACE=str(self.base / "trace"))
 
     def run_wait(self, snapshot, *args, monitor=False):
@@ -40,6 +46,14 @@ else:
         name = "executable_monitor-gh-run" if monitor else "executable_gh-wait-job"
         return subprocess.run([str(BIN / name), "123", *args], env=self.env,
                               text=True, capture_output=True, timeout=5)
+
+    def test_relocated_script_uses_explicit_library(self):
+        relocated = self.base / 'wait-job'
+        shutil.copyfile(BIN / 'executable_gh-wait-job', relocated)
+        self.env['SNAPSHOT'] = json.dumps({'status': 'completed', 'conclusion': 'success', 'jobs': []})
+        result = subprocess.run([sys.executable, str(relocated), '123'], env=self.env,
+                                text=True, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_only_success_is_success(self):
         for conclusion in ('success', 'failure', 'cancelled', 'skipped', 'timed_out', 'neutral'):
@@ -63,6 +77,12 @@ else:
         result = self.run_wait({'status': 'in_progress', 'jobs': []}, '--job', 'Deploy',
                                '--timeout', '0', '--interval', '1')
         self.assertEqual(result.returncode, 124, result.stderr)
+
+    def test_fetch_timeout_returns_124(self):
+        self.env['SLOW'] = '1'
+        result = self.run_wait({}, '--timeout', '0')
+        self.assertEqual(result.returncode, 124, result.stderr)
+        self.assertIn('Timed out fetching', result.stderr)
 
     def test_api_failure_and_invalid_input(self):
         self.env['API_FAIL'] = '1'

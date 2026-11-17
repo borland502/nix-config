@@ -25,6 +25,10 @@ chezmoi/dot_local/bin/executable_mdp-local
 chezmoi/dot_local/bin/executable_remote-desktop
 chezmoi/dot_local/bin/executable_vivaldi-extension-policy
 chezmoi/dot_local/bin/executable_wake
+chezmoi/dot_local/lib/hosts-toml
 chezmoi/dot_local/lib/kion-aws-cache
+# Sourced by the bash hooks above; agent-cache.bash is also sourced by zsh gh-run-logs, so keep it bash/zsh-neutral.
+chezmoi/dot_local/lib/shell/agent-cache.bash
+chezmoi/dot_local/lib/shell/hook-log.bash
 install.sh
 tests/test_kion_aws_cache.sh

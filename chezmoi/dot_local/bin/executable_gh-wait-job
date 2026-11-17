@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 """Wait for a GitHub Actions run or named job; passive unless explicitly requested."""
 import argparse
-import json
-import subprocess
+import os
+from pathlib import Path
 import sys
 import time
+
+
+# Support the managed installation and direct source-tree execution.
+for _lib in (Path(os.environ["AGENT_TOOLS_LIB"]) if os.environ.get("AGENT_TOOLS_LIB") else Path(__file__).resolve().parent.parent / "lib",
+             Path(__file__).resolve().parent.parent / "lib",
+             Path(__file__).resolve().parents[2] / "chezmoi/dot_local/lib",
+             Path.home() / ".local/lib"):
+    if (_lib / "agent_tools").is_dir():
+        sys.path.insert(0, str(_lib))
+        break
+
+from agent_tools.process import ProcessError, ProcessTimeout, run, run_json
 
 
 class Parser(argparse.ArgumentParser):
@@ -35,12 +47,13 @@ def main():
     deadline = time.monotonic() + args.timeout
 
     def gh(*command):
-        result = subprocess.run(["gh", *command, *repo], capture_output=True, text=True,
-                                timeout=max(1, min(60, deadline - time.monotonic())))
-        if result.returncode:
-            raise RuntimeError(f"gh {' '.join(command[:2])} failed: {result.stderr.strip()}")
+        argv = ["gh", *command, *repo]
+        timeout = max(1, min(60, deadline - time.monotonic()))
         # Mutation commands can print prose. Read commands must return JSON.
-        return None if command[:2] == ("run", "cancel") else json.loads(result.stdout)
+        if command[:2] == ("run", "cancel"):
+            run(argv, timeout=timeout)
+            return None
+        return run_json(argv, timeout=timeout)
 
     previous = None
     try:
@@ -57,10 +70,10 @@ def main():
                           "--limit", "100", "--json", "databaseId,status")
                 active = [r["databaseId"] for r in runs if r["status"] != "completed"]
                 newest = max([args.run, *active])
-                for run in sorted(set(active + [args.run])):
-                    if run < newest:
-                        gh("run", "cancel", str(run))
-                        print(f"Cancelled older run {run}", flush=True)
+                for run_id in sorted(set(active + [args.run])):
+                    if run_id < newest:
+                        gh("run", "cancel", str(run_id))
+                        print(f"Cancelled older run {run_id}", flush=True)
                 if newest != args.run:
                     args.run, previous = newest, None
                     if time.monotonic() >= deadline:
@@ -90,10 +103,10 @@ def main():
                 print(f"Timed out waiting for run {args.run}", file=sys.stderr)
                 return 124
             time.sleep(min(args.interval, remaining))
-    except subprocess.TimeoutExpired:
+    except ProcessTimeout:
         print("Timed out fetching GitHub run status", file=sys.stderr)
         return 124
-    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, ProcessError, RuntimeError) as error:
         print(f"gh-wait-job: {error}", file=sys.stderr)
         return 1
 
