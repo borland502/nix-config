@@ -107,15 +107,22 @@ Object.defineProperty(document.fonts, 'ready', {get() {
 
 
 @pytest.mark.skipif(os.environ.get('HTMLPDF_BROWSER_TESTS') != '1', reason='host Chrome integration')
-def test_default_profile_retains_existing_footer_size(tmp_path):
+@pytest.mark.parametrize('profile', ['default', 'report'])
+def test_footer_remains_legible_without_small_font_warning(tmp_path, profile):
     source = tmp_path / 'plain.html'
-    source.write_text('<html><head><title>Legacy footer</title></head><body>Body content</body></html>')
+    source.write_text('<html><head><title>Readable footer</title></head><body>Body content</body></html>')
     output = source.with_suffix('.pdf')
-    result = invoke('convert', source, '--preview', 'none')
+    audit = tmp_path / 'audit.json'
+    result = invoke('convert', source, '--profile', profile, '--preview', 'none', '--report-json', audit)
     assert result.returncode == 0, result.stderr
     with pymupdf.open(output) as doc:
-        footer_sizes = [span['size'] for span in doc[0].get_texttrace() if span['bbox'][1] > 700]
-    assert footer_sizes and max(footer_sizes) < 6
+        page = doc[0]
+        footer_spans = [span for span in page.get_texttrace() if span['bbox'][1] > page.rect.height - 60]
+        footer_sizes = [span['size'] for span in footer_spans]
+        assert 'Readable footer' in page.get_text()
+        assert '1 / 1' in page.get_text()
+    assert footer_sizes and min(footer_sizes) >= 7
+    assert not any(issue['code'] == 'small_font' for issue in json.loads(audit.read_text())['issues'])
 
 
 @pytest.mark.parametrize('command', ['convert', 'inspect'])

@@ -857,7 +857,9 @@ def convert(args: argparse.Namespace) -> None:
                 fonts = browser_font_report(page)
                 contents = None if args.bookmarks != "auto" else page.evaluate(TOC_JS, args.toc_selector)
                 title = args.title or page.title() or source.stem
-                footer_size = "8pt" if args.profile == "report" else "7.5px"
+                # Physical points keep the default footer above the 7pt audit
+                # threshold; 7.5 CSS pixels printed at only 5.625pt.
+                footer_size = "8pt"
                 footer = (
                     '<div style="box-sizing:border-box;width:100%;'
                     f'padding:0 {margins["right"]} 0 {margins["left"]};'
