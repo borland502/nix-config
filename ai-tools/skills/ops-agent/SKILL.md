@@ -30,8 +30,8 @@ Use this skill when the local `ops-agent` command is the safest path for Jira an
    Tools: `jira_get_issue`, `jira_get_transitions`, `jira_transition`,
    `jira_comment`, `ecs_get_status`, `ecs_force_deploy`, `aws_cli`.
 5. For a free-form request, `ops-agent "<user request>"` runs the agentic loop
-   through the `claude` CLI (subscription auth — no Anthropic API key needed;
-   `OPS_AGENT_MODEL` overrides the model).
+   through the `claude` CLI (subscription auth — no Anthropic API key needed)
+   on the mid-tier `sonnet` alias; `OPS_AGENT_MODEL` overrides it.
 6. Summarize the result with the important ticket IDs, transitions, service names, deployment actions, and errors.
 
 ## Notes

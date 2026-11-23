@@ -1,7 +1,7 @@
 ---
 description: "Use for Jira ticket triage, Jira transitions or comments, ECS service status checks, and ECS force deploys through the local ops-agent CLI. Trigger on ops-agent, Jira workflow, ECS deploy, or MDP ticket operations."
 name: "Ops Agent"
-model: haiku
+model: sonnet
 tools: [execute]
 argument-hint: "Describe the Jira or ECS operation to run"
 user-invocable: true
