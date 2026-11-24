@@ -6,13 +6,20 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   flake-check:
     name: Flake Check (Ubuntu)
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
@@ -23,15 +30,8 @@ jobs:
       - name: Run flake checks
         run: nix flake check --print-build-logs
 
-      - name: Check Nix formatting
-        # fd is required: fmt:check builds its file list with it to skip
-        # secrets/ (alejandra's own --exclude ignores directories).
-        run: nix shell nixpkgs#go-task nixpkgs#alejandra nixpkgs#fd -c task fmt:check
-
-      - name: Run Nix linters
-        # zsh is required: lint:nix runs the repo's zsh check scripts, and
-        # ubuntu-latest does not ship zsh.
-        run: nix shell nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix nixpkgs#zsh -c task lint:nix
+      - name: Validate formatting, lint, homes and helper tests
+        run: nix develop .#validation --command task fmt:check lint:nix check:homes check:agent-tools
 
   linux-and-wsl-builds:
     name: ${{ matrix.name }}
@@ -52,7 +52,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
@@ -69,7 +69,7 @@ jobs:
     needs: flake-check
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
@@ -82,6 +82,12 @@ jobs:
       # crashing, blocking the job indefinitely.  Linux jobs above keep the
       # cache action since the bug is macOS-binary-specific.  Re-add this
       # step once the upstream issue is fixed.
+
+      - name: Evaluate homes and run helper tests
+        run: nix develop .#validation --command task check:homes check:agent-tools
+
+      - name: Build package checks
+        run: nix develop .#validation --command task check:packages
 
       - name: Build Darwin system
         run: nix build .#darwinConfigurations.darwin.system --print-build-logs

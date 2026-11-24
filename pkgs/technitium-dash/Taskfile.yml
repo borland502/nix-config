@@ -50,6 +50,13 @@ tasks:
       - task: fmt-check
       - task: typecheck
 
+  check:nix:
+    desc: Check using dependencies from the Nix development shell
+    cmds:
+      - ruff check src
+      - ruff format --check src
+      - mypy src
+
   run:
     desc: "Run from source: task run -- --once"
     cmds:

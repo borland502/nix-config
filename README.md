@@ -25,6 +25,14 @@ cd ~/.config/nix
 direnv allow
 ```
 
+To install missing baseline tools and go-task explicitly before entering the dev shell, run:
+
+```bash
+bash ./install.sh --tools-only
+```
+
+This installs missing git and curl with apt when available, and installs go-task to `~/.local/bin` if needed. It does not run the full bootstrap.
+
 The `.envrc` loads the flake environment. Non-interactive tools must use
 `direnv exec ~/.config/nix <command>`; changing the working directory alone
 does not load it.
@@ -96,10 +104,10 @@ Override platform detection with `HOST=<target>`, for example
 `task switch HOST=linux`. Short aliases include `task linux`, `task darwin`,
 and `task wsl`.
 
-`task switch` takes a safety snapshot when supported, builds before activation,
-applies Home Manager, records this repository as the chezmoi source, and runs
-`chezmoi apply`. That last step keeps dotfiles and generated agent configuration
-in sync with the activated Nix generation.
+`task switch` takes a safety snapshot when supported, records this repository as
+the chezmoi source, formats and generates agent instructions, then applies chezmoi
+before building and activating the detected host. `task home-switch` also applies
+chezmoi before activation, without formatting or generating instructions.
 
 ## Repository layout
 
@@ -325,6 +333,14 @@ stay under `~/.cache/codex/skillgrade`. See the evaluation's README for options
 and the difference between validating a grader and measuring an agent.
 
 ## Editor and report tools
+
+VS Code profiles and their extensions are managed by Nix. The Nix and Shell
+profiles include Task support; YAML and Markdown linting are shared across
+profiles, and the Go, Python, Java and NodeJS profiles include REST Client.
+Formatters are selected per profile, and Ruff discovers project configuration
+normally. Settings Sync excludes the Nix-managed settings and extension IDs;
+other synced data remains subject to VS Code's sync configuration. Apply changes
+through the normal Home Manager workflow rather than editing managed settings.
 
 The managed VS Code Java extension keeps language-server and runtime paths at
 machine scope so project settings cannot redirect them to a missing JDK. The

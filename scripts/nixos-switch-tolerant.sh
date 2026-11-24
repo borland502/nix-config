@@ -30,8 +30,10 @@ else
 	sudo_bin=sudo
 fi
 
-log=$(mktemp)
-trap 'rm -f -- $log' EXIT
+log_dir=${XDG_CACHE_HOME:-$HOME/.cache}/claude
+mkdir -p -- $log_dir
+log=$(mktemp $log_dir/nixos-switch-XXXXXXXX)
+print -ru2 -- "nixos-rebuild log: $log"
 
 # Stream live while capturing combined output so a failure can be classified.
 # $pipestatus[1] is nixos-rebuild's own exit code (zsh arrays are 1-indexed).
@@ -42,7 +44,8 @@ if ((rc == 0)); then
 	exit 0
 fi
 
-if grep -qiE 'user activation for .* failed|autolaunch a dbus-daemon|Failed to open dbus connection' $log; then
+if ((rc == 4)) && grep -qiE '^(Failed to open dbus connection(: (No such file or directory|Connection refused))?|Cannot autolaunch D-Bus without X11 \$DISPLAY)$' $log &&
+	! { grep -iE 'error|fail|denied|unable|cannot' $log | grep -viE '^(user activation for [[:alnum:]_.-]+ failed|Failed to open dbus connection(: (No such file or directory|Connection refused))?|Cannot autolaunch D-Bus without X11 \$DISPLAY|Failed to connect to bus: (No such file or directory|Connection refused))$' >/dev/null; }; then
 	cat >&2 <<EOF
 
 WARNING: nixos-rebuild returned $rc, but the only activation failure was reloading

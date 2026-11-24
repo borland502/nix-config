@@ -151,34 +151,6 @@
       + (nixpkgs.lib.makeSearchPath "share/pkgconfig" goGuiDevPackages);
     goGuiIncludePathFor = pkgs: nixpkgs.lib.makeSearchPath "include" (goGuiDevPackagesFor pkgs);
     goGuiLibraryPathFor = pkgs: nixpkgs.lib.makeLibraryPath (goGuiRuntimePackagesFor pkgs);
-    darwinModules = [
-      ./hosts/darwin
-      nixpkgsOverlayModule
-
-      stylix.darwinModules.stylix
-      sops-nix.darwinModules.default
-
-      # Enable home-manager for nix-darwin
-      home-manager.darwinModules.home-manager
-      {
-        home-manager = {
-          useGlobalPkgs = false;
-          useUserPackages = true;
-          backupFileExtension = ".bak0809-1320";
-          sharedModules = [
-            hmOverlayModule
-            stylix.homeModules.stylix
-            sops-nix.homeManagerModules.sops
-          ];
-
-          users."42245" = import ./home-manager/home-darwin.nix;
-        };
-      }
-    ];
-    mkDarwinConfig = nix-darwin.lib.darwinSystem {
-      system = "aarch64-darwin";
-      modules = darwinModules;
-    };
     pkgsFor = system:
       import nixpkgs {
         inherit system;
@@ -202,162 +174,29 @@
           statix
         ];
       };
-    devcontainerConfigs = nixpkgs.lib.genAttrs linuxSystems (system:
-      home-manager.lib.homeManagerConfiguration {
-        pkgs = pkgsFor system;
-        modules = [
-          plasma-manager.homeModules.plasma-manager
-          stylix.homeModules.stylix
-          sops-nix.homeManagerModules.sops
-          ./home-manager/home.nix
-          ({lib, ...}: {
-            home = {
-              username = "vscode";
-              homeDirectory = "/home/vscode";
-              activation.dconfSettings = lib.mkForce (
-                lib.hm.dag.entryAfter ["checkLinkTargets"] ''
-                  echo "Skipping dconfSettings in devcontainer (no dbus session available)."
-                ''
-              );
-            };
-          })
-        ];
-      });
+    hostConfigurations = import ./nix/host-configurations.nix {
+      root = ./.;
+      inherit
+        nixpkgs
+        nix-darwin
+        home-manager
+        plasma-manager
+        stylix
+        sops-nix
+        nixos-wsl
+        nixpkgsOverlayModule
+        hmOverlayModule
+        pkgsFor
+        ;
+    };
   in {
-    # NixOS configurations
-    nixosConfigurations = {
-      linux = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          ./hosts/linux
-          nixpkgsOverlayModule
-
-          stylix.nixosModules.stylix
-          sops-nix.nixosModules.sops
-
-          # make home-manager as a module of nixos
-          # so that home-manager configuration will be deployed automatically when executing `nixos-rebuild switch`
-          home-manager.nixosModules.home-manager
-          {
-            home-manager = {
-              useGlobalPkgs = false;
-              useUserPackages = true;
-              backupFileExtension = ".bak0809-1320";
-              sharedModules = [
-                hmOverlayModule
-                # Import the plasma-manager module
-                plasma-manager.homeModules.plasma-manager
-                stylix.homeModules.stylix
-                sops-nix.homeManagerModules.sops
-              ];
-
-              # isNixos = true unlocks the GPU-dependent packages guarded in
-              # profiles/desktop-linux.nix (kitty, zoom-us). They resolve
-              # drivers via /run/opengl-driver, which exists here but not on a
-              # generic Linux host running standalone home-manager.
-              users.jhettenh = {
-                imports = [./home-manager/home.nix];
-                _module.args = {
-                  isNixos = true;
-
-                  # No distro python to defer to here, so nixpkgs' is the only
-                  # python and belongs on $PATH. home.nix defaults this the
-                  # other way for standalone home-manager on a distro.
-                  preferSystemPython = false;
-                };
-              };
-
-              # Optionally, use home-manager.extraSpecialArgs to pass arguments to home.nix
-            };
-          }
-        ];
-      };
-
-      wsl = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          nixos-wsl.nixosModules.default
-          nixpkgsOverlayModule
-          home-manager.nixosModules.home-manager
-          sops-nix.nixosModules.sops
-          ./hosts/wsl
-          {
-            home-manager = {
-              useGlobalPkgs = false;
-              useUserPackages = true;
-              backupFileExtension = ".bak0809-1320";
-              sharedModules = [
-                hmOverlayModule
-                stylix.homeModules.stylix
-                sops-nix.homeManagerModules.sops
-              ];
-
-              users.jhettenh = import ./home-manager/home-wsl.nix;
-            };
-          }
-        ];
-      };
-    };
-
-    homeConfigurations = {
-      "jhettenh@linux" = home-manager.lib.homeManagerConfiguration {
-        pkgs = pkgsFor "x86_64-linux";
-        modules = [
-          plasma-manager.homeModules.plasma-manager
-          stylix.homeModules.stylix
-          sops-nix.homeManagerModules.sops
-          ./home-manager/home.nix
-        ];
-      };
-
-      # tifa is CachyOS with no nixosConfigurations entry, so it activates
-      # standalone like jhettenh@linux does. It gets its own attr rather than
-      # sharing that one because home-tifa.nix adds host-scoped packages that
-      # must not reach the other non-NixOS Linux hosts (e.g. the cloud kiosk),
-      # which keep resolving to jhettenh@linux.
-      "jhettenh@tifa" = home-manager.lib.homeManagerConfiguration {
-        pkgs = pkgsFor "x86_64-linux";
-        modules = [
-          plasma-manager.homeModules.plasma-manager
-          stylix.homeModules.stylix
-          sops-nix.homeManagerModules.sops
-          ./home-manager/home-tifa.nix
-        ];
-      };
-
-      "jhettenh@nixos-wsl" = home-manager.lib.homeManagerConfiguration {
-        pkgs = pkgsFor "x86_64-linux";
-        modules = [
-          stylix.homeModules.stylix
-          sops-nix.homeManagerModules.sops
-          ./home-manager/home-wsl.nix
-        ];
-      };
-
-      "jhettenh@debian-wsl" = home-manager.lib.homeManagerConfiguration {
-        pkgs = pkgsFor "x86_64-linux";
-        modules = [
-          stylix.homeModules.stylix
-          sops-nix.homeManagerModules.sops
-          ./home-manager/home-wsl.nix
-        ];
-      };
-
-      "jhettenh@ubuntu-wsl" = home-manager.lib.homeManagerConfiguration {
-        pkgs = pkgsFor "x86_64-linux";
-        modules = [
-          stylix.homeModules.stylix
-          sops-nix.homeManagerModules.sops
-          ./home-manager/home-wsl.nix
-        ];
-      };
-
-      "vscode@devcontainer" = devcontainerConfigs."x86_64-linux";
-      "vscode@devcontainer-aarch64" = devcontainerConfigs."aarch64-linux";
-    };
+    inherit (hostConfigurations) nixosConfigurations homeConfigurations darwinConfigurations;
 
     # Tools built from this repo — see pkgs/default.nix for the registry.
     packages = forAllSystems (system: import ./pkgs (pkgsFor system));
+
+    # Build every registered package, including tools not installed by Home Manager.
+    checks = forAllSystems (system: import ./pkgs (pkgsFor system));
 
     apps = forAllSystems (system: {
       home-manager = {
@@ -374,7 +213,9 @@
     in
       {
         default = repoDevShellFor pkgs;
+        validation = import ./nix/validation-shell.nix {inherit pkgs;};
       }
+      // (import ./nix/package-dev-shells.nix {inherit pkgs;})
       // (
         if builtins.elem system linuxSystems
         then let
@@ -410,11 +251,5 @@
         }
         else {}
       ));
-
-    # nix-darwin configurations for macOS
-    darwinConfigurations = {
-      darwin = mkDarwinConfig;
-      ICFGG241C3Y03 = mkDarwinConfig;
-    };
   };
 }

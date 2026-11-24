@@ -8,6 +8,10 @@ includes:
     taskfile: ./taskfiles/quality.yml
     flatten: true
 
+  packages:
+    taskfile: ./taskfiles/packages.yml
+    flatten: true
+
   # Deployment to non-Nix hosts in the personal inventory (`task deploy:ellone`).
   deploy:
     taskfile: ./taskfiles/deploy.yml
@@ -22,6 +26,9 @@ includes:
   gopwgen:
     taskfile: ./pkgs/gopwgen/Taskfile.yml
     dir: ./pkgs/gopwgen
+  htmlpdf:
+    taskfile: ./pkgs/htmlpdf/Taskfile.yml
+    dir: ./pkgs/htmlpdf
   shop-scan:
     taskfile: ./pkgs/shop-scan/Taskfile.yml
     dir: ./pkgs/shop-scan
@@ -246,7 +253,11 @@ tasks:
       # With the http.lowSpeed* guards above a stalled external now aborts in
       # ~20s; chezmoi-apply-tolerant.sh's timeout is a last-resort backstop
       # against a total network stall.
-      zsh -f scripts/chezmoi-apply-tolerant.sh "{{.CHEZMOI}}" "$_src"
+      if command -v chezmoi >/dev/null 2>&1; then
+        zsh -f scripts/chezmoi-apply-tolerant.sh "$_src" -- chezmoi
+      else
+        zsh -f scripts/chezmoi-apply-tolerant.sh "$_src" -- nix shell nixpkgs#chezmoi --command chezmoi
+      fi
 
   chezmoi-diff:
     desc: Show pending chezmoi changes without applying them
@@ -272,21 +283,11 @@ tasks:
   build:
     desc: Build the system configuration
     platforms: [linux, darwin]
-    cmd: |
-      {{if eq .IN_DEVCONTAINER "true"}}
-        nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage
-      {{else if eq .IS_DARWIN "true"}}
-        darwin-rebuild build --flake .#{{.HOST}}
-      {{else if eq .IS_NIXOS "true"}}
-        {{.NIX_CONFIG_PREFIX}}nixos-rebuild build --flake "{{.SYSTEM_FLAKE}}"
-      {{else}}
-        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- build --flake "{{.HOME_FLAKE}}"
-      {{end}}
+    cmd: 'zsh -f scripts/host-action.sh build "{{if eq .IN_DEVCONTAINER "true"}}devcontainer{{else if eq .IS_DARWIN "true"}}darwin{{else if eq .IS_NIXOS "true"}}nixos{{else}}standalone{{end}}" "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'
 
   switch:
     desc: Build and switch to the system configuration
     platforms: [linux, darwin]
-    deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
     # TEMP: bypass Homebrew cask operations during nix-darwin activation using
     # Homebrew's supported skip mechanism. Survives activation's
     # `sudo --preserve-env=PATH` via env_keep in hosts/darwin/default.nix.
@@ -298,21 +299,13 @@ tasks:
           if command -v brew >/dev/null 2>&1; then
             echo 'android-platform-tools chromium dbeaver-community discord firefox flameshot google-chrome iterm2 jetbrains-toolbox jordanbaird-ice keepassxc kitty obsidian moonlight session-manager-plugin slack vivaldi whatsapp'
           fi
-    cmd: |
-      {{if eq .IN_DEVCONTAINER "true"}}
-        nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
-      {{else if eq .IS_DARWIN "true"}}
-        brew update --quiet
-        # darwin-switch-tolerant.sh strips Home Manager's cosmetic orphan-link
-        # spam from the live stream and downgrades Homebrew cask DOWNLOAD
-        # failures (common on a work VPN) to a warning, while propagating every
-        # other failure with darwin-rebuild's real exit code.
-        zsh -f scripts/darwin-switch-tolerant.sh .#{{.HOST}}
-      {{else if eq .IS_NIXOS "true"}}
-        zsh -f scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
-      {{else}}
-        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
-      {{end}}
+    cmds:
+      - task: _snapshot-pre
+      - task: _record-nix-config-dir
+      - task: fmt
+      - task: generate:agent-instructions
+      - task: _chezmoi-ensure
+      - 'zsh -f scripts/host-action.sh switch-update-brew "{{if eq .IN_DEVCONTAINER "true"}}devcontainer{{else if eq .IS_DARWIN "true"}}darwin{{else if eq .IS_NIXOS "true"}}nixos{{else}}standalone{{end}}" "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'
 
   # Darwin-specific tasks
   darwin:
@@ -323,7 +316,7 @@ tasks:
   darwin-build:
     desc: Build the nix-darwin configuration
     platforms: [darwin]
-    cmd: darwin-rebuild build --flake .#{{.HOST}}
+    cmd: 'zsh -f scripts/host-action.sh build darwin "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'
 
   darwin-switch:
     desc: Build and switch to the nix-darwin configuration
@@ -332,7 +325,7 @@ tasks:
     # See `switch`: skip an already-installed Discord cask in the darwin bundle.
     env: *brew-cask-skip-env
     # Tolerates VPN-blocked Homebrew cask downloads (see scripts/darwin-switch-tolerant.sh).
-    cmd: zsh -f scripts/darwin-switch-tolerant.sh .#{{.HOST}}
+    cmd: 'zsh -f scripts/host-action.sh switch darwin "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'
 
   darwin-rollback:
     desc: Roll back nix-darwin, preparing Codex skills for the older recursive layout
@@ -346,7 +339,7 @@ tasks:
   nixos-build:
     desc: Build the NixOS configuration
     platforms: [linux]
-    cmd: '{{.NIX_CONFIG_PREFIX}}nixos-rebuild build --flake "{{.SYSTEM_FLAKE}}"'
+    cmd: 'zsh -f scripts/host-action.sh build nixos "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'
     preconditions:
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'This task is unavailable inside the devcontainer'
@@ -355,7 +348,7 @@ tasks:
     desc: Build and switch to the NixOS configuration
     platforms: [linux]
     deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure]
-    cmd: 'zsh -f scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"'
+    cmd: 'zsh -f scripts/host-action.sh switch nixos "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'
     preconditions:
       - sh: '[[ -z "${INSIDE_DEVCONTAINER:-}" ]]'
         msg: 'This task is unavailable inside the devcontainer'
@@ -379,29 +372,12 @@ tasks:
   dry-build:
     desc: Perform a dry build to check for errors without applying changes
     platforms: [linux, darwin]
-    cmd: |
-      {{if eq .IN_DEVCONTAINER "true"}}
-        nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage --dry-run
-      {{else if eq .IS_DARWIN "true"}}
-        darwin-rebuild build --dry-run --flake .#{{.HOST}}
-      {{else if eq .IS_NIXOS "true"}}
-        {{.NIX_CONFIG_PREFIX}}nixos-rebuild dry-build --flake "{{.SYSTEM_FLAKE}}"
-      {{else}}
-        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- build --flake "{{.HOME_FLAKE}}"
-      {{end}}
+    cmd: 'zsh -f scripts/host-action.sh dry-build "{{if eq .IN_DEVCONTAINER "true"}}devcontainer{{else if eq .IS_DARWIN "true"}}darwin{{else if eq .IS_NIXOS "true"}}nixos{{else}}standalone{{end}}" "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'
 
-  # Home Manager
   home-build:
     desc: Build home-manager configuration
     platforms: [linux, darwin]
-    cmd: |
-      {{if eq .IN_DEVCONTAINER "true"}}
-        nix build .#homeConfigurations."{{.DEVCONTAINER_ATTR}}".activationPackage
-      {{else if eq .IS_DARWIN "true"}}
-        darwin-rebuild build --flake .#{{.HOST}}
-      {{else}}
-        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- build --flake "{{.HOME_FLAKE}}"
-      {{end}}
+    cmd: 'zsh -f scripts/host-action.sh build "{{if eq .IN_DEVCONTAINER "true"}}devcontainer{{else if eq .IS_DARWIN "true"}}darwin{{else if eq .IS_NIXOS "true"}}standalone{{else}}standalone{{end}}" "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'
 
   home-switch:
     desc: Switch home-manager configuration
@@ -409,26 +385,7 @@ tasks:
     deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure]
     # See `switch`: skip an already-installed Discord cask in the darwin bundle.
     env: *brew-cask-skip-env
-    cmd: |
-      {{if eq .IN_DEVCONTAINER "true"}}
-        nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
-      {{else if eq .IS_DARWIN "true"}}
-        zsh -f scripts/darwin-switch-tolerant.sh .#{{.HOST}}
-      {{else if eq .IS_NIXOS "true"}}
-        # On NixOS (incl. NixOS-WSL) home is managed as a NixOS module, not a
-        # standalone homeConfiguration — there is no `{{.HOME_ATTR}}` attr to
-        # build. Apply via the system rebuild; the login shell is set by
-        # users.defaultUserShell, so the chsh fixup below is unnecessary.
-        zsh -f scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
-      {{else}}
-        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
-        _helper="$HOME/.local/bin/ensure-nix-zsh-shell"
-        if [ -x "$_helper" ]; then
-          "$_helper"
-        else
-          printf 'Note: ensure-nix-zsh-shell not deployed yet; login shell left unchanged.\n'
-        fi
-      {{end}}
+    cmd: 'zsh -f scripts/host-action.sh home-switch "{{if eq .IN_DEVCONTAINER "true"}}devcontainer{{else if eq .IS_DARWIN "true"}}darwin{{else if eq .IS_NIXOS "true"}}nixos{{else}}standalone{{end}}" "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'
 
   # Maintenance
   update:
@@ -530,26 +487,11 @@ tasks:
   upgrade:
     desc: Update nixpkgs and rebuild the system
     platforms: [linux, darwin]
-    deps: [_snapshot-pre, _record-nix-config-dir, _chezmoi-ensure, fmt, generate:agent-instructions]
     env: *brew-cask-skip-env
-    cmd: |
-      nix flake update
-      {{if eq .IN_DEVCONTAINER "true"}}
-        nix run .#home-manager -- switch --flake .#"{{.DEVCONTAINER_ATTR}}" -b bak-devcontainer
-      {{else if eq .IS_DARWIN "true"}}
-        zsh -f scripts/darwin-switch-tolerant.sh .#{{.HOST}}
-      {{else if eq .IS_NIXOS "true"}}
-        zsh -f scripts/nixos-switch-tolerant.sh "{{.SYSTEM_FLAKE}}"
-      {{else}}
-        {{.NIX_CONFIG_PREFIX}}nix run "{{.HOME_MANAGER_APP}}" -- switch --flake "{{.HOME_FLAKE}}" -b backup
-        _helper="$HOME/.local/bin/ensure-nix-zsh-shell"
-        if [ -x "$_helper" ]; then
-          "$_helper"
-        else
-          printf 'Note: ensure-nix-zsh-shell not deployed yet; login shell left unchanged.\n'
-        fi
-      {{end}}
-      # Pull the off-nixpkgs agent CLIs (Claude Code, Copilot CLI) to latest too
-      # — they are not in the flake, so `nix flake update` does not touch them.
-      _agents="$HOME/.local/bin/update-agent-clis"
-      if [ -x "$_agents" ]; then "$_agents"; else printf 'note: update-agent-clis not deployed; skipping agent CLI update\n'; fi
+    cmds:
+      - task: _snapshot-pre
+      - task: _record-nix-config-dir
+      - task: fmt
+      - task: generate:agent-instructions
+      - task: _chezmoi-ensure
+      - 'zsh -f scripts/host-action.sh upgrade "{{if eq .IN_DEVCONTAINER "true"}}devcontainer{{else if eq .IS_DARWIN "true"}}darwin{{else if eq .IS_NIXOS "true"}}nixos{{else}}standalone{{end}}" "{{.HOST}}" "{{.SYSTEM_FLAKE}}" "{{.HOME_FLAKE}}" "{{.HOME_MANAGER_APP}}" "{{.DEVCONTAINER_ATTR}}"'

@@ -21,6 +21,7 @@
       ./bun.lock
       ./tsconfig.json
       ./src
+      ./test
     ];
   };
 
@@ -86,6 +87,15 @@ in
           src/${pname}.ts \
           --outfile ${pname}
       runHook postBuild
+    '';
+
+    doCheck = true;
+    checkPhase = ''
+      runHook preCheck
+      export HOME=$(mktemp -d)
+      bun test
+      bun run typecheck
+      runHook postCheck
     '';
 
     installPhase = ''

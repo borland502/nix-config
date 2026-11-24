@@ -29,8 +29,9 @@ tasks:
       - bun run typecheck
 
   check:
-    desc: Alias for typecheck
+    desc: Run offline tests and typecheck
     cmds:
+      - bun test
       - task: typecheck
 
   dev:

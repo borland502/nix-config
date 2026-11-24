@@ -18,7 +18,8 @@ code 3**. Getting past a challenge is the operator's decision, not the tool's.
 
 Pacing is enforced rather than advisory: a randomised delay follows every page
 load (6 s ±40 %, 3 s floor) and a hard per-run page cap applies. There is
-deliberately no flag to turn either off.
+deliberately no flag to turn either off. `--delay` accepts values from 0 to
+1,533,916 seconds; this maximum keeps the randomized delay within the timer range.
 
 ## Usage
 
@@ -41,17 +42,26 @@ when comparing mini-PC listings — many are sold with no RAM or SSD at all.
 | Code | Meaning |
 | --- | --- |
 | 0 | success |
-| 2 | browser missing, or the page would not open |
+| 1 | invalid arguments or page result |
+| 2 | browser command failed or the page would not open |
 | 3 | the site returned a bot challenge — stopped deliberately |
 | 4 | per-run page cap reached |
 
 ## Notes
 
-`playwright-cli` comes from `npx` on demand. If chromium is missing:
+An installed `playwright-cli` is preferred; otherwise `npx` fetches the pinned
+`@playwright/cli@0.1.25` on demand. Browser command failures, including `close`,
+are reported on stderr and return a nonzero status. If Chromium is missing:
 
 ```bash
-npx --yes @playwright/cli@latest install-browser chrome-for-testing
+npx --yes @playwright/cli@0.1.25 install-browser chrome-for-testing
 ```
 
 Browser state (snapshots, console logs) is written to
 `~/.cache/claude/shop-scan/`, never the working directory.
+
+## Development checks
+
+Run `task check` in this directory to run offline fixture tests and the strict
+TypeScript check. The Nix build runs the same checks; no storefront requests are
+made by the tests.

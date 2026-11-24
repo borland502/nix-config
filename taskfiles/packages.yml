@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: '3'
+
+tasks:
+  check:packages:
+    desc: Build all registered package checks for the current system
+    cmds:
+      - |
+        set -eu
+        system=$(nix eval --impure --raw --expr builtins.currentSystem)
+        checks=$(nix eval --json ".#checks.$system" --apply builtins.attrNames)
+        names=$(printf '%s\n' "$checks" | jq -r '.[]')
+        test -n "$names" || { echo "No package checks found" >&2; exit 1; }
+        set --
+        for name in $names; do
+          set -- "$@" ".#checks.$system.$name"
+        done
+        nix build --no-link "$@"

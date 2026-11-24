@@ -1,0 +1,37 @@
+{
+  "frontmatter": {
+    "description": "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/{agent}.",
+    "name": "Persistent Terminal Logging Defaults",
+    "applyTo": "**"
+  },
+  "targets": {
+    "claude": {
+      "agent": "claude",
+      "frontmatter": false,
+      "filename": "CLAUDE.md",
+      "destinations": ["chezmoi/dot_config/claude/CLAUDE.md"]
+    },
+    "copilot": {
+      "agent": "copilot",
+      "frontmatter": true,
+      "filename": "copilot-defaults.instructions.md",
+      "destinations": [
+        "chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md",
+        "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md",
+        "chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md"
+      ]
+    },
+    "codex": {
+      "agent": "codex",
+      "frontmatter": false,
+      "filename": "AGENTS.md",
+      "destinations": []
+    },
+    "copilot-plain": {
+      "agent": "copilot",
+      "frontmatter": false,
+      "filename": "copilot-instructions.md",
+      "destinations": [".github/copilot-instructions.md"]
+    }
+  }
+}

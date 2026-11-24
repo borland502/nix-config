@@ -37,7 +37,12 @@ SH
 cat >$tmp/bin/chezmoi <<'SH'
 #!/bin/sh
 printf 'chezmoi %s\n' "$*" >>"$TRACE_FILE"
-case "$1" in apply) printf '%b' "${FIXTURE_OUT:-}"; exit "${FIXTURE_RC:-0}" ;; esac
+case "$1" in
+  init) exit "${INIT_RC:-0}" ;;
+  apply)
+    case "$*" in *--exclude=externals*) exit "${RETRY_RC:-0}" ;; esac
+    printf '%b' "${FIXTURE_OUT:-}"; exit "${FIXTURE_RC:-0}" ;;
+esac
 SH
 chmod +x $tmp/bin/*
 test_path=$tmp/bin:$(system_shell_path $tmp/shim)
@@ -49,7 +54,7 @@ run() {
 	: >$tmp/trace
 	rc=0
 	out=$(FIXTURE_RC=$fixture_rc FIXTURE_OUT=$fixture_out TRACE_FILE=$tmp/trace XDG_CACHE_HOME=$tmp/cache \
-		SWITCH_SUDO=$tmp/bin/sudo FIXTURE_TIMEOUT=${FIXTURE_TIMEOUT-} PATH=$test_path $name "$@" 2>$tmp/err) || rc=$?
+		SWITCH_SUDO=$tmp/bin/sudo FIXTURE_TIMEOUT=${FIXTURE_TIMEOUT-} INIT_RC=${INIT_RC-0} RETRY_RC=${RETRY_RC-0} PATH=$test_path $name "$@" 2>$tmp/err) || rc=$?
 	err=$(cat -- $tmp/err)
 }
 
@@ -91,26 +96,77 @@ run nixos-switch-tolerant 4 "Failed to open dbus connection\n" .#wsl
 assert_eq $rc 0
 assert_contains "$err" 'nixos-rebuild returned 4'
 
+run nixos-switch-tolerant 4 "Failed to open dbus connection\nerror: builder failed\n" .#wsl
+assert_eq $rc 4
+
+run nixos-switch-tolerant 4 "Failed to open dbus connection\nFailed to reload user service foo: permission denied\n" .#wsl
+assert_eq $rc 4
+
 run nixos-switch-tolerant 3 "error: something else\n" .#wsl
 assert_eq $rc 3
 assert_contains "$err" 'nixos-rebuild failed (exit 3)'
 
 # --- chezmoi-apply-tolerant ---
-run chezmoi-apply-tolerant 0 "applied\n" $tmp/bin/chezmoi /src
+run chezmoi-apply-tolerant 0 "applied\n" /src -- $tmp/bin/chezmoi
 assert_eq $rc 0
 assert_file_contains $tmp/trace 'chezmoi init --source /src'
 assert_file_contains $tmp/trace 'chezmoi apply --force --keep-going'
 
-run chezmoi-apply-tolerant 1 "chezmoi: .local/src/foo: git clone failed\n" $tmp/bin/chezmoi /src
-assert_eq $rc 0
-assert_contains "$err" 'chezmoi apply failed (rc=1)'
-assert_contains "$err" 'external-related lines'
+run chezmoi-apply-tolerant 1 "chezmoi: permission denied writing ~/.zshrc\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 1
 
-run chezmoi-apply-tolerant 1 "chezmoi: permission denied writing ~/.zshrc\n" $tmp/bin/chezmoi /src
-assert_contains "$err" 'No external is named'
-
-FIXTURE_TIMEOUT=1 run chezmoi-apply-tolerant 0 '' $tmp/bin/chezmoi /src
-assert_eq $rc 0
+FIXTURE_TIMEOUT=1 run chezmoi-apply-tolerant 0 '' /src -- $tmp/bin/chezmoi
+assert_eq $rc 124
 assert_contains "$err" 're-applying without externals'
+
+run chezmoi-apply-tolerant 1 "chezmoi: .local/src/foo: git clone failed\n" '/src with spaces;literal' -- $tmp/bin/chezmoi
+assert_eq $rc 0
+assert_file_contains $tmp/trace 'init --source /src with spaces;literal'
 assert_file_contains $tmp/trace 'apply --force --keep-going --exclude=externals'
+
+run chezmoi-apply-tolerant 1 "fatal: repository '/missing/repo.git' does not exist\nchezmoi: .local/src/foo: /tmp/dest/.local/src/foo: exit status 128\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 0
+assert_file_contains $tmp/trace 'apply --force --keep-going --exclude=externals'
+
+run chezmoi-apply-tolerant 1 "fatal: repository '/missing/repo.git' does not exist\nchezmoi: .local/src/foo: /tmp/dest/.local/src/foo: exit status 128\npermission denied\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 1
+
+run chezmoi-apply-tolerant 1 "chezmoi: .local/src/foo: /tmp/dest/.local/src/foo: exit status 128\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 1
+run chezmoi-apply-tolerant 1 "fatal: repository '/missing/repo.git' does not exist\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 1
+
+run chezmoi-apply-tolerant 1 "fatal: repository '/missing/repo.git' does not exist\nchezmoi: .local/src/foo: /tmp/dest/.local/src/foo: exit status 128\nchezmoi: run_once_setup.sh: exit status 1\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 1
+
+for git_error in "Could not resolve host: example.invalid" "Failed to connect to example.invalid port 443 after 1000 ms: Connection timed out" "The requested URL returned error: 401"; do
+	run chezmoi-apply-tolerant 1 "fatal: unable to access 'https://example.invalid/repo.git/': $git_error\nchezmoi: .local/src/foo: /tmp/dest/.local/src/foo: exit status 128\n" /src -- $tmp/bin/chezmoi
+	assert_eq $rc 0
+done
+for git_error in "fatal: Authentication failed for 'https://example.invalid/repo.git/'" "fatal: could not read Username for 'https://example.invalid': terminal prompts disabled"; do
+	run chezmoi-apply-tolerant 1 "$git_error\nchezmoi: .local/src/foo: /tmp/dest/.local/src/foo: exit status 128\n" /src -- $tmp/bin/chezmoi
+	assert_eq $rc 0
+done
+run chezmoi-apply-tolerant 1 "fatal: unable to access 'https://example.invalid/repo.git/': Could not resolve host: example.invalid\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 1
+run chezmoi-apply-tolerant 1 "fatal: unable to access 'https://example.invalid/repo.git/': Could not resolve host: example.invalid\nchezmoi: .local/src/foo: /tmp/dest/.local/src/foo: exit status 128\nchezmoi: run_once_setup.sh: exit status 1\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 1
+
+RETRY_RC=7 run chezmoi-apply-tolerant 1 "chezmoi: .local/src/foo: git clone failed\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 7
+INIT_RC=6 run chezmoi-apply-tolerant 0 '' /src -- $tmp/bin/chezmoi
+assert_eq $rc 6
+run chezmoi-apply-tolerant 1 "unknown failure\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 1
+run chezmoi-apply-tolerant 1 "chezmoi: .local/src/foo: git clone failed\npermission denied\n" /src -- $tmp/bin/chezmoi
+assert_eq $rc 1
+# Exercise both native and GNU mktemp through two complete invocations.
+for mktemp_bin in /usr/bin/mktemp /run/current-system/sw/bin/mktemp; do
+	[[ -x $mktemp_bin ]] || continue
+	ln -sf $mktemp_bin $tmp/bin/mktemp
+	run chezmoi-apply-tolerant 0 '' /src -- $tmp/bin/chezmoi
+	assert_eq $rc 0
+	run chezmoi-apply-tolerant 0 '' /src -- $tmp/bin/chezmoi
+	assert_eq $rc 0
+done
 print -r -- 'switch-tolerant: ok'

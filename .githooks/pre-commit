@@ -9,17 +9,10 @@ if ! command -v nix >/dev/null 2>&1; then
 	exit 1
 fi
 
-printf '%s\n' 'pre-commit: running task lint:nix in a nix shell to match CI'
-# Unset TMPDIR so inner nix shells don't inherit a stale temp path from the
-# outer nix environment (e.g. when running inside Claude Code or another
-# nix-managed shell).
+printf '%s\n' 'pre-commit: running task lint:nix in the pinned validation shell'
+# Avoid inheriting a stale temporary directory from an outer Nix shell.
 unset TMPDIR
-# Resolve the lint tools from this flake's pinned nixpkgs (nixos-26.05 stable)
-# via --inputs-from, NOT the floating `nixpkgs` registry entry. The registry
-# tracks nixos-unstable, where statix 0.5.8-unstable currently fails its
-# `deprecated_to_path` build test and blocks every commit; the pinned stable
-# statix is the same build already in the profile, so it is cached and works.
-nix shell --inputs-from . nixpkgs#go-task nixpkgs#statix nixpkgs#deadnix -c task lint:nix
+nix develop .#validation --command task lint:nix
 
 printf '%s\n' 'pre-commit: scanning staged changes for secrets with gitleaks'
-nix shell --inputs-from . nixpkgs#gitleaks -c gitleaks git --staged --redact --no-banner --verbose
+nix develop .#validation --command gitleaks git --staged --redact --no-banner --verbose

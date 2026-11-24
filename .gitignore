@@ -21,6 +21,9 @@ result-dist
 **/.DS_Store
 **/.env
 **/.env.*
+# Keep documented, non-secret environment templates trackable.
+!.env.example
+!.env.template
 **/.venv
 **/venv
 **/env
@@ -101,3 +104,8 @@ desktop.ini
 .Spotlight-V100
 .Trashes
 $RECYCLE.BIN/
+
+# Task state and htmlpdf PyInstaller output.
+.task/
+/pkgs/htmlpdf/htmlpdf.spec
+/pkgs/htmlpdf/.pyinstaller/
