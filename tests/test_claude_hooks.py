@@ -169,14 +169,18 @@ class FormatOnEdit(unittest.TestCase):
         return self.calls.read_text() if self.calls.exists() else ""
 
     def test_nix_in_repo_and_worktree_is_formatted(self):
-        self.assertEqual(self.edit(self.repo / "a.nix").returncode, 0)
         worktree = self.tmp / "wt"
         subprocess.run(["git", "-C", str(self.repo), "worktree", "add", "-q", str(worktree)], check=True)
-        self.assertEqual(self.edit(worktree / "b.nix").returncode, 0)
-        calls = self.called().splitlines()
-        self.assertEqual(len(calls), 2)
-        self.assertTrue(calls[0].endswith(f"--quiet {self.repo / 'a.nix'}"))
-        self.assertTrue(calls[1].endswith("/wt/b.nix"))
+        for recorded in (self.repo, worktree):
+            with self.subTest(recorded=recorded):
+                (self.tmp / "state/chezmoi/nix-config-dir").write_text(f"{recorded}\n")
+                self.calls.unlink(missing_ok=True)
+                self.assertEqual(self.edit(self.repo / "a.nix").returncode, 0)
+                self.assertEqual(self.edit(worktree / "b.nix").returncode, 0)
+                calls = self.called().splitlines()
+                self.assertEqual(len(calls), 2)
+                self.assertTrue(calls[0].endswith(f"--quiet {self.repo / 'a.nix'}"))
+                self.assertTrue(calls[1].endswith("/wt/b.nix"))
 
     def test_nix_outside_repo_is_untouched(self):
         other = self.git_repo("other")

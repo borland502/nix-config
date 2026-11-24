@@ -44,7 +44,8 @@ def nix_config_git_dir():
         repo = Path((state / "chezmoi/nix-config-dir").read_text().strip())
     except OSError:
         return None
-    return (repo / ".git").resolve() if repo.is_dir() else None
+    common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    return Path(common).resolve() if common else None
 
 
 def report(summary, result):
