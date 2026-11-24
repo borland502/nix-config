@@ -92,14 +92,45 @@ run nixos-switch-tolerant 0 "ok\n" .#wsl
 assert_eq $rc 0
 assert_file_contains $tmp/trace 'switch --flake .#wsl'
 
-run nixos-switch-tolerant 4 "Failed to open dbus connection\n" .#wsl
+run nixos-switch-tolerant 4 "reloading user units for nixos...\nError: Failed to open dbus connection\n\nCaused by:\n    Cannot autolaunch D-Bus without X11 \$DISPLAY\nwarning: user activation for nixos failed\n" .#wsl
+assert_eq $rc 0
+
+run nixos-switch-tolerant 4 "reloading user units for nixos...\nError: Failed to open dbus connection\n\nCaused by:\n    Transport endpoint is not connected\nwarning: user activation for nixos failed\n" .#wsl
+assert_eq $rc 4
+
+dbus_reload='reloading user units for nixos...\nFailed to open dbus connection\nwarning: user activation for nixos failed\n'
+run nixos-switch-tolerant 4 "$dbus_reload" .#wsl
 assert_eq $rc 0
 assert_contains "$err" 'nixos-rebuild returned 4'
 
-run nixos-switch-tolerant 4 "Failed to open dbus connection\nerror: builder failed\n" .#wsl
+run nixos-switch-tolerant 4 "reloading user units for nixos...\nFailed to open dbus connection\nuser activation for nixos failed\n" .#wsl
+assert_eq $rc 0
+
+run nixos-switch-tolerant 4 "${dbus_reload}reloading user units for alice...\nCannot autolaunch D-Bus without X11 \$DISPLAY\nwarning: user activation for alice failed\n" .#wsl
+assert_eq $rc 0
+
+run nixos-switch-tolerant 4 "${dbus_reload}reloading user units for bob...\nwarning: user activation for bob failed\n" .#wsl
 assert_eq $rc 4
 
-run nixos-switch-tolerant 4 "Failed to open dbus connection\nFailed to reload user service foo: permission denied\n" .#wsl
+run nixos-switch-tolerant 4 "reloading user units for nixos...\nFailed to open dbus connection\nwarning: user activation for bob failed\n" .#wsl
+assert_eq $rc 4
+
+run nixos-switch-tolerant 4 "Failed to open dbus connection\n" .#wsl
+assert_eq $rc 4
+
+run nixos-switch-tolerant 4 "Failed to open dbus connection\nreloading user units for nixos...\nwarning: user activation for nixos failed\n" .#wsl
+assert_eq $rc 4
+
+run nixos-switch-tolerant 4 "${dbus_reload}Failed to open dbus connection\n" .#wsl
+assert_eq $rc 4
+
+run nixos-switch-tolerant 4 "reloading user units for nixos...\nwarning: user activation for nixos failed\n" .#wsl
+assert_eq $rc 4
+
+run nixos-switch-tolerant 4 "${dbus_reload}error: builder failed\n" .#wsl
+assert_eq $rc 4
+
+run nixos-switch-tolerant 4 "${dbus_reload}Failed to reload user service foo: permission denied\n" .#wsl
 assert_eq $rc 4
 
 run nixos-switch-tolerant 3 "error: something else\n" .#wsl

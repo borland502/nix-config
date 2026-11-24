@@ -94,7 +94,8 @@ in
       runHook preCheck
       export HOME=$(mktemp -d)
       bun test
-      bun run typecheck
+      # Execute through Bun: the Linux sandbox has no /usr/bin/env for tsc.
+      bun node_modules/typescript/bin/tsc --noEmit
       runHook postCheck
     '';
 
