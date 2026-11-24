@@ -30,8 +30,10 @@ else
 	sudo_bin=sudo
 fi
 
-log=$(mktemp)
-trap 'rm -f -- $log' EXIT
+log_dir=${XDG_CACHE_HOME:-$HOME/.cache}/claude
+mkdir -p -- $log_dir
+log=$(mktemp $log_dir/nixos-switch-XXXXXXXX)
+print -ru2 -- "nixos-rebuild log: $log"
 
 # Stream live while capturing combined output so a failure can be classified.
 # $pipestatus[1] is nixos-rebuild's own exit code (zsh arrays are 1-indexed).
@@ -42,7 +44,47 @@ if ((rc == 0)); then
 	exit 0
 fi
 
-if grep -qiE 'user activation for .* failed|autolaunch a dbus-daemon|Failed to open dbus connection' $log; then
+# A D-Bus error only explains the user reload containing it. Never let one
+# user's expected failure hide another user's failure or a system-bus error.
+only_user_dbus_failures() {
+	local line normalized active_user='' MATCH
+	local -a match
+	local -i active_dbus=0 active_context=0 saw_failure=0
+	local user_start='^reloading user units for ([[:alnum:]_.-]+)\.\.\.$'
+	local user_failure='^(warning: )?user activation for ([[:alnum:]_.-]+) failed$'
+	local dbus_failure='^(failed to open dbus connection(: (no such file or directory|connection refused))?|cannot autolaunch d-bus without x11 \$display)$'
+	local rust_cause='^[[:space:]]+(no such file or directory|connection refused|cannot autolaunch d-bus without x11 \$display)$'
+	local bus_detail='^failed to connect to bus: (no such file or directory|connection refused)$'
+	while IFS= read -r line || [[ -n $line ]]; do
+		normalized=${(L)line}
+		if [[ $normalized =~ $user_start ]]; then
+			((active_dbus || active_context)) && return 1
+			active_user=$match[1]
+		elif [[ $normalized =~ $user_failure ]]; then
+			[[ -n $active_user && $active_user == $match[2] ]] && ((active_dbus)) || return 1
+			saw_failure=1
+			active_user=''
+			active_dbus=0
+			active_context=0
+		elif [[ $normalized == 'error: failed to open dbus connection' ]]; then
+			[[ -n $active_user ]] || return 1
+			active_context=1
+		elif [[ $normalized =~ $rust_cause ]]; then
+			((active_context)) || return 1
+			active_dbus=1
+		elif [[ $normalized =~ $dbus_failure ]]; then
+			[[ -n $active_user ]] || return 1
+			active_dbus=1
+		elif [[ $normalized =~ $bus_detail ]]; then
+			[[ -n $active_user ]] && ((active_dbus)) || return 1
+		elif [[ $normalized =~ 'error|fail|denied|unable|cannot' ]]; then
+			return 1
+		fi
+	done <"$1"
+	((saw_failure && !active_dbus && !active_context))
+}
+
+if ((rc == 4)) && only_user_dbus_failures "$log"; then
 	cat >&2 <<EOF
 
 WARNING: nixos-rebuild returned $rc, but the only activation failure was reloading

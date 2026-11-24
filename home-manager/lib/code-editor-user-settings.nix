@@ -29,9 +29,6 @@
   "[typescriptreact]" = {
     "editor.formatOnSave" = false;
   };
-  "[nix]" = {
-    "editor.defaultFormatter" = "jnoortheen.nix-ide";
-  };
   "nix.formatterPath" = "alejandra";
   "nix.enableLanguageServer" = true;
   "nix.serverPath" = "nixd";
@@ -131,7 +128,6 @@
   # Editor behaviour
   "editor.acceptSuggestionOnEnter" = "on";
   "editor.accessibilitySupport" = "off";
-  "editor.defaultFormatter" = "esbenp.prettier-vscode";
   "editor.fontWeight" = "normal";
   "editor.linkedEditing" = true;
   "editor.renderControlCharacters" = false;
@@ -182,47 +178,44 @@
     "**/.settings" = true;
   };
 
+  # Avoid duplicate worktree and generated environment trees in search and watchers.
+  "search.exclude" = {
+    "**/.worktrees" = true;
+    "**/.direnv" = true;
+    "**/.venv" = true;
+  };
+  "files.watcherExclude" = {
+    "**/.worktrees/**" = true;
+    "**/.direnv/**" = true;
+    "**/.venv/**" = true;
+  };
+
   # Terminal. shellIntegration stays off: it injects prompt markers that mangle
   # captured command output, which this setup relies on staying clean.
   "terminal.integrated.gpuAcceleration" = "on";
   "terminal.integrated.shellIntegration.enabled" = false;
 
   # Per-language formatters — extension presence verified against the profile
-  "[dockerfile]" = {
-    "editor.defaultFormatter" = "esbenp.prettier-vscode";
-  };
   "[javascript]" = {
     "editor.defaultFormatter" = "vscode.typescript-language-features";
   };
   # Rebound from rvest.vs-code-prettier-eslint, which is not installed.
   "[json]" = {
-    "editor.defaultFormatter" = "esbenp.prettier-vscode";
+    "editor.defaultFormatter" = "vscode.json-language-features";
   };
   "[jsonc]" = {
-    "editor.defaultFormatter" = "esbenp.prettier-vscode";
-  };
-  "[markdown]" = {
-    "editor.defaultFormatter" = "esbenp.prettier-vscode";
-  };
-  "[python]" = {
-    "editor.defaultFormatter" = "charliermarsh.ruff";
-    "editor.formatOnType" = true;
+    "editor.defaultFormatter" = "vscode.json-language-features";
   };
   "[toml]" = {
     "editor.defaultFormatter" = "tamasfe.even-better-toml";
-  };
-  "[xml]" = {
-    "editor.defaultFormatter" = "redhat.vscode-xml";
   };
   "[yaml]" = {
     "editor.defaultFormatter" = "redhat.vscode-yaml";
   };
 
   # Ruff (charliermarsh.ruff)
-  "ruff.configuration" = "pyproject.toml";
   "ruff.enable" = true;
   "ruff.fixAll" = true;
-  "ruff.lineLength" = 128;
   "ruff.lint.enable" = true;
   "ruff.organizeImports" = true;
 

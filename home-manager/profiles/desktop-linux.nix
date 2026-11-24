@@ -3,9 +3,9 @@
   config,
   pkgs,
   lib,
-  isNixos ? false,
   ...
 }: let
+  inherit (config.nixConfig.host) isNixos;
   # Default-application associations live in TOML rather than inline Nix so the
   # same list is editable (and readable) outside the flake. Read from the repo
   # copy — flake eval is pure, so the deployed ~/.config/mimeapps/defaults.toml

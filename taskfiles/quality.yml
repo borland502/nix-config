@@ -8,6 +8,24 @@ version: "3"
 # reference no root-level vars, which is what made the split safe.
 
 tasks:
+  check:homes:
+    desc: Evaluate every standalone home and the Darwin system on macOS
+    platforms: [linux, darwin]
+    cmd: |
+      set -e
+      cd "$(git rev-parse --show-toplevel)"
+      homes=$(nix eval --json ".#homeConfigurations" --apply builtins.attrNames)
+      printf '%s\n' "$homes" | jq -r '.[]' | while IFS= read -r home; do
+        attr=$(jq -Rn --arg name "$home" '$name')
+        printf 'Evaluating %s\n' "$home" >&2
+        nix eval --raw ".#homeConfigurations.$attr.activationPackage.drvPath"
+        printf '\n'
+      done
+      if [ "$(uname -s)" = Darwin ]; then
+        nix eval --raw ".#darwinConfigurations.darwin.system.drvPath"
+        printf '\n'
+      fi
+
   check:agent-tools:
     desc: Run offline regression checks for cache and operational helpers
     platforms: [linux, darwin]
@@ -225,20 +243,6 @@ tasks:
     cmd: zsh -f scripts/render-agent-instructions.sh .
 
   check:agent-instructions:
-    desc: Verify chezmoi agent instruction files match the rendered source
+    desc: Verify all committed instruction destinations match the shared renderer
     platforms: [linux, darwin]
-    cmd: |
-      tmp=$(mktemp -d)
-      trap 'rm -rf "$tmp"' EXIT
-      zsh -f scripts/render-agent-instructions.sh "$tmp"
-
-      fail=0
-      diff -u "$tmp/chezmoi/dot_config/claude/CLAUDE.md" chezmoi/dot_config/claude/CLAUDE.md || fail=1
-      diff -u "$tmp/chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md" chezmoi/dot_config/github-copilot/copilot-defaults.instructions.md || fail=1
-      diff -u "$tmp/chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" "chezmoi/dot_config/Code/User/prompts/copilot-defaults.instructions.md" || fail=1
-      diff -u "$tmp/chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md" chezmoi/dot_config/github-copilot/intellij/global-copilot-instructions.md || fail=1
-
-      if [ "$fail" -ne 0 ]; then
-        printf '%s\n' 'Stale chezmoi agent instructions. Run: task generate:agent-instructions' >&2
-        exit 1
-      fi
+    cmd: python3 scripts/render-agent-instructions.py check .

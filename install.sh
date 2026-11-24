@@ -11,6 +11,32 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Explicitly provision only the tools needed before the Nix environment exists.
+if [[ "${1:-}" == "--tools-only" && $# -eq 1 ]]; then
+	for _tool in git curl; do
+		if ! command -v "$_tool" >/dev/null 2>&1; then
+			if ! command -v apt-get >/dev/null 2>&1; then
+				echo "Missing $_tool; install git and curl with your package manager." >&2
+				exit 1
+			fi
+			echo "==> Installing missing prerequisite: $_tool"
+			sudo apt-get update -qq
+			sudo apt-get install -y "$_tool"
+		fi
+	done
+	if ! command -v task >/dev/null 2>&1 && [[ ! -x "$HOME/.local/bin/task" ]]; then
+		_task_installer="$(mktemp "${TMPDIR:-/tmp}/task-installer.XXXXXXXX")"
+		trap 'rm -f "$_task_installer"' EXIT
+		curl -fsSL -o "$_task_installer" https://taskfile.dev/install.sh
+		mkdir -p "$HOME/.local/bin"
+		sh "$_task_installer" -d -b "$HOME/.local/bin"
+	fi
+	exit 0
+elif [[ $# -ne 0 ]]; then
+	echo "Usage: bash ./install.sh [--tools-only]" >&2
+	exit 2
+fi
+
 # Detect whether we are running inside WSL.
 IS_WSL=false
 if grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then

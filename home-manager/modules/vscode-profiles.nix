@@ -10,11 +10,12 @@
 # enabled at all (enable, the shared userSettings, nix-ide on the default
 # profile); this module owns the profile *layout* on top of that.
 {
+  config,
   pkgs,
   lib,
-  isWsl ? false,
   ...
 }: let
+  inherit (config.nixConfig.host) isWsl;
   vscodeEnabled = !isWsl && pkgs ? vscode;
 
   # VS Code profiles do NOT inherit the default profile's settings — a profile
@@ -131,6 +132,15 @@
     }
   ];
 
+  taskExtension = pkgs.vscode-utils.extensionsFromVscodeMarketplace [
+    {
+      publisher = "task";
+      name = "vscode-task";
+      version = "1.0.1";
+      sha256 = "sha256-u96AGSvCCa5snx3iDlZ53VFwyBwuQUIZzwuWNMcK0cY=";
+    }
+  ];
+
   # Baseline every *language* profile gets on top of its language tooling.
   # Deliberately not applied to the default profile, which stays as-is.
   languageProfileBase =
@@ -142,6 +152,8 @@
       editorconfig.editorconfig
       streetsidesoftware.code-spell-checker
       tamasfe.even-better-toml
+      redhat.vscode-yaml
+      davidanson.vscode-markdownlint
       ms-azuretools.vscode-docker
       ms-vscode-remote.remote-containers
       github.vscode-pull-request-github
@@ -158,6 +170,7 @@
         languageProfileBase
         ++ (with pkgs.vscode-extensions; [
           golang.go
+          humao.rest-client
         ]);
       userSettings =
         baseUserSettings
@@ -194,6 +207,7 @@
         languageProfileBase
         ++ (with pkgs.vscode-extensions; [
           ms-python.python
+          humao.rest-client
           ms-python.vscode-pylance
           ms-python.debugpy
           ms-python.mypy-type-checker
@@ -219,6 +233,7 @@
             ];
           };
           "[python]" = {
+            "editor.formatOnType" = true;
             "editor.defaultFormatter" = "charliermarsh.ruff";
             "editor.codeActionsOnSave" = {
               "source.organizeImports.ruff" = "explicit";
@@ -234,7 +249,7 @@
         ++ (with pkgs.vscode-extensions; [
           redhatJava
           redhat.vscode-xml
-          redhat.vscode-yaml
+          humao.rest-client
           vscjava.vscode-java-pack
           javaDebug
           vscjava.vscode-java-test
@@ -296,6 +311,9 @@
           "[java]" = {
             "editor.defaultFormatter" = "redhat.java";
           };
+        }
+        // lib.optionalAttrs (lib.meta.availableOn pkgs.stdenv.hostPlatform pkgs.vscode-extensions.redhat.vscode-xml) {
+          "[xml]"."editor.defaultFormatter" = "redhat.vscode-xml";
         };
     };
 
@@ -303,6 +321,7 @@
       extensions =
         languageProfileBase
         ++ (with pkgs.vscode-extensions; [
+          humao.rest-client
           dbaeumer.vscode-eslint
           esbenp.prettier-vscode
           bradlc.vscode-tailwindcss
@@ -410,6 +429,7 @@
           # Angular components put the template in a .html file, so this
           # profile now edits HTML directly and needs a named formatter for it
           # like the JS/TS blocks below.
+          "[markdown]"."editor.defaultFormatter" = "esbenp.prettier-vscode";
           "[html]" = {
             "editor.defaultFormatter" = "esbenp.prettier-vscode";
           };
@@ -439,6 +459,21 @@
         };
     };
 
+    Nix = {
+      extensions =
+        languageProfileBase
+        ++ (with pkgs.vscode-extensions; [
+          jnoortheen.nix-ide
+          mkhl.direnv
+        ])
+        ++ taskExtension;
+      userSettings =
+        baseUserSettings
+        // {
+          "[nix]"."editor.defaultFormatter" = "jnoortheen.nix-ide";
+        };
+    };
+
     # POSIX sh / bash scripting. mkhl.direnv is in here rather than in
     # languageProfileBase because this is the profile used on repos like this
     # one, where every script is entered through a .envrc.
@@ -452,7 +487,8 @@
           jetmartin.bats
           mkhl.direnv
         ])
-        ++ shellMarketplace;
+        ++ shellMarketplace
+        ++ taskExtension;
       userSettings =
         baseUserSettings
         // {
@@ -511,6 +547,22 @@
         };
     };
   };
+
+  # VS Code sync compares top-level keys, including language override blocks.
+  defaultUserSettings = {
+    "[nix]"."editor.defaultFormatter" = "jnoortheen.nix-ide";
+    "[markdown]"."editor.defaultFormatter" = "esbenp.prettier-vscode";
+  };
+  managedSettings = [baseUserSettings defaultUserSettings] ++ map (profile: profile.userSettings) (builtins.attrValues languageProfiles);
+  ignoredSettings =
+    lib.filter (name: !(builtins.elem name ["settingsSync.ignoredSettings" "settingsSync.ignoredExtensions"]))
+    (lib.unique (lib.concatMap builtins.attrNames managedSettings));
+  allExtensions =
+    lib.concatMap (profile: profile.extensions) (builtins.attrValues languageProfiles)
+    ++ config.programs.vscode.profiles.default.extensions;
+  ignoredExtensions =
+    lib.unique (map (extension: extension.vscodeExtUniqueId)
+      (lib.filter (extension: extension ? vscodeExtUniqueId && lib.meta.availableOn pkgs.stdenv.hostPlatform extension) allExtensions));
 in {
   # Stylix themes only the profiles it is told about; without this the language
   # profiles get no Stylix theme extension and workbench.colorTheme = "Stylix"
@@ -524,7 +576,11 @@ in {
   # from the marketplace no longer survive a switch — see the note at the
   # bottom of this block.
   programs.vscode = lib.mkIf vscodeEnabled {
-    profiles =
+    profiles = builtins.mapAttrs (_: profile:
+      profile
+      // {
+        extensions = lib.filter (lib.meta.availableOn pkgs.stdenv.hostPlatform) profile.extensions;
+      }) (
       {
         # Kept deliberately lean: the Material icon theme and Tailwind
         # IntelliSense live only in the language profiles that actually need
@@ -532,6 +588,12 @@ in {
         # below, plus the sublimeKeymap and gitWorktreeManager appended after
         # this list, are wanted everywhere, so they duplicate what
         # languageProfileBase already gives the language profiles.
+        default.userSettings =
+          defaultUserSettings
+          // {
+            "settingsSync.ignoredSettings" = ignoredSettings;
+            "settingsSync.ignoredExtensions" = ignoredExtensions;
+          };
         default.extensions =
           (with pkgs.vscode-extensions; [
             # Git history
@@ -550,11 +612,14 @@ in {
 
             # Config formats
             tamasfe.even-better-toml
+            redhat.vscode-yaml
+            davidanson.vscode-markdownlint
           ])
           ++ sublimeKeymap
           ++ gitWorktreeManager;
       }
-      // languageProfiles;
+      // languageProfiles
+    );
     # Never declared here, and no longer present after a switch either: the
     # language profiles above make ~/.vscode/extensions an immutable Nix
     # symlink, so hand-installed marketplace extensions do not survive.

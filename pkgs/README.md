@@ -16,6 +16,35 @@ nix build .#shop-scan && ./result/bin/shop-scan --help
 nix run   .#shop-scan -- search amazon "N305 firewall mini pc"
 ```
 
+## Development and checks
+
+Each registered package is a flake check, including packages absent from
+`home.packages`. From the repository root, build all checks for this system
+without activation or result links:
+
+```bash
+task check:packages
+```
+
+Select a named shell for the package under development: `gopwgen`, `wordgen`,
+`shop-scan`, `technitium-dash`, or `htmlpdf`. For example:
+
+```bash
+nix develop .#gopwgen
+task gopwgen:check
+# Or from the package directory, inside the same shell:
+cd pkgs/gopwgen && task check
+```
+
+The Go shells provide Go tooling. The shop-scan shell provides Bun and
+TypeScript; run `task shop-scan:install` once to install its locked local
+dependencies before `task shop-scan:check`. The Python shells provide runtime
+and development dependencies; use `task technitium-dash:check:nix` or
+`task htmlpdf:check:nix`. All five package Taskfiles can also be run standalone
+from their directories with their normal language environments configured.
+The default repository shell remains separate; Linux GUI development uses
+`nix develop .#go-gui`.
+
 ## Which layout to use
 
 The dividing line is **dependencies**, not language. A dependency-free bash

@@ -21,6 +21,7 @@
       ./bun.lock
       ./tsconfig.json
       ./src
+      ./test
     ];
   };
 
@@ -86,6 +87,16 @@ in
           src/${pname}.ts \
           --outfile ${pname}
       runHook postBuild
+    '';
+
+    doCheck = true;
+    checkPhase = ''
+      runHook preCheck
+      export HOME=$(mktemp -d)
+      bun test
+      # Execute through Bun: the Linux sandbox has no /usr/bin/env for tsc.
+      bun node_modules/typescript/bin/tsc --noEmit
+      runHook postCheck
     '';
 
     installPhase = ''

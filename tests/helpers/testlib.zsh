@@ -29,6 +29,10 @@ system_shell_path() {
 	local shim=$1
 	mkdir -p -- $shim
 	[[ -x /bin/bash ]] && ln -sf /bin/bash $shim/bash
-	[[ -x /bin/zsh ]] && ln -sf /bin/zsh $shim/zsh
+	if [[ -x /bin/zsh ]]; then
+		ln -sf /bin/zsh $shim/zsh
+	elif (($+commands[zsh])); then
+		ln -sf $commands[zsh] $shim/zsh
+	fi
 	print -r -- "$shim:$PATH"
 }

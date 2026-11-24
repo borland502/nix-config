@@ -1,32 +1,16 @@
-# Renders agent-specific instruction files (Copilot, Claude, ...) from a
-# single markdown source. The source uses the placeholder "@@AGENT@@" wherever
-# the agent name (e.g. "copilot" or "claude") should appear; this module
-# substitutes the placeholder and prepends a YAML frontmatter when requested.
+# Shared base-instruction renderer; bridges and agent manifests are built below.
 {pkgs}: let
   source = ../../chezmoi/dot_config/instructions/agent-defaults.md;
   modelTiers = import ./model-tiers.nix;
-  body = builtins.readFile source;
-
-  render = {
-    agentName,
-    withFrontmatter,
-    filename,
-  }: let
-    substituted = builtins.replaceStrings ["@@AGENT@@"] [agentName] body;
-    frontmatter = ''
-      ---
-      description: "Use for every task. Persistent defaults for terminal commands, shell usage, isolated shells for long or heavily quoted commands, and command logging to ~/.cache/${agentName}."
-      name: "Persistent Terminal Logging Defaults"
-      applyTo: "**"
-      ---
-
+  manifest = ./agent-instruction-targets.json;
+  inherit (builtins.fromJSON (builtins.readFile manifest)) targets;
+  render = name:
+    pkgs.runCommand targets.${name}.filename {
+      nativeBuildInputs = [pkgs.python3];
+    } ''
+      python3 ${../../scripts/render-agent-instructions.py} \
+        --source ${source} --manifest ${manifest} render ${name} > "$out"
     '';
-    content =
-      if withFrontmatter
-      then frontmatter + substituted
-      else substituted;
-  in
-    pkgs.writeText filename content;
 in {
   inherit source render;
 
@@ -211,21 +195,7 @@ in {
       done
     '';
 
-  codex = render {
-    agentName = "codex";
-    withFrontmatter = false;
-    filename = "AGENTS.md";
-  };
-
-  copilot = render {
-    agentName = "copilot";
-    withFrontmatter = true;
-    filename = "copilot-defaults.instructions.md";
-  };
-
-  claude = render {
-    agentName = "claude";
-    withFrontmatter = false;
-    filename = "CLAUDE.md";
-  };
+  codex = render "codex";
+  copilot = render "copilot";
+  claude = render "claude";
 }

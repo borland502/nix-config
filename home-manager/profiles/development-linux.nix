@@ -1,10 +1,11 @@
 # Development-focused home-manager profile
 {
+  config,
   pkgs,
   lib,
-  isWsl ? false,
   ...
 }: let
+  inherit (config.nixConfig.host) isWsl;
   devPackages = with pkgs;
     [
       # Build tools
