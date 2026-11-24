@@ -9,8 +9,8 @@ default rather than left to the caller:
   * An update that omits the body WIPES the page. `update` re-fetches the
     current storage body and sends it back unchanged unless --body-file says
     otherwise, so retitle/reparent are safe by construction.
-  * The version number must be exactly current+1. It is always read from a
-    fresh GET immediately before the PUT, never guessed or cached.
+  * Body replacements require the version originally read; a fresh GET checks
+    it before the PUT, which submits the current version plus one.
   * `/rest/api/content/{id}/move/...` 404s on this DC version. Re-parenting
     goes through `ancestors` in the same PUT.
   * Re-POSTing an attachment whose filename already exists 400s with "Cannot
@@ -18,7 +18,7 @@ default rather than left to the caller:
     attachments and POSTs to `/child/attachment/{attId}/data` to add a version.
   * Uploads need `X-Atlassian-Token: no-check` or they are rejected by XSRF.
   * Confluence error bodies are often HTML, which turns a piped `jq` into a
-    parse error that masks the real failure. Non-2xx is reported with the body.
+    parse error that masks the real failure. Non-2xx reports safe JSON messages.
 
 The token is read from disk and sent as a header from inside this process, so
 it never lands in argv (visible to `ps`, and captured by the log-bash hook).
@@ -82,10 +82,21 @@ def read_config(name: str) -> str:
         )
 
 
+def configured_client():
+    return Client.configured("confluence", timeout=TIMEOUT, config_dir=CONFIG_DIR)
+
+
+def pages(path):
+    try:
+        yield from configured_client().pages(path)
+    except AtlassianError as exc:
+        die(str(exc))
+
+
 def call(method, path, data=None, headers=None, raw=False):
     """One REST call. `path` is relative to the REST API root (no /rest/api)."""
     try:
-        client = Client.configured("confluence", timeout=TIMEOUT, config_dir=CONFIG_DIR)
+        client = configured_client()
         return client.request(method, path, data, headers=headers, raw=raw,
                               allow_empty=method != "GET")
     except AtlassianError as exc:
@@ -129,7 +140,7 @@ def read_body_arg(path: str) -> str:
     if path == "-":
         return sys.stdin.read()
     try:
-        with open(path) as fh:
+        with open(path, newline="") as fh:
             return fh.read()
     except FileNotFoundError:
         die(f"body file not found: {path}")
@@ -163,9 +174,9 @@ def cmd_read(args):
 
 
 def cmd_children(args):
-    res = call("GET", f"content/{args.id}/child/page?limit={args.limit}&expand=version")
-    for child in res.get("results", []):
-        print(f"{child['id']}\tv{child['version']['number']}\t{child['title']}")
+    for res in pages(f"content/{args.id}/child/page?limit={args.limit}&expand=version"):
+        for child in res.get("results", []):
+            print(f"{child['id']}\tv{child['version']['number']}\t{child['title']}")
 
 
 def cmd_create(args):
@@ -188,15 +199,17 @@ def cmd_create(args):
 
 
 def cmd_update(args):
-    # Always read the live page first: the version must be exactly current+1,
-    # and an omitted body would blank the page.
+    if args.body_file and args.expected_version is None:
+        die("--expected-version is required with --body-file; use the version from the page you edited")
     current = get_page(args.id)
+    if args.expected_version is not None and current["version"]["number"] != args.expected_version:
+        die("page version changed; read the latest page and reconcile edits before retrying")
     body = (
         read_body_arg(args.body_file)
         if args.body_file
         else current.get("body", {}).get("storage", {}).get("value", "")
     )
-    if not body:
+    if not body.strip():
         die("refusing to write an empty body (this wipes the page)")
 
     payload = {
@@ -256,9 +269,8 @@ def multipart(filepath: str, comment: str | None):
 def cmd_attach(args):
     existing = {
         a["title"]: a["id"]
-        for a in call("GET", f"content/{args.id}/child/attachment?limit=200").get(
-            "results", []
-        )
+        for page in pages(f"content/{args.id}/child/attachment?limit=200")
+        for a in page.get("results", [])
     }
     for path in args.files:
         name = os.path.basename(path)
@@ -285,18 +297,19 @@ def cmd_attach(args):
             raw=True,
         )
         result = (res.get("results") or [res])[0]
+        existing[name] = result["id"]
         ver = result.get("version", {}).get("number", "?")
         print(f"{verbed} {name}\tv{ver}\t{ctype}")
 
 
 def cmd_attachments(args):
-    res = call("GET", f"content/{args.id}/child/attachment?limit=200&expand=version")
-    for att in res.get("results", []):
-        size = att.get("extensions", {}).get("fileSize", "?")
-        print(
-            f"{att['id']}\tv{att['version']['number']}\t{size}\t"
-            f"{att.get('extensions', {}).get('mediaType', '?')}\t{att['title']}"
-        )
+    for res in pages(f"content/{args.id}/child/attachment?limit=200&expand=version"):
+        for att in res.get("results", []):
+            size = att.get("extensions", {}).get("fileSize", "?")
+            print(
+                f"{att['id']}\tv{att['version']['number']}\t{size}\t"
+                f"{att.get('extensions', {}).get('mediaType', '?')}\t{att['title']}"
+            )
 
 
 def cmd_embed(args):
@@ -311,6 +324,16 @@ def cmd_embed(args):
         f'<ri:attachment ri:filename="{html.escape(args.filename, quote=True)}" />'
         f"</ac:image>"
     )
+
+
+def positive_int(value):
+    try:
+        number = int(value)
+        if number > 0:
+            return number
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError("must be a positive integer")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -331,7 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     c = sub.add_parser("children", help="list child pages")
     c.add_argument("id")
-    c.add_argument("--limit", type=int, default=100)
+    c.add_argument("--limit", type=positive_int, default=100, help="results per page (all pages are listed)")
     c.set_defaults(func=cmd_children)
 
     n = sub.add_parser("create", help="create a page")
@@ -348,6 +371,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     u.add_argument("id")
     u.add_argument("--body-file", help="storage-format XHTML; - for stdin")
+    u.add_argument("--expected-version", type=positive_int, help="version originally read; required with --body-file")
     u.add_argument("--title")
     u.add_argument("--parent", help="re-parent (uses ancestors, not the 404ing /move)")
     u.add_argument("--message", help="version comment")

@@ -134,6 +134,41 @@ class Shared(unittest.TestCase):
             self.assertEqual(list(Path(tmp).iterdir()), [p])
 
 class HTTP(unittest.TestCase):
+    def test_json_http_errors_are_bounded_and_sanitized(self):
+        import urllib.error
+        from agent_tools.atlassian import Client, AtlassianError
+        class Body(io.BytesIO):
+            def read(self, size=-1):
+                self.requested = size
+                return super().read(size)
+        for body, included in [
+            (b'{"message":"Bad fixture-token Authorization: Bearer abc123 password=secretvalue\\nnext", "errorMessages":["useful"], "errors":{"field":"invalid"}, "other":"hidden"}', True),
+            (b'{\"message\":\"' + b'x' * 1000 + b'\"}', True),
+            (b'<html>private</html>', False),
+            (b'{broken', False),
+        ]:
+            with self.subTest(body=body):
+                stream = Body(body)
+                error = urllib.error.HTTPError('http://fixture.invalid', 400, 'bad', {}, stream)
+                with patch('urllib.request.build_opener') as opener:
+                    opener.return_value.open.side_effect = error
+                    with self.assertRaises(AtlassianError) as exc:
+                        Client('http://fixture.invalid', 'fixture-token').request('GET', 'fixture')
+                message = str(exc.exception)
+                self.assertEqual(getattr(stream, "requested", None), 8192)
+                self.assertTrue(message.startswith('HTTP 400 on GET request'))
+                self.assertNotIn('fixture-token', message)
+                self.assertNotIn('abc123', message)
+                self.assertNotIn('secretvalue', message)
+                self.assertNotIn('hidden', message)
+                self.assertNotIn('private', message)
+                self.assertLessEqual(len(message), len('HTTP 400 on GET request: ') + 500)
+                if b'errorMessages' in body:
+                    self.assertIn('useful', message)
+                    self.assertIn('invalid', message)
+                elif not included:
+                    self.assertEqual(message, 'HTTP 400 on GET request')
+
     def test_truncated_response_has_typed_bounded_error_and_clean_cli_failure(self):
         import http.server
         import threading

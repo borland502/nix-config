@@ -1,6 +1,8 @@
 """Configured Atlassian JSON requests with bounded errors and safe pagination."""
 import http.client
 import json
+import re
+import unicodedata
 from pathlib import Path
 import urllib.error
 import urllib.parse
@@ -13,6 +15,29 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # Redirects may leak bearer tokens, including to login endpoints.
         return None
+
+def _error_summary(exc, token):
+    """Extract only bounded, recognizable message fields from an HTTP error."""
+    try:
+        data = json.loads(exc.read(8192))
+        if not isinstance(data, dict):
+            return ""
+        messages = []
+        if isinstance(data.get("message"), str):
+            messages.append(data["message"])
+        if isinstance(data.get("errorMessages"), list):
+            messages.extend(x for x in data["errorMessages"] if isinstance(x, str))
+        if isinstance(data.get("errors"), dict):
+            messages.extend(x for x in data["errors"].values() if isinstance(x, str))
+        summary = " ".join(messages)
+        if token:
+            summary = summary.replace(token, "[redacted]")
+        summary = "".join(" " if c.isspace() else c for c in summary if not unicodedata.category(c).startswith("C") or c.isspace())
+        summary = re.sub(r"(?i)\b(authorization|proxy-authorization|password|passwd|token|api[_ -]?key|secret|credential)\s*[:=]\s*(?:bearer\s+|basic\s+)?[^\s,;]+", r"\1=[redacted]", summary)
+        summary = re.sub(r"(?i)\b(bearer|basic)\s+[^\s,;]+", r"\1 [redacted]", summary)
+        return " ".join(summary.split())[:500]
+    except Exception:
+        return ""
 
 class Client:
     def __init__(self, root, token, *, timeout=60):
@@ -73,7 +98,9 @@ class Client:
             with urllib.request.build_opener(_NoRedirect).open(req, timeout=self.timeout) as response:
                 payload = response.read()
         except urllib.error.HTTPError as exc:
-            raise AtlassianError(f"HTTP {exc.code} on {method} request") from exc
+            prefix = f"HTTP {exc.code} on {method} request"
+            summary = _error_summary(exc, self.token)
+            raise AtlassianError(f"{prefix}: {summary}" if summary else prefix) from None
         except (OSError, TimeoutError, urllib.error.URLError, http.client.HTTPException) as exc:
             raise AtlassianError("service request failed or timed out") from exc
         if not payload and allow_empty:
