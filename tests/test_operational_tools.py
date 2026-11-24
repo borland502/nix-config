@@ -191,6 +191,22 @@ class HTTP(unittest.TestCase):
                 self.assertNotIn('words', str(exc.exception))
                 self.assertNotIn('fixture-token', str(exc.exception))
 
+    def test_http_error_redacts_prefixed_credential_names(self):
+        import json
+        import urllib.error
+        from agent_tools.atlassian import Client, AtlassianError
+        for key in ('access_token', 'refresh_token', 'client_secret', 'api_key', 'X-API-Key'):
+            for quote in ('', '"', "'"):
+                with self.subTest(key=key, quote=quote):
+                    value = f'{quote}{key}{quote}={quote}private-value{quote}'
+                    body = io.BytesIO(json.dumps({'message': value}).encode())
+                    error = urllib.error.HTTPError('http://fixture.invalid', 400, 'bad', {}, body)
+                    with patch('urllib.request.build_opener') as opener:
+                        opener.return_value.open.side_effect = error
+                        with self.assertRaises(AtlassianError) as exc:
+                            Client('http://fixture.invalid', 'fixture-token').request('GET', 'fixture')
+                    self.assertNotIn('private-value', str(exc.exception))
+
     def test_truncated_response_has_typed_bounded_error_and_clean_cli_failure(self):
         import http.server
         import threading

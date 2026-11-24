@@ -27,18 +27,20 @@ keep, then pass `--body-file` and that original `--expected-version`. Keep large
 bodies in files rather than inline shell arguments.
 
 ```bash
-page_snapshot=~/.cache/claude/$(date +%F)-page-before.json
-confluence-page read 1435323578 --format json > "$page_snapshot"
-page_version=$(jq -r '.version.number' "$page_snapshot")
-# Prepare the intended replacement from this saved page.
-/bin/cat > ~/.cache/claude/$(date +%F)-page-body.xhtml <<'EOF'
-<h2>Summary</h2>
-<p>Prose here.</p>
-<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[
-example --command
-]]></ac:plain-text-body></ac:structured-macro>
-EOF
-confluence-page update 1435323578 --body-file ~/.cache/claude/$(date +%F)-page-body.xhtml \
+page_id=123456
+page_snapshot=~/.cache/codex/$(date +%F)-page-before.json
+page_body=~/.cache/codex/$(date +%F)-page-body.xhtml
+confluence-page read "$page_id" --format json > "$page_snapshot"
+page_version=$(jq -er '.version.number' "$page_snapshot")
+jq -erj '.body.storage.value | select(type == "string")' "$page_snapshot" > "$page_body"
+```
+
+Edit `page_body` to make the intended changes while retaining the content and
+macros that should remain. Review the complete draft before publishing it.
+After editing, use the version from the saved snapshot:
+
+```bash
+confluence-page update "$page_id" --body-file "$page_body" \
   --expected-version "$page_version" --message "Revise summary" --minor
 ```
 

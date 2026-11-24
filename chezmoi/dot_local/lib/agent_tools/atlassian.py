@@ -38,7 +38,7 @@ def _error_summary(exc, token):
         # Quoted values can contain whitespace and escaped quotes. Treat an
         # unterminated quoted value as sensitive through the end of the text.
         value = r"(?:\"(?:\\.|[^\"\\])*(?:\"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^\s,;]+)"
-        key = r"(?:authorization|proxy-authorization|password|passwd|token|api[_ -]?key|secret|credential)"
+        key = r"(?:[a-z0-9]+[_-])*(?:authorization|password|passwd|token|api[_ -]?key|secret|credential)"
         summary = re.sub(rf"(?i)\b({key})['\"]?\s*[:=]\s*(?:bearer\s+|basic\s+)?{value}", r"\1=[redacted]", summary)
         summary = re.sub(rf"(?i)\b(bearer|basic)\s+{value}", r"\1 [redacted]", summary)
         return " ".join(summary.split())[:500]
