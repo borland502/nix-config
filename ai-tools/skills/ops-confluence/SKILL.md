@@ -22,7 +22,8 @@ Two helpers own the boilerplate. Reach for them before hand-rolling `curl`:
 | Read a page as text / XHTML / JSON | `confluence-page read <id> [--format storage\|json]` |
 | List child pages | `confluence-page children <id>` |
 | Create a page | `confluence-page create --space KEY --title T [--parent ID] --body-file F` |
-| Update, retitle, or re-parent | `confluence-page update <id> [--body-file F] [--title T] [--parent ID]` |
+| Replace a page body | `confluence-page update <id> --body-file F --expected-version N` |
+| Retitle or re-parent | `confluence-page update <id> [--title T] [--parent ID]` |
 | Upload / replace an attachment | `confluence-page attach <id> <file>...` |
 | List attachments | `confluence-page attachments <id>` |
 | Storage snippet for an image | `confluence-page embed <filename> [--alt TEXT] [--width N]` |
@@ -42,142 +43,40 @@ carries forward every field you did not explicitly change.
 Bodies are *storage format*: XHTML with Confluence's `<ac:>` / `<ri:>` macro
 namespaces. It is not Markdown and not HTML you can invent freely.
 
-## Pitfalls
+## Safe update workflow
 
-Each of these has actually happened on this instance.
+Read the page before preparing its replacement. Body updates require
+`--expected-version N`, where N is the version from that original read. A stale
+version is rejected before writing; read the latest page and reconcile edits
+before retrying. Substituting a newer number onto the same stale draft can lose
+another editor's changes. Metadata-only edits preserve the live body and may
+optionally assert a version. Empty or whitespace-only bodies are rejected.
 
-### An update without a body wipes the page
+The outgoing version is current + 1. The server still rejects a concurrent edit
+after the check with `409`; writes are not automatically retried. `--minor`
+suppresses watcher notifications for editorial changes.
 
-`PUT` with no `body` blanks the content. Always re-fetch and send the current
-body back unless you are deliberately replacing it. `confluence-page update`
-does this for you — `--body-file` is optional precisely so that retitling and
-re-parenting cannot destroy content.
+Attachment discovery and listings follow all result pages. Uploads refresh the
+name-to-ID lookup after each success, so repeated basenames in one invocation
+update the attachment just created. `children --limit` is a positive page size,
+not a total-result cap.
 
-### The version number must be exactly current + 1
+HTTP errors include status and method plus bounded, sanitized JSON API messages
+when available. Raw HTML, malformed bodies, and credentials are not echoed.
+Read back a changed page and compare attachment bytes when content matters;
+a successful response alone is insufficient verification.
 
-Not the version you read five minutes ago — a concurrent edit moves it. Read the
-version immediately before the write. A stale number is a `409`. `confluence-page`
-always reads it fresh in the same call.
+## Recipes and troubleshooting
 
-### `/move` does not exist — re-parent through `ancestors`
-
-`PUT`/`POST` on `/rest/api/content/{id}/move/append/{target}` returns
-`404 HTTP 404 Not Found` on this DC version, in an XML body that will also break
-a `jq` pipe. Set `ancestors` in the normal update `PUT` instead:
-
-```bash
-confluence-page update 1380859735 --parent 1015307227
-```
-
-### Re-uploading an attachment name 400s
-
-```text
-HTTP 400 Cannot add a new attachment with same file name as an existing
-attachment: mdpmdd-879-sequence.svg
-```
-
-`POST /child/attachment` only *creates*. To add a new version of an existing
-file, `POST` to that attachment's own data endpoint,
-`/child/attachment/{attachmentId}/data`. `confluence-page attach` looks up the
-existing attachments by name and picks the right endpoint automatically, so the
-same command both creates and updates.
-
-### Uploads need the XSRF opt-out header
-
-Multipart uploads without `X-Atlassian-Token: no-check` are rejected. (`nocheck`
-also works; `no-check` is the current spelling.)
-
-### Confluence sniffs media types, and gets SVG wrong
-
-An SVG uploaded without an explicit `Content-Type` lands as
-`application/octet-stream` and downloads instead of rendering. Send
-`image/svg+xml` explicitly — `confluence-page` forces the type for `.svg`,
-`.drawio`, and `.mmd`.
-
-### Error bodies are HTML, so `jq` lies about the failure
-
-A failing call often returns an HTML error page. Piping that to `jq` produces
-`parse error: Invalid numeric literal`, which looks like a malformed-JSON bug
-and hides the real 401/404. Both helpers report the status and body instead. If
-you must use raw `curl`, capture `%{http_code}` and check it before parsing.
-
-### The two base URLs are not symmetric
-
-`~/.config/ops-agent/jira-base-url` **ends with** `/rest/api/2`;
-`~/.config/confluence/base-url` is the **bare host**. A path shaped for Jira
-404s against Confluence. The helpers own this composition — pass paths relative
-to the REST root and do not prepend `/rest/api`.
-
-### `Connection reset by peer` is usually the VPN
-
-Transient and bursty. Retry 2–3 times with short backoff before re-diagnosing.
-
-## Embedding an Image
-
-Upload the file, then reference it by **filename** in the body:
-
-```bash
-confluence-page attach 1435323578 diagram.svg
-confluence-page embed diagram.svg --alt "Runtime architecture" --width 900
-```
-
-which prints the snippet to paste into the storage body:
-
-```xml
-<ac:image ac:align="center" ac:width="900" ac:alt="Runtime architecture"><ri:attachment ri:filename="diagram.svg" /></ac:image>
-```
-
-The reference is by name, not id, so re-uploading a new version of the same
-filename updates the rendered image everywhere it appears — no body edit needed.
-That makes "attach with the same name" the right way to revise a diagram.
-
-## Writing a Page Body
-
-Build the storage XHTML in a file under `~/.cache/claude`, then pass
-`--body-file`. Do not inline a large body into a shell command — the quoting
-breaks and the payload lands in the logs.
-
-```bash
-cat > ~/.cache/claude/$(date +%F)-page-body.xhtml <<'EOF'
-<h2>Summary</h2>
-<p>Prose here.</p>
-<ac:structured-macro ac:name="code"><ac:plain-text-body><![CDATA[
-example --command
-]]></ac:plain-text-body></ac:structured-macro>
-EOF
-confluence-page update 1435323578 --body-file ~/.cache/claude/$(date +%F)-page-body.xhtml \
-  --message "Revise summary" --minor
-```
-
-`--minor` suppresses watcher notifications — use it for typo and formatting
-passes, omit it when people should see the change.
-
-## Deleting
-
-Deliberately **not** a subcommand: an agent should have to construct this
-consciously.
-
-```bash
-# 204 on success; the page goes to the space trash, not to permanent oblivion
-curl -sS -X DELETE -o /dev/null -w '%{http_code}\n' \
-  -H "Authorization: Bearer $(/bin/cat ~/.config/confluence/token)" \
-  "$(/bin/cat ~/.config/confluence/base-url)/rest/api/content/PAGE_ID"
-```
-
-## Verifying a Write
-
-Read back rather than trusting the response:
-
-```bash
-confluence-page read <id> | head -5           # title, version, parent
-confluence-page attachments <id>              # names, versions, media types
-```
-
-For a diagram you replaced, compare the SHA-256 of the local file against the
-downloaded attachment — a `200` alone does not prove the bytes landed.
+- [Page workflows](references/page-workflows.md): saved-version body updates,
+  image upload/embed, deletion, and read-back verification. Keep payloads in the
+  agent cache, not inline shell arguments or tracked repository artifacts.
+- [Server/DC pitfalls](references/server-dc-pitfalls.md): whole-body replacement,
+  version conflicts, re-parenting, attachment replacement, XSRF headers, media
+  types, error parsing, API roots, and transient connection failures.
 
 ## Related
 
-- **sec-credentials** — where the token comes from and its lookup precedence
-- **ops-jira-integration** — the Jira side; linking tickets to RFC pages
-- **shell-pitfalls** — quoting traps when a payload does go through the shell
+- [sec-credentials](../sec-credentials/SKILL.md): token lookup and precedence.
+- [ops-jira-integration](../ops-jira-integration/SKILL.md): Jira ticket operations.
+- [shell-pitfalls](../shell-pitfalls/SKILL.md): quoting and file-backed payloads.

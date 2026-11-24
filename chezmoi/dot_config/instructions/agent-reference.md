@@ -233,17 +233,21 @@ the nix-config repo.
   `~/.config/confluence/base-url` is the bare host. This helper adds
   `/rest/api` for you, so pass only the path (a leading `rest/api/` is tolerated
   rather than doubled). Same error contract: non-2xx / non-JSON becomes a clear
-  stderr error rather than a downstream `jq` parse failure — Confluence error
-  bodies are HTML. Use it instead of hand-rolling a `confluence_curl()`
+  stderr error rather than a downstream `jq` parse failure. HTTP errors include
+  bounded, sanitized JSON messages when available; raw HTML is omitted. Use it
+  instead of hand-rolling a `confluence_curl()`
   function per session. Example:
   `confluence-get 'content/123456?expand=body.storage'`.
 - **`confluence-page <subcommand>`** — The write side: `read`, `children`,
   `create`, `update`, `attach`, `attachments`, `embed`. Subcommands encode the
   destructive Confluence traps as safe defaults — `update` re-fetches the live
-  page so an omitted body cannot blank it and the version is always current+1,
-  re-parenting goes through `ancestors` (the `/move` endpoint 404s on this DC
-  version), and `attach` routes an existing filename to
-  `/child/attachment/{id}/data` instead of the 400 that a plain re-POST returns.
+  page so an omitted body cannot blank it. Replacing content requires
+  `--body-file F --expected-version N`, with N taken from the original page read;
+  stale versions and whitespace-only bodies are rejected. Reconcile edits after
+  a mismatch instead of substituting a newer version. Re-parenting goes through
+  `ancestors` (the `/move` endpoint 404s on this DC version). Attachment lookup
+  and listings follow pagination; `attach` routes existing names, including
+  files just uploaded in the same invocation, to `/child/attachment/{id}/data`.
   Deletion is deliberately absent. `--dry-run` on every write. Full pitfall list
   in the **ops-confluence** skill. Example:
   `confluence-page update 123456 --title 'New' --minor`.
