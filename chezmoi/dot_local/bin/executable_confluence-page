@@ -209,7 +209,7 @@ def cmd_update(args):
         if args.body_file
         else current.get("body", {}).get("storage", {}).get("value", "")
     )
-    if not body.strip():
+    if not body or (args.body_file and not body.strip()):
         die("refusing to write an empty body (this wipes the page)")
 
     payload = {

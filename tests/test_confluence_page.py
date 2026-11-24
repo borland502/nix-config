@@ -19,6 +19,7 @@ class CLI(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.requests = []
+        self.page_body = '<p>original</p>'
         owner = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -39,7 +40,7 @@ class CLI(unittest.TestCase):
                         result['_links'] = {'next': self.path.split('?')[0] + '?page=2'}
                     code = 200
                 else:
-                    result = {'id': '123', 'title': 'Fixture page', 'space': {'key': 'FIX'}, 'version': {'number': 11}, 'ancestors': [{'id': '9'}], 'body': {'storage': {'value': '<p>original</p>'}}}
+                    result = {'id': '123', 'title': 'Fixture page', 'space': {'key': 'FIX'}, 'version': {'number': 11}, 'ancestors': [{'id': '9'}], 'body': {'storage': {'value': owner.page_body}}}
                     code = 200
                 self.send_response(code)
                 self.end_headers()
@@ -104,6 +105,16 @@ class CLI(unittest.TestCase):
         self.assertEqual(payload['title'], 'Fixture page')
         self.assertEqual(payload['space']['key'], 'FIX')
         self.assertEqual(payload['ancestors'], [{'id': '9'}])
+
+    def test_metadata_update_preserves_nonempty_whitespace_body(self):
+        self.page_body = ' \n\t'
+        result = self.invoke('update', '123', '--title', 'Renamed')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        puts = [r for r in self.requests if r[0] == 'PUT']
+        self.assertEqual(len(puts), 1)
+        payload = json.loads(puts[0][2])
+        self.assertEqual(payload['body']['storage']['value'], self.page_body)
+        self.assertEqual(payload['title'], 'Renamed')
 
     def test_metadata_update_preserves_body_and_conflict_is_not_retried(self):
         self.put_status = 409
