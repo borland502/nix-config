@@ -195,10 +195,10 @@ class HTTP(unittest.TestCase):
         import json
         import urllib.error
         from agent_tools.atlassian import Client, AtlassianError
-        for key in ('access_token', 'refresh_token', 'client_secret', 'api_key', 'X-API-Key'):
+        for key in ('access_token', 'refresh_token', 'client_secret', 'api_key', 'X-API-Key', 'accessToken', 'clientSecret', 'tokenValue', 'myCredentialValue', 'authorizationHeader', 'myApiKeyValue'):
             for quote in ('', '"', "'"):
                 with self.subTest(key=key, quote=quote):
-                    value = f'{quote}{key}{quote}={quote}private-value{quote}'
+                    value = f'useful context {quote}{key}{quote}={quote}private-value{quote}'
                     body = io.BytesIO(json.dumps({'message': value}).encode())
                     error = urllib.error.HTTPError('http://fixture.invalid', 400, 'bad', {}, body)
                     with patch('urllib.request.build_opener') as opener:
@@ -206,6 +206,7 @@ class HTTP(unittest.TestCase):
                         with self.assertRaises(AtlassianError) as exc:
                             Client('http://fixture.invalid', 'fixture-token').request('GET', 'fixture')
                     self.assertNotIn('private-value', str(exc.exception))
+                    self.assertIn('useful context', str(exc.exception))
 
     def test_truncated_response_has_typed_bounded_error_and_clean_cli_failure(self):
         import http.server
