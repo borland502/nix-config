@@ -33,8 +33,14 @@ def _error_summary(exc, token):
         if token:
             summary = summary.replace(token, "[redacted]")
         summary = "".join(" " if c.isspace() else c for c in summary if not unicodedata.category(c).startswith("C") or c.isspace())
-        summary = re.sub(r"(?i)\b(authorization|proxy-authorization|password|passwd|token|api[_ -]?key|secret|credential)\s*[:=]\s*(?:bearer\s+|basic\s+)?[^\s,;]+", r"\1=[redacted]", summary)
-        summary = re.sub(r"(?i)\b(bearer|basic)\s+[^\s,;]+", r"\1 [redacted]", summary)
+        if token:
+            summary = summary.replace(token, "[redacted]")
+        # Quoted values can contain whitespace and escaped quotes. Treat an
+        # unterminated quoted value as sensitive through the end of the text.
+        value = r"(?:\"(?:\\.|[^\"\\])*(?:\"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^\s,;]+)"
+        key = r"(?:authorization|proxy-authorization|password|passwd|token|api[_ -]?key|secret|credential)"
+        summary = re.sub(rf"(?i)\b({key})['\"]?\s*[:=]\s*(?:bearer\s+|basic\s+)?{value}", r"\1=[redacted]", summary)
+        summary = re.sub(rf"(?i)\b(bearer|basic)\s+{value}", r"\1 [redacted]", summary)
         return " ".join(summary.split())[:500]
     except Exception:
         return ""

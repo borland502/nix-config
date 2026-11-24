@@ -169,6 +169,28 @@ class HTTP(unittest.TestCase):
                 elif not included:
                     self.assertEqual(message, 'HTTP 400 on GET request')
 
+    def test_http_error_redacts_quoted_credentials_and_normalized_token(self):
+        import json
+        import urllib.error
+        from agent_tools.atlassian import Client, AtlassianError
+        messages = [
+            'password="two words"',
+            "'password': 'two words'",
+            'Authorization: Bearer "two words"',
+            'fixture-\u200btoken',
+        ]
+        for value in messages:
+            with self.subTest(value=value):
+                body = io.BytesIO(json.dumps({'message': value}).encode())
+                error = urllib.error.HTTPError('http://fixture.invalid', 400, 'bad', {}, body)
+                with patch('urllib.request.build_opener') as opener:
+                    opener.return_value.open.side_effect = error
+                    with self.assertRaises(AtlassianError) as exc:
+                        Client('http://fixture.invalid', 'fixture-token').request('GET', 'fixture')
+                self.assertNotIn('two', str(exc.exception))
+                self.assertNotIn('words', str(exc.exception))
+                self.assertNotIn('fixture-token', str(exc.exception))
+
     def test_truncated_response_has_typed_bounded_error_and_clean_cli_failure(self):
         import http.server
         import threading
