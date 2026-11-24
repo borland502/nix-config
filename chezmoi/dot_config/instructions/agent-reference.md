@@ -12,30 +12,37 @@ discoverable on hosts that have chezmoi but not the full nix config.
 Skills and plans speak in capability **tiers** — `high`, `mid`, `low` —
 never in versioned model IDs. Resolve a tier to your own harness:
 
-| Tier | Claude Code (alias) | Copilot CLI / Codex CLI (slug) |
-| ---- | ------------------- | ------------------------------ |
-| high | `opus`              | `gpt-5.6-sol`                  |
-| mid  | `sonnet`            | `gpt-5.6-terra`                |
-| low  | `haiku`             | `gpt-5.6-luna`                 |
+| Tier | Claude Code (alias) | Copilot CLI / Codex CLI (family → newest slug) |
+| ---- | ------------------- | ---------------------------------------------- |
+| high | `opus`              | `sol` → newest `gpt-<version>-sol`             |
+| mid  | `sonnet`            | `terra` → newest `gpt-<version>-terra`         |
+| low  | `haiku`             | `luna` → newest `gpt-<version>-luna`           |
 
-Claude aliases resolve to the latest model of their tier via the
-`ANTHROPIC_DEFAULT_*_MODEL` env pins in `~/.claude/settings.json`. Copilot
-and Codex share one slug set, pinned once in `home-manager/lib/model-tiers.nix`
-(Copilot's session default; Codex custom agents map their `model:` alias
-through it). Neither has an alias mechanism, so the slugs here are literal; GitHub's
-sol/terra/luna tier names carry across
-generations, and this table plus the pins get bumped together when a new
-generation ships (see AGENTS.md). Do not gate Copilot slugs on
-`copilot help config` — its model list lags what the backend accepts.
+Nothing here is version-pinned, so tiers never age into legacy models.
+Claude's aliases resolve natively to the newest model of each tier; no
+`ANTHROPIC_DEFAULT_*_MODEL` pins are set (activation removes any it finds).
+Copilot and Codex share one slug set: `home-manager/lib/model-tiers.nix` names
+the family per tier plus a floor, and at activation
+`scripts/resolve-model-tiers.py` picks the newest listed slug of each family
+from Codex's live catalog (`$CODEX_HOME/models_cache.json`), never below the
+floor. It writes that into Copilot's session model, Codex's `mid`/`low`
+profiles and custom agents, and floats Codex's own `model` forward within its
+family. Without a catalog (Linux/WSL) the floor applies; raise it when
+activation warns it is behind. To see today's slugs:
+`codex debug models` or the resolver's `resolve` command. Do not gate Copilot
+slugs on `copilot help config` — its model list lags what the backend accepts.
 
 ### Which tier for which role
 
-The **session default is the mid tier** (`sonnet` / `gpt-5.6-terra`) — capable
-enough for everyday coding without premium pricing. Escalate to **high** only
-for the reasoning-heavy roles below; drop to **low** for mechanical work.
-Reserving the top tier for where judgment actually pays off *is* the bias —
-pick by role, not by reflex. When unsure, start one tier lower and escalate
-only if the subagent reports it is stuck for want of reasoning (not context).
+The **session default is the high tier** (`opus` / the newest `sol`) on every
+harness — token budget is not the constraint. Subagent dispatch still picks by
+role: the table below sends review rounds, routine implementation and
+mechanical work to **mid** or **low**, because a cheaper tier is just as good
+there and faster. When unsure, start one tier lower and escalate only if the
+subagent reports it is stuck for want of reasoning (not context). An omitted
+subagent `model:` inherits the session's high tier.
+For a lighter interactive session: `/model sonnet` (Claude),
+`codex --profile mid|low`, or `/model` in Copilot.
 
 | Role | Tier | Examples |
 | ---- | ---- | -------- |
@@ -71,19 +78,20 @@ the most expensive shape in this config. **Never iterate on the high tier.**
 Per-task reviews inside a multi-task workflow stay on the cheap tier
 throughout; the whole-branch review at the end is the single high-tier gate.
 
-The ladder covers document reviews too — the plan and spec reviewers in
-flow-writing-plans and flow-brainstorming loop the same way. *Authoring* a plan
-or spec is still a high-tier job (see the table); *reviewing* one iterates on
-mid and earns a single high-tier confirming pass before the document goes
-downstream.
+The ladder covers document reviews too — the plan reviewer in
+flow-writing-plans loops the same way. flow-brainstorming's builder check is a
+single mid-tier read, not a loop. *Authoring* a plan or spec is still a
+high-tier job (see the table); *reviewing* one iterates on mid and earns a
+single high-tier confirming pass before the document goes downstream.
 
 Escalation is otherwise one-directional and evidence-driven: if a mid/low
 subagent reports it is stuck for lack of *reasoning* (not lack of context),
 re-dispatch one tier up — never force the same tier to retry unchanged (see
 flow-subagent-driven-development). The plugin agents already bake this in:
-`sonnet` for the coding/CI specialists and the ops-agent bridge. For
-inline reasoning-heavy work in a mid-default session (planning, brainstorming),
-switch up with `/model` or hand the work to a high-tier subagent.
+`sonnet` for the coding/CI specialists and the ops-agent bridge. If a session
+was switched down to mid or low, switch back up with `/model` (or hand the
+work to a high-tier subagent) for inline reasoning-heavy work such as planning
+and brainstorming.
 
 ## Credential & Auth Locations
 
@@ -597,15 +605,23 @@ Known gaps and traps (verified on managed darwin hosts):
 
 ## macOS (darwin) Quirks
 
+- **Run activation and app updates in Apple Terminal.app.** Use it for
+  `task switch`, `task upgrade`, `task home-switch`, rollback, and equivalent
+  app-modifying commands. Terminal supplies its own macOS permission context
+  and an interactive sudo prompt. An IDE/agent shell or PTY is not equivalent.
+  Preserve the approved direnv environment and repository directory:
+  `direnv exec <root> task --dir <root> switch`. When launching a command through
+  Terminal, keep any launcher/payload in the agent cache and observe its exit
+  status before reporting completion; opening a window alone proves nothing.
 - **Homebrew cask upgrades can fail on root-owned / TCC-protected apps**
-  (observed: Chrome, Slack). `task switch` treats these as non-fatal, but the
-  upgrade stays blocked until the terminal app (or `brew`'s parent process)
-  has a **Full Disk Access** grant in System Settings → Privacy & Security,
-  and any root-owned copy under `/Applications` is reset
-  (`sudo chown -R "$USER" /Applications/<App>.app` or remove the stale
-  Caskroom entry and reinstall). This needs the user at the keyboard — report
-  it, don't loop retries. VPN-blocked cask downloads are likewise tolerated
-  and retried on a later switch (see hosts/darwin).
+  (observed: Chrome, Slack). `task switch` treats these as non-fatal. Use
+  Terminal.app with its existing permission to modify apps; App Management
+  is distinct from Full Disk Access. If macOS still denies the operation,
+  inspect the actual error and Terminal's Privacy & Security permissions.
+  A separate root-ownership problem needs its own diagnosis. Report a required
+  user action instead of repeatedly retrying or changing privacy settings.
+  VPN-blocked cask downloads are likewise tolerated and retried on a later
+  switch (see hosts/darwin).
 
 ## Instruction Deployment & Regeneration
 

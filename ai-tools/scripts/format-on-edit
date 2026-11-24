@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Claude Code PostToolUse hook (Edit|Write|MultiEdit): format or lint the file.
+
+- `.nix` inside the nix-config repo or one of its worktrees (the repo path
+  comes from the chezmoi state file $XDG_STATE_HOME/chezmoi/nix-config-dir):
+  `alejandra --quiet FILE`, matching `task fmt`. Other repos may use another
+  Nix formatter, so they are left alone.
+- `.md` in a git repo that configures markdownlint: `markdownlint-cli2 FILE`
+  from the repo root, so its `.markdownlint-cli2.*` ignores and rules apply.
+
+A formatter or linter failure exits 2: Claude Code shows stderr to Claude
+(the edit already happened; PostToolUse cannot block). Anything else, a
+missing tool included, exits 0 silently.
+"""
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+MARKDOWNLINT_CONFIGS = (
+    ".markdownlint.json",
+    ".markdownlint.jsonc",
+    ".markdownlint.yaml",
+    ".markdownlint.yml",
+    ".markdownlint-cli2.jsonc",
+    ".markdownlint-cli2.yaml",
+    ".markdownlint-cli2.cjs",
+    ".markdownlint-cli2.mjs",
+)
+REPORT_LIMIT = 4000
+
+
+def git(directory, *args):
+    result = subprocess.run(["git", "-C", str(directory), *args], capture_output=True, text=True, timeout=10)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def nix_config_git_dir():
+    state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+    try:
+        repo = Path((state / "chezmoi/nix-config-dir").read_text().strip())
+    except OSError:
+        return None
+    return (repo / ".git").resolve() if repo.is_dir() else None
+
+
+def report(summary, result):
+    detail = "\n".join(part.strip() for part in (result.stderr, result.stdout) if part.strip())
+    print(f"{summary}\n{detail[:REPORT_LIMIT]}", file=sys.stderr)
+    return 2
+
+
+def format_nix(path):
+    target = nix_config_git_dir()
+    common = git(path.parent, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    tool = shutil.which("alejandra")
+    if not (target and common and tool) or Path(common).resolve() != target:
+        return 0
+    result = subprocess.run([tool, "--quiet", str(path)], capture_output=True, text=True, timeout=25)
+    return report(f"alejandra could not format {path}:", result) if result.returncode else 0
+
+
+def lint_markdown(path):
+    root = git(path.parent, "rev-parse", "--show-toplevel")
+    tool = shutil.which("markdownlint-cli2")
+    if not (root and tool) or not any((Path(root) / name).exists() for name in MARKDOWNLINT_CONFIGS):
+        return 0
+    relative = os.path.relpath(path.resolve(), Path(root).resolve())
+    result = subprocess.run([tool, relative], cwd=root, capture_output=True, text=True, timeout=25)
+    return report(f"markdownlint-cli2 found issues in {relative} (fix them, or run `markdownlint-cli2 --fix`):", result) if result.returncode else 0
+
+
+def main():
+    payload = json.load(sys.stdin)
+    raw = (payload.get("tool_input") or {}).get("file_path") or (payload.get("tool_response") or {}).get("filePath")
+    if not isinstance(raw, str) or not raw:
+        return 0
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path(payload.get("cwd") or ".") / path
+    if not path.is_file():
+        return 0
+    if path.suffix == ".nix":
+        return format_nix(path)
+    if path.suffix == ".md":
+        return lint_markdown(path)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        code = main()
+    except Exception:  # a hook problem must never surface as an edit failure
+        code = 0
+    sys.exit(code)

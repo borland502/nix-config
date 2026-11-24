@@ -12,6 +12,10 @@ includes:
   deploy:
     taskfile: ./taskfiles/deploy.yml
 
+  # Optional behavioral evaluations; ordinary lint/check tasks do not call models.
+  eval:
+    taskfile: ./taskfiles/skillgrade.yml
+
   # Tools built from this repo. Each owns a standalone Taskfile that also works
   # when its directory is opened on its own: `task gopwgen:check`, or
   # `cd pkgs/gopwgen && task check`.

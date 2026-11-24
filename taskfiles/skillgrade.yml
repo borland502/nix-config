@@ -1,0 +1,20 @@
+version: '3'
+
+tasks:
+  skills:
+    desc: Run one Skillgrade trial (override options with CLI_ARGS)
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - python3 evals/shell-pitfalls/run.py run {{.CLI_ARGS}}
+
+  skills:list:
+    desc: List Skillgrade evaluations without running a model
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - python3 evals/shell-pitfalls/run.py list
+
+  skills:validate:
+    desc: Validate Skillgrade graders against the reference solution
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - python3 evals/shell-pitfalls/run.py validate

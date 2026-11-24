@@ -5,6 +5,7 @@
   ...
 }: let
   agentInstructions = import ./lib/agent-instructions.nix {inherit pkgs;};
+  modelTierResolver = import ./lib/model-tier-resolver.nix {inherit pkgs;};
   agentToolsLib = (import ./lib/agent-tools-libraries.nix {inherit lib;}).python;
   # Flameshot (Qt6 QSettings) rewrites this INI at runtime, so it cannot be a
   # read-only nix-store symlink; it is seeded as a mutable copy in
@@ -316,6 +317,32 @@ in {
         if [ ! -d "$HOME/.codex" ] || [ -L "$HOME/.codex" ]; then
           AGENT_TOOLS_LIB=${agentToolsLib} ${pkgs.python3}/bin/python3 ${../scripts/merge-agent-capture-hooks.py} \
             --codex-approve-for-me ${lib.escapeShellArg "${codexHome}/config.toml"}
+        fi
+      '';
+
+      # Floating model tiers for Codex (scripts/resolve-model-tiers.py against
+      # Codex's own live catalog, never below the lib/model-tiers.nix floors):
+      # - config.toml `model`: seeded with the high tier when unset; a
+      #   versioned gpt-<v>-<family> slug floats to the newest listed version
+      #   of the same family; aliases and other picks are left alone.
+      # - $CODEX_HOME/{mid,low}.config.toml: managed profiles for
+      #   `codex --profile mid|low` (the session default is the high tier).
+      # - $CODEX_HOME/agents: custom agents copied as real files with their
+      #   floor slugs resolved. Runs after linkGeneration, which removes the
+      #   store links an earlier generation put there; the manifest it keeps
+      #   prunes only agents it wrote. Non-fatal: a failure keeps the last state.
+      ensureCodexModelTiers = lib.hm.dag.entryAfter ["linkGeneration" "ensureCodexApproveForMe"] ''
+        if [ ! -d "$HOME/.codex" ] || [ -L "$HOME/.codex" ]; then
+          _catalog=${lib.escapeShellArg "${codexHome}/models_cache.json"}
+          ${modelTierResolver} --catalog "$_catalog" --warn-floor \
+            codex-config ${lib.escapeShellArg "${codexHome}/config.toml"} \
+            || echo "ensureCodexModelTiers: config.toml model left unchanged" >&2
+          ${modelTierResolver} --catalog "$_catalog" \
+            codex-profiles ${lib.escapeShellArg codexHome} \
+            || echo "ensureCodexModelTiers: profiles left unchanged" >&2
+          ${modelTierResolver} --catalog "$_catalog" \
+            codex-agents ${agentInstructions.codexAgentDir} ${lib.escapeShellArg "${codexHome}/agents"} \
+            || echo "ensureCodexModelTiers: custom agents left unchanged" >&2
         fi
       '';
 
@@ -695,10 +722,8 @@ in {
       # escalation prompt. Codex still writes interactive approvals to its own
       # mutable rules/default.rules beside this link.
       "codex/rules/nix-config.rules".source = ../ai-tools/codex/nix-config.rules;
-      "codex/agents" = {
-        source = agentInstructions.codexAgentDir;
-        recursive = true;
-      };
+      # codex/agents is written by ensureCodexModelTiers (real files with
+      # resolved model slugs), not linked from agentInstructions.codexAgentDir.
       # Bash command logging, as for Claude and Copilot: Codex's PostToolUse
       # payload is Claude-shaped (tool_name "Bash", tool_input.command,
       # tool_response as the model-facing output string), so log-bash.sh's Claude

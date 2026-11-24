@@ -1,15 +1,28 @@
-# Capability tiers (high/mid/low) resolved to OpenAI model slugs, shared by
-# the Copilot CLI and the Codex CLI: both serve the same GitHub/OpenAI
-# sol/terra/luna family under identical slugs (Codex's catalog, per
-# `codex debug models`, lists gpt-5.6-{sol,terra,luna} 2026-09-25). This is the
-# one place to bump them when a new generation ships — together with
-# ANTHROPIC_DEFAULT_*_MODEL in chezmoi/dot_claude/settings.json and the table
-# in agent-reference.md § Model Tiers (see AGENTS.md).
+# Capability tiers (high/mid/low) for the OpenAI-family slugs shared by the
+# Copilot CLI and the Codex CLI. A tier names a model *family*, not a version:
+# at activation scripts/resolve-model-tiers.py picks the newest listed
+# `gpt-<version>-<family>` from Codex's live catalog
+# ($CODEX_HOME/models_cache.json), so tiers move to each new generation without
+# a repo edit and never age into "Legacy" models.
+#
+# `floor` is the fallback when no catalog is readable (fresh host, Linux/WSL
+# without Codex) and the minimum the resolver will ever pick. It is also the
+# build-time slug baked into Codex custom agents before activation resolves
+# them. Raise it when activation warns that a floor is behind the catalog.
+# Claude needs no entry: its opus/sonnet/haiku aliases already float to the
+# newest model of each tier (no ANTHROPIC_DEFAULT_*_MODEL pins; see AGENTS.md).
 {
   openai = {
-    high = "gpt-5.6-sol";
-    mid = "gpt-5.6-terra";
-    low = "gpt-5.6-luna";
+    family = {
+      high = "sol";
+      mid = "terra";
+      low = "luna";
+    };
+    floor = {
+      high = "gpt-6.1-sol";
+      mid = "gpt-6.1-terra";
+      low = "gpt-6-luna";
+    };
   };
 
   # Claude tier aliases as used in ai-tools/agents `model:` frontmatter.

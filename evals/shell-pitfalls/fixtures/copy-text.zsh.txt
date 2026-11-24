@@ -1,0 +1,2 @@
+# TODO: copy only top-level .txt files from $1 to $2.
+cp $1/*.txt $2
