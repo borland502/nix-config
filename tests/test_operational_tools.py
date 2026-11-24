@@ -134,6 +134,80 @@ class Shared(unittest.TestCase):
             self.assertEqual(list(Path(tmp).iterdir()), [p])
 
 class HTTP(unittest.TestCase):
+    def test_json_http_errors_are_bounded_and_sanitized(self):
+        import urllib.error
+        from agent_tools.atlassian import Client, AtlassianError
+        class Body(io.BytesIO):
+            def read(self, size=-1):
+                self.requested = size
+                return super().read(size)
+        for body, included in [
+            (b'{"message":"Bad fixture-token Authorization: Bearer abc123 password=secretvalue\\nnext", "errorMessages":["useful"], "errors":{"field":"invalid"}, "other":"hidden"}', True),
+            (b'{\"message\":\"' + b'x' * 1000 + b'\"}', True),
+            (b'<html>private</html>', False),
+            (b'{broken', False),
+        ]:
+            with self.subTest(body=body):
+                stream = Body(body)
+                error = urllib.error.HTTPError('http://fixture.invalid', 400, 'bad', {}, stream)
+                with patch('urllib.request.build_opener') as opener:
+                    opener.return_value.open.side_effect = error
+                    with self.assertRaises(AtlassianError) as exc:
+                        Client('http://fixture.invalid', 'fixture-token').request('GET', 'fixture')
+                message = str(exc.exception)
+                self.assertEqual(getattr(stream, "requested", None), 8192)
+                self.assertTrue(message.startswith('HTTP 400 on GET request'))
+                self.assertNotIn('fixture-token', message)
+                self.assertNotIn('abc123', message)
+                self.assertNotIn('secretvalue', message)
+                self.assertNotIn('hidden', message)
+                self.assertNotIn('private', message)
+                self.assertLessEqual(len(message), len('HTTP 400 on GET request: ') + 500)
+                if b'errorMessages' in body:
+                    self.assertIn('useful', message)
+                    self.assertIn('invalid', message)
+                elif not included:
+                    self.assertEqual(message, 'HTTP 400 on GET request')
+
+    def test_http_error_redacts_quoted_credentials_and_normalized_token(self):
+        import json
+        import urllib.error
+        from agent_tools.atlassian import Client, AtlassianError
+        messages = [
+            'password="two words"',
+            "'password': 'two words'",
+            'Authorization: Bearer "two words"',
+            'fixture-\u200btoken',
+        ]
+        for value in messages:
+            with self.subTest(value=value):
+                body = io.BytesIO(json.dumps({'message': value}).encode())
+                error = urllib.error.HTTPError('http://fixture.invalid', 400, 'bad', {}, body)
+                with patch('urllib.request.build_opener') as opener:
+                    opener.return_value.open.side_effect = error
+                    with self.assertRaises(AtlassianError) as exc:
+                        Client('http://fixture.invalid', 'fixture-token').request('GET', 'fixture')
+                self.assertNotIn('two', str(exc.exception))
+                self.assertNotIn('words', str(exc.exception))
+                self.assertNotIn('fixture-token', str(exc.exception))
+
+    def test_http_error_redacts_prefixed_credential_names(self):
+        import json
+        import urllib.error
+        from agent_tools.atlassian import Client, AtlassianError
+        for key in ('access_token', 'refresh_token', 'client_secret', 'api_key', 'X-API-Key', 'accessToken', 'clientSecret', 'tokenValue', 'myCredentialValue', 'authorizationHeader', 'myApiKeyValue'):
+            for quote in ('', '"', "'"):
+                with self.subTest(key=key, quote=quote):
+                    value = f'useful context {quote}{key}{quote}={quote}private-value{quote}'
+                    body = io.BytesIO(json.dumps({'message': value}).encode())
+                    error = urllib.error.HTTPError('http://fixture.invalid', 400, 'bad', {}, body)
+                    with patch('urllib.request.build_opener') as opener:
+                        opener.return_value.open.side_effect = error
+                        with self.assertRaises(AtlassianError) as exc:
+                            Client('http://fixture.invalid', 'fixture-token').request('GET', 'fixture')
+                    self.assertNotIn('private-value', str(exc.exception))
+                    self.assertIn('useful context', str(exc.exception))
+
     def test_truncated_response_has_typed_bounded_error_and_clean_cli_failure(self):
         import http.server
         import threading
