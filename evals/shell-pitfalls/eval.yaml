@@ -1,0 +1,23 @@
+version: "1"
+skill: ../../ai-tools/skills/shell-pitfalls
+defaults:
+  agent: codex
+  provider: local
+  trials: 1
+  timeout: 300
+tasks:
+  - name: safely-copy-text-files
+    instruction: |
+      Fix copy-text.zsh. It takes a source directory and a destination directory.
+      Copy only top-level regular .txt files into the destination, preserving
+      their names and contents; do not copy symbolic links. Handle spaces and
+      shell metacharacters in paths
+      and filenames. A source with no matching files should succeed. Preserve
+      unrelated files in both directories. Run the script with zsh -f.
+    workspace:
+      - src: fixtures/copy-text.zsh.txt
+        dest: copy-text.zsh
+    solution: reference.sh
+    graders:
+      - type: deterministic
+        run: python3 graders/check.py

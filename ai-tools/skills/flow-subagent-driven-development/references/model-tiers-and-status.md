@@ -32,7 +32,7 @@ plus another full read of the diff. Never iterate on the high tier.
   burns exactly the credits this ladder exists to save.
 
 **Always specify the model explicitly when dispatching a subagent.** An
-omitted model inherits your session's model — the mid default, or whatever
+omitted model inherits your session's model — the high default, or whatever
 you switched to — which is the wrong tier as often as not: over-powered for
 mechanical work, under-powered for a substantive review. Either way it
 silently defeats this section.

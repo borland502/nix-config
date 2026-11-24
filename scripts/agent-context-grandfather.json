@@ -1,8 +1,4 @@
 {
-  "ai-tools/skills/flow-brainstorming/SKILL.md": {
-    "bytes": 10759,
-    "sha256": "16b9c01d9fbf282bd3fb4f912552953420fc5458c2a948dcd8912e818325846e"
-  },
   "ai-tools/skills/flow-systematic-debugging/SKILL.md": {
     "bytes": 11870,
     "sha256": "cf3475edcc3f1252d869a3775da84dc9a79b3fc978eb13fbd736ee5509c8ea29"

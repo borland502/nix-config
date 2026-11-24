@@ -1,0 +1,19 @@
+// Paths markdownlint-cli2 skips. Single source for `task lint:md` /
+// `task fmt:md` and the Claude format-on-edit hook, which lints one edited
+// file at a time: `ignores` also applies to explicitly named files. Rule
+// settings stay in .markdownlint.json.
+{
+  "ignores": [
+    "**/node_modules/**",
+    "**/.venv/**",
+    "result",
+    "result/**",
+    "result-*/**",
+    ".worktrees/**",
+    "ai-tools/**",
+    "secrets/**",
+    "chezmoi/dot_config/github-copilot/**",
+    "chezmoi/dot_config/Code/**",
+    "CLAUDE.md"
+  ]
+}

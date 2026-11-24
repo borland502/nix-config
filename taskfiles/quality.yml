@@ -67,7 +67,7 @@ tasks:
   fmt:md:
     desc: Auto-fix markdown files (skips ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 --fix "**/*.md" "#**/node_modules" "#**/.venv" "#result" "#result-*" "#.worktrees" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
+    cmd: markdownlint-cli2 --fix "**/*.md"  # skips: .markdownlint-cli2.jsonc ignores
 
   fmt:sh:
     desc: Format shell scripts in place (shfmt -w -i 0, skips ai-tools/ and secrets/)
@@ -156,7 +156,7 @@ tasks:
   lint:md:
     desc: Lint markdown files (skips vendored deps, .worktrees/, ai-tools/, secrets/, chezmoi-generated agent instructions, and the CLAUDE.md pointer)
     platforms: [linux, darwin]
-    cmd: markdownlint-cli2 "**/*.md" "#**/node_modules" "#**/.venv" "#result" "#result-*" "#.worktrees" "#ai-tools" "#secrets" "#chezmoi/dot_config/github-copilot" "#chezmoi/dot_config/Code" "#CLAUDE.md"
+    cmd: markdownlint-cli2 "**/*.md"  # skips: .markdownlint-cli2.jsonc ignores
 
   lint:sh:
     desc: Check shell sources by shebang, including extensionless helpers and agent hooks

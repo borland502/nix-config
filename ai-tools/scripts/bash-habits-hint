@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Claude Code PreToolUse hook (Bash): just-in-time hints for tool defaults.
+
+The always-on instructions ask for rg/fd/bat, the Read and Write tools, and no
+`cd DIR &&` prefixes. Session logs showed those rules being skipped
+(2026-11-24: ~530 `sed -n` file reads and 47% cd-prefixed commands in 45 days),
+so this hook restates the relevant rule at the moment it is broken.
+
+It never blocks and sets no permissionDecision, so permission review and auto
+mode behave exactly as without it. Only the first command line is inspected,
+which keeps heredoc bodies out of the analysis. Set BASH_HABITS_HINT=off to
+silence it. Any error exits 0 without output.
+"""
+
+import json
+import os
+import re
+import shlex
+import sys
+
+CD_PREFIX = re.compile(r"""^\s*cd\s+(?:"[^"]*"|'[^']*'|[^\s;&|]+)\s*(?:&&|;)""")
+ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+OPERATORS = {"|", "|&", "||", "&&", ";", "&", "(", ")"}
+PIPES = {"|", "|&"}
+WRAPPERS = {"command", "exec", "nice", "nohup", "sudo", "time"}
+REDIRECTS = {">", ">>", "<", "<<", "<<<", ">&", "&>"}
+HINTS = {
+    "cd": "Drop the leading `cd DIR &&`: use absolute paths, `git -C DIR`, `task -d DIR`, or a separate `cd DIR` call. A cd prefix defeats permission allowlists and auto-mode review.",
+    "grep": "Use `rg` instead of `grep`, including on pipes (`git grep` is fine).",
+    "find": "Use `fd` instead of `find`; keep find only for predicates fd lacks.",
+    "sed": "To read part of a file, use the Read tool (offset/limit) or `bat --plain -r A:B FILE`, not `sed -n`.",
+    "cat": "View files with the Read tool or `bat --plain`; keep `/bin/cat` for raw bytes piped into another tool.",
+    "heredoc": "Create files with the Write tool instead of `cat > FILE <<EOF`.",
+}
+
+
+def segments(line):
+    """Yield (operator before, words, operator after) for each simple command."""
+    lex = shlex.shlex(line, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    words, before = [], None
+    for token in lex:
+        if token in OPERATORS:
+            yield before, words, token
+            words, before = [], token
+        else:
+            words.append(token)
+    yield before, words, None
+
+
+def command_of(words):
+    """Strip env assignments and wrappers; return (command, args)."""
+    i = 0
+    while i < len(words):
+        word = words[i]
+        if ASSIGNMENT.match(word) or word in WRAPPERS:
+            i += 1
+        elif word == "env":
+            i += 1
+            while i < len(words) and (ASSIGNMENT.match(words[i]) or words[i].startswith("-")):
+                i += 1
+        elif word == "direnv" and words[i + 1 : i + 2] == ["exec"]:
+            i += 3
+        else:
+            return word, words[i + 1 :]
+    return None, []
+
+
+def habits(command):
+    lines = command.strip().splitlines()
+    if not lines:
+        return set()
+    line = lines[0]
+    found = {"cd"} if CD_PREFIX.match(line) else set()
+    try:
+        parts = list(segments(line))
+    except ValueError:
+        return found
+    for before, words, after in parts:
+        word, args = command_of(words)
+        piped_in, piped_out = before in PIPES, after in PIPES
+        if word in ("grep", "egrep", "fgrep"):
+            found.add("grep")
+        elif word == "find":
+            found.add("find")
+        elif word == "sed" and "-n" in args and not piped_in:
+            found.add("sed")
+        elif word == "cat" and not piped_in:
+            if any(a.startswith("<<") for a in args) and any(a in (">", ">>") for a in args):
+                found.add("heredoc")
+            elif not piped_out and any(not a.startswith("-") and a not in REDIRECTS for a in args):
+                found.add("cat")
+    return found
+
+
+def main():
+    if os.environ.get("BASH_HABITS_HINT") == "off":
+        return
+    payload = json.load(sys.stdin)
+    command = (payload.get("tool_input") or {}).get("command")
+    if not isinstance(command, str):
+        return
+    found = habits(command)
+    if not found:
+        return
+    lines = [f"- {text}" for key, text in HINTS.items() if key in found]
+    context = "nix-config tool defaults (a hint; the command still runs):\n" + "\n".join(lines)
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}}))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:  # a hint must never break the tool call
+        pass
+    sys.exit(0)

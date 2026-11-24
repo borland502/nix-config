@@ -172,14 +172,16 @@ in {
   # ($CODEX_HOME/agents/<name>.toml: name, description, developer_instructions).
   # The markdown body becomes developer_instructions. The Claude tier alias in
   # `model:` (opus/sonnet/haiku) resolves through lib/model-tiers.nix to the
-  # same high/mid/low slug Copilot uses (sol/terra/luna); an agent without
+  # tier's floor slug (sol/terra/luna family); activation
+  # (ensureCodexModelTiers) swaps each floor for the newest catalog slug of its
+  # family when copying the agents into $CODEX_HOME/agents. An agent without
   # `model:` inherits the parent session's model. An unknown alias fails the
   # build rather than silently running on the parent's model. Reasoning effort
   # is left to the model's default. Copilot-only frontmatter (tools,
   # argument-hint) is dropped. The filename stem is the name: Codex spawns by
   # `name`, and some agents set a display name with spaces ("Ops Agent").
   codexAgentDir = let
-    aliasSlugs = builtins.toJSON (builtins.mapAttrs (_: tier: modelTiers.openai.${tier}) modelTiers.claudeAliasTier);
+    aliasSlugs = builtins.toJSON (builtins.mapAttrs (_: tier: modelTiers.openai.floor.${tier}) modelTiers.claudeAliasTier);
   in
     pkgs.runCommand "codex-agents" {
       nativeBuildInputs = [pkgs.jq pkgs.yq-go pkgs.remarshal];

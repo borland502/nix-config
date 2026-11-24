@@ -37,8 +37,13 @@ elif [ ! -t 0 ]; then
   fi
 fi
 
-# Resolve the set of transcripts to read.
+# Resolve the set of transcripts to read. A hook payload without a readable
+# transcript logs nothing: falling through to the all-transcripts aggregate
+# would record every session's usage under this one session id.
 typeset -a files
+if [ "$hook_mode" -eq 1 ] && { [ -z "$transcript" ] || [ ! -f "$transcript" ]; }; then
+  exit 0
+fi
 if [ -n "$transcript" ] && [ -f "$transcript" ]; then
   files=("$transcript")
 else

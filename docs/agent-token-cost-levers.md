@@ -27,8 +27,9 @@ tokens to save tokens.
 | Rules/reference split | `agent-defaults.md` carries behavioral rules only; catalogs and paths moved to `agent-reference.md`, read on demand (pattern: khanelinix tiny-root) | active |
 | Repo-level `AGENTS.md` | layout map + task targets at the repo root, so sessions here don't re-explore the repo (uncached, full-price tokens) each time | active |
 | Scheduled update PRs | `.github/workflows/update-flake.yml` bumps `flake.lock` weekly via PR, removing routine update sessions entirely (pattern: budimanjojo Renovate / wimpysworld DS automation) | active |
-| Session-default model tier | Default is the **mid** tier on both harnesses — Claude `chezmoi/dot_claude/settings.json` `"model": "sonnet"`; Copilot `ensureCopilotSettings` pins `model: "gpt-5.6-terra"`. Top tier is reserved per-role (planning/brainstorming/review) via `/model` or high-tier subagent dispatch; role→tier map in `agent-reference.md` § Model Tiers. Bump the alias/slug when a new generation ships | active |
-| Lean Copilot MCP set | managed `copilot/mcp-config.json` (empty by default); servers added deliberately in `common.nix`, not accumulated via `/mcp add` | active |
+| Session-default model tier | Default is the **high** tier on every harness (2026-11: token limits are not the constraint) — Claude `opus` (`ensureClaudeHook`), Copilot and a fresh Codex config the newest `sol` slug. Cheaper tiers stay one step away: `/model sonnet`, `codex --profile mid\|low`. Subagent dispatch still picks by role (role→tier map in `agent-reference.md` § Model Tiers) | active |
+| Floating model tiers | No versioned pins to age into legacy models: Claude aliases resolve natively; Copilot/Codex families resolve at activation via `scripts/resolve-model-tiers.py` against Codex's live catalog, never below the `model-tiers.nix` floors | active |
+| Managed Copilot MCP set | `copilot/mcp-config.json` declares Serena, Playwright, Context7, and AWS Knowledge through `home-manager/modules/agent-code-tools.nix`; additions are reviewed in the repository | active |
 | Jira read routing | plain ticket reads go through `jira-get` / `ops-agent --tool jira_get_issue` with no skill load; the ops-jira-integration description routes reads there (measured 2026-07: 4/5 skill loads were simple lookups) | active |
 | Progressive-disclosure skill bodies | heavy skills keep a small router SKILL.md and move recipes/templates to `references/*.md` read on demand (first applied to ops-jira-integration: 15KB → ~4KB router) | active |
 | Subagent model pinning | plugin agents pin `model:` explicitly (`sonnet` for the coding/CI specialists and the ops-agent bridge, whose prompt-mode CLI loop also defaults to `sonnet`); flow-subagent-driven-development names concrete aliases per task tier — an omitted model inherits the session's (possibly premium) model | active |
@@ -50,16 +51,18 @@ tokens to save tokens.
 
 ## Notes
 
-- The session default is the **mid** tier on both harnesses (`sonnet` /
-  `gpt-5.6-terra`): capable for everyday coding without premium pricing. The
-  top tier (`opus` / `gpt-5.6-sol`) is reserved for the reasoning-heavy roles
-  — planning, brainstorming, substantive review — selected per-role via
-  `/model` or an explicit high-tier subagent dispatch (role→tier map in
-  `agent-reference.md` § Model Tiers). For hard cost-minimization, drop the
-  Copilot default to `gpt-5.6-luna` in `ensureCopilotSettings`; `auto` would
-  let Copilot pick a capability-appropriate model per turn.
+- The session default is the **high** tier on every harness (`opus` / the
+  newest `sol`), chosen 2026-11 because token limits were not binding. To
+  return to cost-minimizing, change the tier `ensureCopilotSettings` passes
+  (`copilot-settings` writes `high`) and the `opus` seed in `ensureClaudeHook`,
+  or use `codex --profile mid|low` / `/model` per session. `auto` would let
+  Copilot pick a capability-appropriate model per turn.
+- `claude-cache-stats` logs nothing for a SessionEnd payload without a
+  readable transcript. Before 2026-11-24 it fell back to aggregating every
+  transcript under that session id, so older `cache-stats.log` lines with
+  thousands of messages are aggregates, not sessions.
 - The managed `copilot/mcp-config.json` is read-only (a nix-store symlink), so
-  add MCP servers by editing `common.nix`, not with interactive `/mcp add`.
+  add MCP servers in `home-manager/modules/agent-code-tools.nix`.
 - **Copilot subagent model dispatch is gated by the CLI's own hardcoded model
   allowlist**, not by config. In the vendored bundle, Task subagent dispatch
   intersects the live model catalog with a baked-in constant (`OD`), while the

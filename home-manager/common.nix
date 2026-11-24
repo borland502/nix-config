@@ -18,7 +18,7 @@
   ...
 }: let
   availableOnHost = pkg: lib.meta.availableOn pkgs.stdenv.hostPlatform pkg;
-  modelTiers = import ./lib/model-tiers.nix;
+  modelTierResolver = import ./lib/model-tier-resolver.nix {inherit pkgs;};
   inherit (config.home) homeDirectory;
   xdgBinHome = "${homeDirectory}/.local/bin";
   xdgCacheHome = "${homeDirectory}/.cache";
@@ -329,8 +329,10 @@
   aiToolsScriptNames = [
     "agent-cache-capture"
     "aws-mcp-server"
+    "bash-habits-hint"
     "claude-cache-stats"
     "compress-old-cache"
+    "format-on-edit"
     "log-bash.sh"
     "log-instructions.sh"
     "log-skill.sh"
@@ -350,6 +352,7 @@ in {
     ./starship.nix
     ./modules/sops.nix
     ./modules/sudo-askpass.nix
+    ./modules/agent-code-tools.nix
   ];
 
   xdg = {
@@ -410,17 +413,7 @@ in {
       # (model-initiated) and slash-command skill calls are tracked for both agents.
       "copilot/hooks/log-skill.json".text = copilotLogSkillHook;
 
-      # Copilot CLI MCP servers, managed declaratively so the set stays lean.
-      # Every enabled MCP server injects its tool definitions into context on
-      # each agent step — input tokens on every turn under Copilot's
-      # usage-based billing. Empty is the leanest default; add a server here
-      # only when it's actually needed (e.g. an `aws-api` entry mirroring
-      # chezmoi/dot_claude/settings.json, pointing at
-      # ~/.local/bin/ai-tools/aws-mcp-server) rather than accumulating
-      # always-on servers via interactive `/mcp add`.
-      "copilot/mcp-config.json".text = builtins.toJSON {
-        mcpServers = {};
-      };
+      # Copilot's small external MCP server set is owned by agent-code-tools.
 
       # Single source of truth for custom agent/skill definitions is the
       # top-level ai-tools/ directory (modeled on the obra/superpowers layout).
@@ -613,34 +606,63 @@ in {
           jq '.skillListingBudgetFraction = 0.03' \
             "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
         fi
+        # Floating Claude tiers: the opus/sonnet/haiku aliases resolve to the
+        # newest model of each tier unless ANTHROPIC_DEFAULT_*_MODEL pins them,
+        # and pins age into legacy models — so drop any. The session default is
+        # the high tier: seed `opus` when no model is set or a versioned claude-*
+        # ID was pinned; an alias picked in /model (sonnet, haiku, ...) survives.
+        if jq -e '(.env // {} | has("ANTHROPIC_DEFAULT_OPUS_MODEL") or has("ANTHROPIC_DEFAULT_SONNET_MODEL") or has("ANTHROPIC_DEFAULT_HAIKU_MODEL")) or ((.model // "") | . == "" or startswith("claude-"))' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq '
+            (if .env then .env |= del(.ANTHROPIC_DEFAULT_OPUS_MODEL, .ANTHROPIC_DEFAULT_SONNET_MODEL, .ANTHROPIC_DEFAULT_HAIKU_MODEL) else . end)
+            | (if .env == {} then del(.env) else . end)
+            | (if ((.model // "") | . == "" or startswith("claude-")) then .model = "opus" else . end)
+          ' "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+        # Stop fires after every turn; cache compaction need not hold it up.
+        if jq -e '.hooks.Stop[]? | .hooks[]? | select((.command // "") | test("compress-old-cache")) | select(.async != true)' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq '.hooks.Stop |= map(.hooks |= map(if ((.command // "") | test("compress-old-cache")) then .async = true else . end))' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+        # PreToolUse "Bash": just-in-time hints for the modern-tool defaults
+        # (rg/fd/bat, no `cd X &&` prefix) as additionalContext. Never blocks
+        # and sets no permissionDecision, so permission review is unchanged.
+        if ! jq -e '.hooks.PreToolUse[]? | .hooks[]? | select((.command // "") | test("bash-habits-hint"))' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq \
+            '.hooks.PreToolUse |= (. // []) + [{"matcher":"Bash","hooks":[{"type":"command","command":"\"$HOME/.local/bin/ai-tools/bash-habits-hint\"","timeout":5}]}]' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
+        # PostToolUse edits: alejandra for .nix in this repo, markdownlint for
+        # .md where the repo configures it; failures reach Claude via exit 2.
+        if ! jq -e '.hooks.PostToolUse[]? | .hooks[]? | select((.command // "") | test("format-on-edit"))' "$_settings" > /dev/null 2>&1; then
+          _tmp=$(${pkgs.coreutils}/bin/mktemp)
+          jq \
+            '.hooks.PostToolUse |= (. // []) + [{"matcher":"Edit|Write|MultiEdit","hooks":[{"type":"command","command":"\"$HOME/.local/bin/ai-tools/format-on-edit\"","timeout":30}]}]' \
+            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
+        fi
       '';
 
-      # Copilot CLI default model: the mid tier — GPT-5.6 Terra. Copilot has no
-      # plan-mode escalation, so its session default is the mid tier for
-      # everyday coding; the top tier (Sol) is reserved per-role — planning,
-      # brainstorming, substantive review — selected via /model or a high-tier
-      # subagent dispatch (role→tier map: agent-reference.md § Model Tiers).
-      # The tier slugs are gpt-5.6-{sol,terra,luna} (top/mid/light); sol and
-      # terra verified accepted via `copilot -p --model` 2026-07-17. Do NOT
-      # gate this on `copilot help config` — its model list demonstrably lags
-      # what the backend accepts (1.0.26 lists nothing past gpt-5.4 yet serves
-      # 5.5/5.6). The slug comes from lib/model-tiers.nix, shared with Codex's
-      # custom agents; bump it there when a new generation ships
-      # (see AGENTS.md). Merged (not overwritten) so Copilot can still persist
-      # its other settings; self-healing — reconciles whenever the value
-      # drifts.
+      # Copilot CLI default model: the high tier (sol family). Token budget is
+      # not the constraint here, so the session default is the strongest tier;
+      # drop down per-role via /model or a mid/low subagent dispatch (role→tier
+      # map: agent-reference.md § Model Tiers). The slug floats: the resolver
+      # picks the newest listed gpt-<version>-sol from Codex's live catalog and
+      # falls back to the lib/model-tiers.nix floor where there is no catalog
+      # (Linux/WSL). Copilot and Codex share slugs — gpt-6.1-{sol,terra} and
+      # gpt-6-luna verified accepted via `copilot -p --model` 2026-11-24, and an
+      # unknown slug fails with "Model ... is not available". Do NOT gate this
+      # on `copilot help config` — its model list lags what the backend accepts.
+      # Merged (not overwritten) so Copilot can still persist its other
+      # settings; self-healing — reconciles whenever the value drifts.
       # COPILOT_HOME (zsh.nix) points the config dir at ~/.config/copilot.
       ensureCopilotSettings = lib.hm.dag.entryAfter ["writeBoundary"] ''
         _settings="${xdgConfigHome}/copilot/settings.json"
-        if [ ! -f "$_settings" ]; then
-          ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/copilot"
-          ${pkgs.coreutils}/bin/printf '%s\n' '{}' > "$_settings"
-        fi
-        if [ "$(jq -r '.model // empty' "$_settings")" != "${modelTiers.openai.mid}" ]; then
-          _tmp=$(${pkgs.coreutils}/bin/mktemp)
-          jq '.model = "${modelTiers.openai.mid}"' \
-            "$_settings" > "$_tmp" && ${pkgs.coreutils}/bin/mv "$_tmp" "$_settings"
-        fi
+        ${pkgs.coreutils}/bin/mkdir -p "${xdgConfigHome}/copilot"
+        ${modelTierResolver} --catalog ${lib.escapeShellArg "${xdgConfigHome}/codex/models_cache.json"} \
+          copilot-settings "$_settings" \
+          || echo "ensureCopilotSettings: Copilot model tier left unchanged" >&2
       '';
 
       # Register Claude Code marketplaces in ~/.config/claude/settings.json:
