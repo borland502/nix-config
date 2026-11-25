@@ -1,4 +1,5 @@
 import os
+import pty
 import pathlib
 import shutil
 import subprocess
@@ -9,6 +10,35 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class HostActions(unittest.TestCase):
+    def run_in_terminal(self, args, *, cwd, env, stderr_terminal=True):
+        master, slave = pty.openpty()
+        try:
+            result = subprocess.run(
+                args,
+                cwd=cwd,
+                env=env,
+                stdout=slave,
+                stderr=slave if stderr_terminal else subprocess.PIPE,
+                text=True,
+            )
+            # macOS discards unread PTY output when the last slave closes.
+            os.set_blocking(master, False)
+            output = bytearray()
+            while True:
+                try:
+                    chunk = os.read(master, 4096)
+                except BlockingIOError:
+                    break
+                if not chunk:
+                    break
+                output.extend(chunk)
+            result.stdout = output.decode()
+            result.stderr = result.stderr or ""
+            return result
+        finally:
+            os.close(master)
+            os.close(slave)
+
     def test_generation_finishes_before_chezmoi_apply(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -143,6 +173,185 @@ class HostActions(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertIn(expected, trace.read_text().splitlines())
+
+    def test_build_monitor_preserves_output_environment_and_failures(self):
+        cases = [
+            ("darwin", "mac", "darwin-rebuild"),
+            ("nixos", "wsl", "nixos-rebuild"),
+            ("standalone", "wsl", "nix"),
+            ("devcontainer", "linux", "nix"),
+        ]
+        zsh = shutil.which("zsh")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            trace = root / "trace"
+            for name in ("nix", "nixos-rebuild", "darwin-rebuild"):
+                stub = root / name
+                stub.write_text(
+                    '#!/bin/sh\nprintf "%s | %s\\n" "'
+                    + name
+                    + '" "${NIX_CONFIG:-}" >> "$TRACE"\n'
+                    'printf "build output\\n"\nprintf "build diagnostic\\n" >&2\n'
+                    'exit "$BUILD_EXIT"\n'
+                )
+                stub.chmod(0o755)
+            monitor = root / "nom"
+            for monitored in (False, True):
+                if monitored:
+                    monitor.write_text(
+                        '#!/bin/sh\nprintf "monitor\\n" >> "$TRACE"\n'
+                        '/bin/cat\nexit "$MONITOR_EXIT"\n'
+                    )
+                    monitor.chmod(0o755)
+                for platform, host, command in cases:
+                    exits = ((0, 0), (7, 0), (0, 9)) if monitored else ((0, 0), (7, 0))
+                    for build_exit, monitor_exit in exits:
+                        with self.subTest(
+                            platform=platform,
+                            monitored=monitored,
+                            build_exit=build_exit,
+                            monitor_exit=monitor_exit,
+                        ):
+                            trace.unlink(missing_ok=True)
+                            env = dict(
+                                os.environ,
+                                PATH=str(root),
+                                HOME=str(root),
+                                TRACE=str(trace),
+                                BUILD_EXIT=str(build_exit),
+                                MONITOR_EXIT=str(monitor_exit),
+                            )
+                            env.pop("NIX_CONFIG", None)
+                            result = self.run_in_terminal(
+                                [
+                                    zsh,
+                                    "-f",
+                                    str(ROOT / "scripts/host-action.sh"),
+                                    "build",
+                                    platform,
+                                    host,
+                                    "path:/src#wsl",
+                                    ".#user",
+                                    ".#home-manager",
+                                    "vscode@devcontainer",
+                                ],
+                                cwd=root,
+                                env=env,
+                            )
+                            self.assertEqual(
+                                result.returncode,
+                                monitor_exit or build_exit,
+                                result.stdout + result.stderr,
+                            )
+                            self.assertIn("build output", result.stdout)
+                            self.assertIn(
+                                "build diagnostic", result.stdout + result.stderr
+                            )
+                            lines = trace.read_text().splitlines()
+                            expected_config = (
+                                "experimental-features = nix-command flakes"
+                                if host == "wsl"
+                                else ""
+                            )
+                            self.assertIn(command + " | " + expected_config, lines)
+                            self.assertEqual(lines.count("monitor"), int(monitored))
+
+    def test_captured_build_output_bypasses_monitor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for name, content in (
+                ("darwin-rebuild", '#!/bin/sh\nprintf "build output\\n"\nexit 7\n'),
+                ("nom", '#!/bin/sh\nprintf "unexpected monitor\\n"\nexit 99\n'),
+            ):
+                stub = root / name
+                stub.write_text(content)
+                stub.chmod(0o755)
+            result = subprocess.run(
+                [
+                    shutil.which("zsh"),
+                    "-f",
+                    str(ROOT / "scripts/host-action.sh"),
+                    "build",
+                    "darwin",
+                    "mac",
+                    ".#mac",
+                    ".#user",
+                    ".#home-manager",
+                    "vscode@devcontainer",
+                ],
+                cwd=root,
+                env=dict(os.environ, PATH=str(root), HOME=str(root)),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "build output\n")
+
+    def test_redirected_build_stderr_bypasses_monitor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for name, content in (
+                (
+                    "darwin-rebuild",
+                    '#!/bin/sh\nprintf "build output\\n"\n'
+                    'printf "build diagnostic\\n" >&2\nexit 7\n',
+                ),
+                ("nom", '#!/bin/sh\nprintf "unexpected monitor\\n"\nexit 99\n'),
+            ):
+                stub = root / name
+                stub.write_text(content)
+                stub.chmod(0o755)
+            result = self.run_in_terminal(
+                [
+                    shutil.which("zsh"),
+                    "-f",
+                    str(ROOT / "scripts/host-action.sh"),
+                    "build",
+                    "darwin",
+                    "mac",
+                    ".#mac",
+                    ".#user",
+                    ".#home-manager",
+                    "vscode@devcontainer",
+                ],
+                cwd=root,
+                env=dict(os.environ, PATH=str(root), HOME=str(root)),
+                stderr_terminal=False,
+            )
+            self.assertEqual(result.returncode, 7, result.stdout + result.stderr)
+            self.assertEqual(result.stdout.strip(), "build output")
+            self.assertEqual(result.stderr, "build diagnostic\n")
+
+    def test_dry_build_does_not_use_monitor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for name, content in (
+                ("darwin-rebuild", '#!/bin/sh\nprintf "%s\\n" "$*"\n'),
+                ("nom", "#!/bin/sh\nexit 99\n"),
+            ):
+                stub = root / name
+                stub.write_text(content)
+                stub.chmod(0o755)
+            result = subprocess.run(
+                [
+                    shutil.which("zsh"),
+                    "-f",
+                    str(ROOT / "scripts/host-action.sh"),
+                    "dry-build",
+                    "darwin",
+                    "mac",
+                    ".#mac",
+                    ".#user",
+                    ".#home-manager",
+                    "vscode@devcontainer",
+                ],
+                cwd=root,
+                env=dict(os.environ, PATH=str(root), HOME=str(root)),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "build --dry-run --flake .#mac")
 
     def test_invalid_platform_fails_before_update(self):
         with tempfile.TemporaryDirectory() as tmp:
