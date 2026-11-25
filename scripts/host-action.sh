@@ -19,6 +19,16 @@ run_wsl() {
 		"$@"
 	fi
 }
+run_build() {
+	# Keep the existing rebuild commands; nom accepts their mixed text output.
+	# Keep redirected/CI logs plain; nom renders terminal controls even without a TTY.
+	# pipe_fail preserves a failed build even when the monitor exits successfully.
+	if [ "$action" = build ] && [ -t 1 ] && [ -t 2 ] && command -v nom >/dev/null 2>&1; then
+		"$@" 2>&1 | nom
+	else
+		"$@"
+	fi
+}
 case $action in
 build | dry-build)
 	case $platform in
@@ -26,24 +36,24 @@ build | dry-build)
 		if [ "$action" = dry-build ]; then
 			nix build ".#homeConfigurations.${dev_attr}.activationPackage" --dry-run
 		else
-			nix build ".#homeConfigurations.${dev_attr}.activationPackage"
+			run_build nix build ".#homeConfigurations.${dev_attr}.activationPackage"
 		fi
 		;;
 	darwin)
 		if [ "$action" = dry-build ]; then
 			darwin-rebuild build --dry-run --flake ".#$host"
 		else
-			darwin-rebuild build --flake ".#$host"
+			run_build darwin-rebuild build --flake ".#$host"
 		fi
 		;;
 	nixos)
 		if [ "$action" = dry-build ]; then
 			run_wsl nixos-rebuild dry-build --flake "$system_flake"
 		else
-			run_wsl nixos-rebuild build --flake "$system_flake"
+			run_build run_wsl nixos-rebuild build --flake "$system_flake"
 		fi
 		;;
-	standalone) run_wsl nix run "$home_app" -- build --flake "$home_flake" ;;
+	standalone) run_build run_wsl nix run "$home_app" -- build --flake "$home_flake" ;;
 	esac
 	;;
 switch | switch-update-brew | home-switch | upgrade)

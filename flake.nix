@@ -170,6 +170,7 @@
           go-task
           jq
           nixd
+          nix-output-monitor
           ripgrep
           statix
         ];

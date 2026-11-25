@@ -4,6 +4,7 @@ result-dist
 **/tmp/*
 .venv
 .claude
+.serena/
 .direnv
 **/__pycache__/*
 # Loose bytecode: __pycache__ only catches py3 imports, not a stray .pyc left

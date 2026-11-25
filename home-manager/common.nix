@@ -61,7 +61,9 @@
 
     # Network
     curl
+    xh # Convenient HTTP requests and JSON responses
     wget
+    doggo # Readable DNS queries
     nmap # port/service scanning and NSE scripts; also the `ncat`/`ndiff` tools
     prettyping # readable ping; note the shell aliases `ping` to it, so a script
     # that needs machine-parsable output must call /bin/ping explicitly
@@ -146,12 +148,15 @@
     fd
     overmind
     ripgrep
+    ripgrep-all # rga: search document and archive contents
+    ast-grep # Structural code search and rewriting
     sd
     zoxide
     direnvPatched
 
     # Data processing
     jq
+    jless # Interactive JSON inspection
     yq-go
     dasel
     gron # flatten JSON into greppable assignment lines (and back)
@@ -161,6 +166,9 @@
     statix
     deadnix
     nixd
+    nix-output-monitor # Build progress via nom
+    nix-tree # Browse package dependency graphs
+    dix # Compare package closures and profile generations
 
     # Linters
     markdownlint-cli2
@@ -222,6 +230,7 @@
     tree
     rsync
     ncdu
+    dust # One-shot directory size summaries
 
     # Compression
     unzip
@@ -230,6 +239,7 @@
 
     # System monitoring
     btop
+    lnav # Timestamp-aware log navigation and SQL queries
     lsof
   ];
   # ops-agent's model loop runs through the user's `claude` CLI (subscription
