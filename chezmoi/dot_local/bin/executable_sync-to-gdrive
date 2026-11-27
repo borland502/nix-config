@@ -231,6 +231,8 @@ junk_patterns=(
 	'/.config/kion/**'
 	# Copilot CLI runtime dir: ws.token / ws.port for the live session socket.
 	'/.config/copilot/run/**'
+	# Codex CLI login: OAuth access + refresh tokens. Re-mint with `codex login`.
+	'/.config/codex/auth.json'
 	# rclone's own config holds the gdrive OAuth refresh token — the very
 	# credential this backup authenticates with. Uploading it puts the key to
 	# the remote *on* the remote. Recover it from secrets/rclone-gdrive.json
@@ -240,6 +242,7 @@ junk_patterns=(
 	# values. Same reasoning as the *.thinking.log rule further down.
 	'/.config/copilot/session-state/**'
 	'/.local/state/.copilot/**'
+	'/.config/codex/sessions/**'
 	# Browser/Electron session token stores (cookies, tokens, IndexedDB).
 	'**/Cookies'
 	'**/Cookies-journal'
@@ -282,6 +285,16 @@ junk_patterns=(
 	# than a state one. 4.6 GiB on this host — 42,074 of the ~42,200 files a
 	# dry run planned to upload — and fully regenerable from the upstream repo.
 	'/.config/superpowers/**'
+	# Codex self-installs its own binaries, ~200 MiB a copy: every release it
+	# has run under packages/ (plus a current/ link that -L doubles), and arg0
+	# re-exec copies under tmp/. The additive copy never drops a superseded
+	# release, so by 2026-11-25 the remote held 48 GiB of these against 3.7 GiB
+	# on disk — 39% of all Drive usage. All re-fetched by Codex on next launch.
+	'/.config/codex/packages/**'
+	'/.config/codex/tmp/**'
+	'/.config/codex/.tmp/**'
+	'/.config/codex/plugins/.plugin-appserver/**'
+	'/.config/codex/computer-use/**'
 	# Home Manager writes these when it backs up a file it is taking over
 	# (backupFileExtension). Stale duplicates by definition; the doubled dot is
 	# HM's own naming, matched loosely so a changed extension stays covered.
